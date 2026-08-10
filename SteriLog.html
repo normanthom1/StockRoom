@@ -420,27 +420,58 @@ button { font-family: inherit; }
 .dot.fail { background: var(--fail); }
 
 /* cycle + check rows */
-.cycle-row, .check-row {
+.cycle-row {
   display: flex; align-items: stretch; width: 100%; padding: 0; text-align: left;
   border: 0; border-bottom: 1px solid rgba(29,31,32,.08); background: transparent;
   cursor: pointer; color: inherit;
 }
-.cycle-row.running { background: #fdf5e9; }
 .stripe { width: 5px; flex: none; }
 .cycle-main { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 11px 12px; min-width: 0; }
 .cycle-name { font-family: var(--font-heading); font-size: 17px; line-height: 1.15; }
 .cycle-sub { font-size: 12px; color: var(--ink-2); line-height: 1.35; }
-.cycle-right { flex: none; display: flex; align-items: center; padding: 0 12px 0 4px; font-family: var(--font-heading); font-size: 14px; white-space: nowrap; }
-.check-row { align-items: center; padding: 4px 0; }
-.check-row:disabled { cursor: default; opacity: .75; }
+.cycle-right { flex: none; display: flex; align-items: center; padding: 0 12px 0 4px; white-space: nowrap; }
+
+/* the load that is waiting on a decision */
+.hero {
+  position: relative; border: 2px solid var(--warn); background: #fdf6ec;
+  padding: 13px 14px; display: flex; flex-direction: column; gap: 4px;
+}
+.hero.ready { border-color: var(--color-accent); background: var(--color-accent-100); }
+.hero-top { display: flex; align-items: baseline; gap: 10px; }
+.hero-top .card-kicker { flex: 1; color: #8a5514; }
+.hero.ready .card-kicker { color: var(--color-accent-800); }
+.hero-clock { font-family: var(--font-heading); font-size: 17px; color: #8a5514; }
+.hero.ready .hero-clock { color: var(--color-accent-800); }
+.hero-name { font-family: var(--font-heading); font-size: 20px; line-height: 1.15; }
+.hero-sub { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.hero-btn { height: 56px; font-size: 18px; margin-top: 8px; width: 100%; }
+
+/* morning checks */
+.check-row { display: flex; align-items: stretch; gap: 8px; border-bottom: 1px solid rgba(29,31,32,.08); }
+.tick-btn {
+  flex: 1; display: flex; align-items: center; gap: 0; padding: 0; text-align: left;
+  background: transparent; border: 0; cursor: pointer; color: inherit; min-width: 0;
+}
 .tick {
-  width: 30px; height: 30px; flex: none; margin: 0 12px 0 2px; display: grid; place-items: center;
-  border: 2px solid var(--color-accent); color: transparent; font-size: 17px;
+  width: 32px; height: 32px; flex: none; margin: 0 12px 0 2px; display: grid; place-items: center;
+  border: 2px solid var(--color-accent); color: transparent; font-size: 18px;
 }
 .tick.done { border-color: var(--pass); color: var(--pass); }
-.check-main { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px 10px 0; min-width: 0; }
-.check-name { font-family: var(--font-heading); font-size: 16px; line-height: 1.15; }
+.tick.failed { border-color: var(--fail); color: var(--fail); }
+.check-main { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 12px 8px 12px 0; min-width: 0; }
+.check-name { font-family: var(--font-heading); font-size: 16.5px; line-height: 1.15; }
 .check-sub { font-size: 12px; color: var(--ink-2); line-height: 1.35; }
+/* Recording a fail has to be right there, but it should not look like the
+   expected answer. Quiet until you go near it. */
+.failbtn {
+  flex: none; align-self: center; height: 44px; padding: 0 12px; font-size: 12.5px;
+  font-family: var(--font-body); border: 1px solid transparent; color: var(--ink-3);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.failbtn:hover, .failbtn:focus-visible {
+  border-color: var(--fail); color: var(--fail); text-decoration: none; background: #fbeceb;
+}
+.done-row { opacity: .72; }
 
 .chip {
   display: inline-flex; align-items: center; height: 26px; padding: 0 9px;
@@ -451,8 +482,29 @@ button { font-family: inherit; }
 .chip-warn { border: 1px solid var(--warn); color: #8a5514; }
 .chip-run  { border: 1px dashed var(--warn); color: #8a5514; }
 
-/* pickers */
+.sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.sec-head .card-kicker { flex: 1; margin: 0; }
+.gap-note { font-size: 12.5px; color: var(--ink-3); padding: 9px 0 1px; border-top: 1px solid rgba(29,31,32,.08); }
+
+/* folds keep the rare stuff out of the way without hiding it */
+.fold { border-top: 1px solid var(--color-divider); }
+.fold > summary {
+  list-style: none; cursor: pointer; padding: 12px 2px; font-size: 14px;
+  color: var(--color-accent); font-family: var(--font-heading);
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "+ "; }
+.fold[open] > summary::before { content: "− "; }
+
+/* starting a load */
 .field-lg { display: flex; flex-direction: column; gap: 8px; }
+.repeat {
+  position: relative; display: flex; flex-direction: column; gap: 3px; width: 100%;
+  text-align: left; padding: 13px 14px; cursor: pointer; color: inherit;
+  border: 2px solid var(--color-accent); background: var(--color-accent-100);
+}
+.repeat-main { font-family: var(--font-heading); font-size: 18px; line-height: 1.2; }
+.repeat-sub { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
 .pick {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   padding: 12px 13px; background: #fff; border: 1.5px solid var(--color-divider);
@@ -463,40 +515,67 @@ button { font-family: inherit; }
 .pick-name { font-family: var(--font-heading); font-size: 17px; line-height: 1.15; }
 .pick-sub { font-size: 12px; color: var(--ink-2); line-height: 1.35; }
 
+.proggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.prog {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 11px 12px;
+  background: #fff; border: 1.5px solid var(--color-divider); cursor: pointer; color: inherit;
+}
+.prog.on { border-color: var(--color-accent); border-width: 2px; background: var(--color-accent-100); }
+.prog-name { font-family: var(--font-heading); font-size: 16px; line-height: 1.15; }
+.prog-sub { font-size: 11.5px; color: var(--ink-2); line-height: 1.3; }
+.prog-time { font-size: 11.5px; color: var(--ink-3); }
+
+.inload { display: flex; flex-direction: column; border: 1.5px solid var(--color-divider); background: #fff; }
+.steprow { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid rgba(29,31,32,.08); }
+.steprow:last-child { border-bottom: 0; }
+.step-name { flex: 1; font-size: 15px; min-width: 0; }
+.stepbtn {
+  width: 46px; height: 46px; flex: none; font-size: 24px; line-height: 1;
+  border: 1.5px solid var(--color-divider); background: var(--color-bg); cursor: pointer; color: inherit;
+}
+.stepbtn:active { background: var(--color-accent-100); }
+.step-qty { width: 26px; text-align: center; font-family: var(--font-heading); font-size: 19px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .loadchip {
-  padding: 11px 13px; font-size: 14px; background: #fff; cursor: pointer; color: inherit;
+  padding: 12px 13px; font-size: 14px; background: #fff; cursor: pointer; color: inherit;
   border: 1.5px solid var(--color-divider); font-family: var(--font-body);
 }
-.loadchip.on { border-color: var(--color-accent); border-width: 2px; background: var(--color-accent-100); color: var(--color-accent-800); }
-.loadchip b { font-family: var(--font-heading); }
+.loadchip:active { background: var(--color-accent-100); }
 
-.warnbox {
-  padding: 11px 13px; border: 1px dashed var(--warn); color: #8a5514;
-  font-size: 13.5px; line-height: 1.45;
-}
-.summary { padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; background: #fff; font-size: 14px; }
+.warnbox { padding: 11px 13px; border: 1px dashed var(--warn); color: #8a5514; font-size: 13.5px; line-height: 1.45; }
+.warnbox.tight { margin: 6px 0; }
+.summary { padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; background: #fff; }
+.sum-name { font-family: var(--font-heading); font-size: 19px; line-height: 1.2; }
 
-.paramgrid { display: flex; flex-direction: column; gap: 10px; }
+.askbox { border-left: 3px solid var(--color-accent); padding-left: 12px; display: flex; flex-direction: column; gap: 5px; }
+.ask { font-family: var(--font-heading); font-size: 20px; line-height: 1.25; }
+
+.paramgrid { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 8px; }
 .paramgrid label { display: flex; align-items: center; gap: 10px; font-size: 14.5px; }
 .paramgrid label > span { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
-.paramgrid .input { width: 92px; height: 48px; font-size: 18px; text-align: right; }
-.input.tall { height: 54px; font-size: 16px; }
-.checkline { display: flex; align-items: center; gap: 10px; font-size: 14.5px; line-height: 1.35; padding: 6px 0; cursor: pointer; }
-.checkline input { width: 22px; height: 22px; flex: none; accent-color: var(--color-accent); }
-.twoup { display: flex; gap: 12px; }
-.twoup > div { flex: 1; }
-.lbl { font-size: 12px; color: var(--ink-2); margin-bottom: 5px; }
+.paramgrid .input { width: 96px; height: 48px; font-size: 18px; text-align: right; }
+.input.tall { height: 52px; font-size: 16px; margin-bottom: 10px; }
+
+.reason {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 13px; background: #fff; border: 1.5px solid var(--color-divider);
+  cursor: pointer; color: inherit; font-size: 15.5px; line-height: 1.3;
+}
+.reason.on { border-color: var(--fail); border-width: 2px; background: #fbeceb; }
+.rbox {
+  width: 28px; height: 28px; flex: none; display: grid; place-items: center;
+  border: 2px solid var(--color-divider); font-size: 17px; color: var(--fail);
+}
+.reason.on .rbox { border-color: var(--fail); }
+
 .seg2 { display: flex; border: 1px solid var(--color-divider); overflow: hidden; }
-.seg2.wide { flex: 1; }
+.seg2.wide { width: 100%; }
 .segbtn {
-  flex: 1; padding: 12px 8px; font-family: var(--font-heading); font-size: 15px;
+  flex: 1; padding: 12px 6px; font-family: var(--font-heading); font-size: 15px;
   background: #fff; border: 0; cursor: pointer; color: inherit;
 }
 .segbtn + .segbtn { border-left: 1px solid var(--color-divider); }
 .segbtn.on { background: var(--color-accent); color: #f2f2f3; }
-.segbtn.on.pass { background: var(--pass); }
-.segbtn.on.fail { background: var(--fail); }
 
 /* records */
 .rec { padding: 12px 14px; display: flex; flex-direction: column; gap: 0; background: #fff; }
@@ -521,6 +600,17 @@ button { font-family: inherit; }
 .statstrip b { display: block; font-family: var(--font-heading); font-size: 24px; line-height: 1; }
 .statstrip span { font-size: 11.5px; color: var(--ink-2); }
 .statstrip .bad b { color: var(--fail); }
+.statstrip .warnstat b { color: #8a5514; }
+.auditcta {
+  position: relative; display: flex; flex-direction: column; gap: 4px; width: 100%;
+  text-align: left; padding: 14px; cursor: pointer; color: inherit;
+  border: 2px solid var(--color-accent); background: var(--color-accent-100);
+}
+.cta-main { font-family: var(--font-heading); font-size: 19px; line-height: 1.2; }
+.cta-sub { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.btn.narrow { flex: 0 0 auto; padding: 0 16px; font-size: 16px; }
+:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+.toastwrap { position: fixed; inset: 0; pointer-events: none; z-index: 15; }
 
 .eq { padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; background: #fff; }
 .eq.fail { border-color: var(--fail); }
@@ -617,55 +707,56 @@ button { font-family: inherit; }
 <div id="app"></div>
 <script>
 /* ==========================================================================
-   SteriLog: sterilisation cycle log and audit record for a NZ dental practice.
+   SteriLog: the sterilising room record for a New Zealand dental practice.
 
-   Records are shaped around the Dental Council of New Zealand Infection
-   Prevention and Control practice standard (December 2024), which sits on
-   AS 5369:2023, and the 10 year retention expectation that comes with it.
-   Everything here is a prototype running on seeded data in memory. No cycle
-   record leaves the browser.
+   Records follow the Dental Council Infection Prevention and Control practice
+   standard (December 2024), which sits on AS 5369:2023, and the ten year
+   retention that comes with it. This is a prototype running on seeded data in
+   memory. Nothing leaves the browser.
    ========================================================================== */
 
-const C = {fail:'#b3261e', warn:'#b3701a', pass:'#2f7d4f', quiet:'#6d6d70'};
+const C = {fail:'#b3261e', warn:'#b3701a', pass:'#2f7d4f'};
 
 const STAFF = {
-  '22': {name:'Johanna', role:'Dental assistant', short:'DA', manager:false},
-  '11': {name:'Liz',     role:'Dental assistant', short:'DA', manager:false},
+  '22': {name:'Johanna', role:'Dental assistant', short:'DENTAL ASSISTANT', manager:false},
+  '11': {name:'Liz',     role:'Dental assistant', short:'DENTAL ASSISTANT', manager:false},
   '00': {name:'Sandy',   role:'Practice manager', short:'PRACTICE MANAGER', manager:true}
 };
 
-// Reprocessing equipment. A steriliser that is out of validation cannot
-// release a load, which is the single most common audit finding.
+// Reprocessing gear. A steriliser past its validation date cannot be shown to
+// be working, so anything it processes gets held. Same goes for one that
+// failed its morning test.
 const EQUIPMENT = [
   {id:'st1', kind:'steriliser', name:'Melag Vacuklav 31 B+', cls:'B', serial:'VK31-4471',
-   location:'Sterilisation room', validated:'2026-03-14', validEvery:12, serviced:'2026-03-14'},
+   location:'Sterilising room', validated:'2026-03-14', validEvery:12, serviced:'2026-03-14'},
   {id:'st2', kind:'steriliser', name:'W&H Lisa 22L', cls:'B', serial:'LISA-8830',
    location:'Surgery 2 back bench', validated:'2025-09-02', validEvery:12, serviced:'2025-09-02'},
   {id:'wd1', kind:'washer', name:'Miele PG 8582 washer-disinfector', cls:'', serial:'MI-20714',
-   location:'Sterilisation room', validated:'2026-02-20', validEvery:12, serviced:'2026-02-20'},
+   location:'Sterilising room', validated:'2026-02-20', validEvery:12, serviced:'2026-02-20'},
   {id:'us1', kind:'ultrasonic', name:'Soniclean 750HT ultrasonic', cls:'', serial:'SC-1192',
-   location:'Sterilisation room', validated:'2026-05-30', validEvery:12, serviced:'2026-05-30'}
+   location:'Sterilising room', validated:'2026-05-30', validEvery:12, serviced:'2026-05-30'}
 ];
 
-// Cycle programmes, with the parameters the printout should show. The app
-// prefills these and the operator confirms against the printout rather than
-// typing numbers from scratch, which is where transcription errors creep in.
+// The programmes on the front panel, with the numbers the printout should
+// show. SteriLog fills these in and you check them off against the printout,
+// rather than copying figures across by hand.
 const PROGRAMMES = [
-  {id:'b134', label:'B 134°C wrapped', temp:134, pressure:2.1, hold:4,  mins:38, note:'Routine wrapped instruments'},
-  {id:'b134f',label:'B 134°C unwrapped', temp:134, pressure:2.1, hold:4, mins:22, note:'Unwrapped, immediate use'},
-  {id:'s121', label:'S 121°C wrapped', temp:121, pressure:1.1, hold:15, mins:45, note:'Heat sensitive items'},
-  {id:'helix',label:'Helix test cycle', temp:134, pressure:2.1, hold:3.5, mins:12, note:'Air removal test, no load'}
+  {id:'b134', label:'134°C wrapped', sub:'Class B', temp:134, pressure:2.1, hold:4,  mins:38, note:'The everyday one'},
+  {id:'b134f',label:'134°C unwrapped', sub:'Class B', temp:134, pressure:2.1, hold:4, mins:22, note:'Straight back into use'},
+  {id:'s121', label:'121°C wrapped', sub:'Class S', temp:121, pressure:1.1, hold:15, mins:45, note:'Anything heat sensitive'},
+  {id:'helix',label:'Helix test', sub:'Test cycle', temp:134, pressure:2.1, hold:3.5, mins:12, note:'Air removal test, runs empty'}
 ];
 
-const LOAD_TYPES = ['Exam kits','Restorative kits','Hygiene kits','Extraction kits',
-  'Endo kits','Surgical kits','Handpieces','Impression trays','Bur blocks'];
+// Ordered the way they actually get used, so the common ones are under your
+// thumb and the occasional ones are further down.
+const LOAD_TYPES = ['Exam kits','Restorative kits','Hygiene kits','Handpieces',
+  'Extraction kits','Bur blocks','Endo kits','Impression trays','Surgical kits'];
 
-// Daily and weekly reprocessing checks. "every" is in days.
 const CHECKS = [
-  {id:'leak',  label:'Vacuum leak test',     every:1, equip:'steriliser', note:'Before the first load of the day'},
-  {id:'helix', label:'Helix air removal test',every:1, equip:'steriliser', note:'Before the first load of the day'},
-  {id:'washer',label:'Washer-disinfector daily check', every:1, equip:'washer', note:'Cycle printout and rack check'},
-  {id:'usonic',label:'Ultrasonic foil ablation test',  every:7, equip:'ultrasonic', note:'Weekly cleaning efficacy'}
+  {id:'leak',  label:'Vacuum leak test',  every:1, equip:'steriliser', note:'Before the first load'},
+  {id:'helix', label:'Helix air removal test', every:1, equip:'steriliser', note:'Before the first load'},
+  {id:'washer',label:'Washer-disinfector check', every:1, equip:'washer', note:'Printout and racks'},
+  {id:'usonic',label:'Ultrasonic foil test', every:7, equip:'ultrasonic', note:'Once a week'}
 ];
 
 const TRAINING = [
@@ -677,8 +768,7 @@ const TRAINING = [
 ];
 
 /* --------------------------------------------------------------------------
-   Dates. Everything is anchored to the browser's today so a demo never goes
-   stale, and formatted the way an NZ practice writes it.
+   Dates, written the way a practice writes them.
    -------------------------------------------------------------------------- */
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -694,30 +784,33 @@ function fmtShort(s) { const d = typeof s === 'string' ? parseIso(s) : s; return
 function fmtTime(ts) { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
 function daysBetween(a, b) { return Math.round((parseIso(b) - parseIso(a)) / 86400000); }
 function isWeekend(d) { return d.getDay() === 0 || d.getDay() === 6; }
+// "3 weeks" reads better than "21 days" once you are past a fortnight.
+function humanDays(n) {
+  const a = Math.abs(n);
+  if (a < 14) return a + (a === 1 ? ' day' : ' days');
+  if (a < 60) return Math.round(a / 7) + ' weeks';
+  if (a < 365) return Math.round(a / 30) + ' months';
+  return (a / 365).toFixed(a % 365 < 40 ? 0 : 1) + ' years';
+}
 
-// Deterministic pseudo-random so the seeded history is identical on every
-// load. A demo that reshuffles itself is impossible to talk anyone through.
 let _seed = 20260810;
 function rnd() { _seed = (_seed * 1103515245 + 12345) % 2147483648; return _seed / 2147483648; }
 function pick(arr) { return arr[Math.floor(rnd() * arr.length)]; }
 
 /* --------------------------------------------------------------------------
-   Seeded history: roughly four weeks of reprocessing so the records screen
-   and the audit pack have something real in them from the first tap.
+   Four weeks of seeded history, so the records and the audit copy have
+   something real in them the moment you open it.
    -------------------------------------------------------------------------- */
 function seed() {
   const cycles = [], checks = [], ncs = [];
   let n = 1;
-  // Work off the list of working days rather than raw calendar offsets, so the
-  // seeded failures land on days that actually have cycles no matter which day
-  // of the week the demo is opened on.
   const days = [];
   for (let back = 28; back >= 0; back--) {
     const d = addDays(TODAY, -back);
     if (!isWeekend(d)) days.push({date:d, back:back});
   }
-  const failDayA = days.length - 15; // a fortnight back, closed out properly
-  const failDayB = days.length - 2;  // this week, still open
+  const failDayA = days.length - 15; // a fortnight back, sorted and signed off
+  const failDayB = days.length - 2;  // this week, still waiting on Sandy
 
   days.forEach((entry, dayIndex) => {
     const day = entry.date, back = entry.back;
@@ -726,7 +819,7 @@ function seed() {
     CHECKS.forEach((c) => {
       if (c.every === 7 && day.getDay() !== 1) return;
       EQUIPMENT.filter((e) => e.kind === c.equip).forEach((e) => {
-        if (back === 0) return; // today's checks are left for the user to do
+        if (back === 0) return; // today's are left for whoever is on the bench
         checks.push({id:'chk' + checks.length, checkId:c.id, equipId:e.id, date:dayIso,
           result:'pass', by:pick(['Johanna','Liz']), at:day.getTime() + 8 * 3600000});
       });
@@ -734,8 +827,6 @@ function seed() {
 
     const count = 3 + Math.floor(rnd() * 3);
     for (let i = 0; i < count; i++) {
-      // Today's seeded cycles stop at the current hour so the log never
-      // shows a load that has not happened yet.
       if (back === 0 && 8 + i * 2 > new Date().getHours()) break;
       const st = rnd() > 0.45 ? EQUIPMENT[0] : EQUIPMENT[1];
       const prog = rnd() > 0.15 ? PROGRAMMES[0] : PROGRAMMES[1];
@@ -746,29 +837,27 @@ function seed() {
         const t = pick(LOAD_TYPES);
         if (!items.some((x) => x.type === t)) items.push({type:t, qty:1 + Math.floor(rnd() * 5)});
       }
-      // One deliberate failure three weeks back, closed out properly, and one
-      // recent failure still open so the register is not an empty table.
       const failed = (dayIndex === failDayA && i === 1) || (dayIndex === failDayB && i === 2);
       const cyc = {
         id:'C' + String(n).padStart(4, '0'), num:n++, equipId:st.id, prog:prog.id,
         date:dayIso, startedAt:started, startedBy:pick(['Johanna','Liz']),
         temp:prog.temp, pressure:prog.pressure, hold:prog.hold, items:items,
         ciExternal:'pass', ciInternal:failed ? 'fail' : 'pass',
-        dryIntact:failed ? false : true, printout:true,
-        status:failed ? 'quarantined' : 'released',
-        endedAt:started + prog.mins * 60000, by:pick(['Johanna','Liz'])
+        dryIntact:!failed, printout:true,
+        status:failed ? 'held' : 'released',
+        endedAt:started + prog.mins * 60000
       };
-      cyc.releasedBy = cyc.by; cyc.releasedAt = cyc.endedAt + 240000;
+      cyc.releasedBy = pick(['Johanna','Liz']); cyc.releasedAt = cyc.endedAt + 240000;
       cycles.push(cyc);
       if (failed) {
         const closed = dayIndex === failDayA;
         ncs.push({
           id:'NC' + String(ncs.length + 1).padStart(3, '0'), cycleId:cyc.id, date:dayIso,
-          raisedBy:cyc.by, raisedAt:cyc.releasedAt,
-          issue:'Internal chemical indicator did not reach the reference colour. Load damp on removal.',
-          immediate:'Load quarantined, not released for clinical use. Instruments returned for full reprocessing.',
+          raisedBy:cyc.releasedBy, raisedAt:cyc.releasedAt,
+          issue:'The inside indicator did not change colour properly and the packs came out damp.',
+          immediate:'Load held and not used on anyone. Everything went back through from the start.',
           status:closed ? 'closed' : 'open',
-          corrective:closed ? 'Chamber drain filter cleaned and drying phase extended by 3 minutes. Three consecutive test loads passed. Melag technician attended and confirmed no fault. Reprocessing staff rebriefed on load spacing.' : '',
+          corrective:closed ? 'Drain filter cleaned out and the drying time put up by three minutes. Three test loads in a row came out clean. The Melag tech came in and found nothing wrong with the machine. Everyone reprocessing was reminded not to pack the trays too tight.' : '',
           closedBy:closed ? 'Sandy' : '', closedAt:closed ? parseIso(dayIso).getTime() + 4 * 86400000 : null
         });
         cyc.ncId = ncs[ncs.length - 1].id;
@@ -782,18 +871,16 @@ const seeded = seed();
 
 const state = {
   pin:'', pinOpen:true, pinErr:'', who:null,
-  screen:'today', toast:null, undo:null,
+  screen:'today', backTo:'today', toast:null,
   cycles:seeded.cycles, checks:seeded.checks, ncs:seeded.ncs,
   equipment:EQUIPMENT.map((e) => Object.assign({}, e)),
   training:TRAINING.map((t) => Object.assign({}, t)),
-  // in-flight cycle being logged
-  draft:null, detail:null, ncDetail:null, backTo:'today',
-  rangeDays:28, filterEquip:'all'
+  draft:null, detail:null, ncDetail:null,
+  rangeDays:28, filterEquip:'all', showDetail:false, holdReasons:{}
 };
 
 /* --------------------------------------------------------------------------
-   Derived facts. These drive both the home screen prompts and the compliance
-   summary at the top of the audit pack.
+   Derived facts, shared by the home screen and the audit copy.
    -------------------------------------------------------------------------- */
 function equipOf(id) { return state.equipment.find((e) => e.id === id) || state.equipment[0]; }
 function progOf(id) { return PROGRAMMES.find((p) => p.id === id) || PROGRAMMES[0]; }
@@ -803,18 +890,19 @@ function trainingDue(t) { return iso(addDays(parseIso(t.done), 365)); }
 function trainingDaysLeft(t) { return daysBetween(iso(TODAY), trainingDue(t)); }
 
 function checkDone(checkId, equipId, dayIso) {
-  return state.checks.find((c) => c.checkId === checkId && c.equipId === equipId && c.date === dayIso);
+  const all = state.checks.filter((c) => c.checkId === checkId && c.equipId === equipId && c.date === dayIso);
+  return all.length ? all[all.length - 1] : null;
 }
-// Outstanding checks for today. Weekly checks only fall due once their
-// interval has elapsed, so a Tuesday does not nag about a Monday foil test.
 function outstandingChecks() {
   const out = [];
   const todayIso = iso(TODAY);
   CHECKS.forEach((c) => {
     state.equipment.filter((e) => e.kind === c.equip).forEach((e) => {
-      if (checkDone(c.id, e.id, todayIso)) return;
+      const done = checkDone(c.id, e.id, todayIso);
+      if (done && done.result === 'pass') return;
+      if (done && done.result === 'fail') return; // recorded, and now blocking
       if (c.every > 1) {
-        const last = state.checks.filter((x) => x.checkId === c.id && x.equipId === e.id)
+        const last = state.checks.filter((x) => x.checkId === c.id && x.equipId === e.id && x.result === 'pass')
           .sort((a, b) => b.date.localeCompare(a.date))[0];
         if (last && daysBetween(last.date, todayIso) < c.every) return;
       }
@@ -823,241 +911,379 @@ function outstandingChecks() {
   });
   return out;
 }
+// A machine that failed its test today is out of action until someone logs a
+// pass on it, so anything it processes in the meantime gets held.
+function failedCheckToday(equipId) {
+  return CHECKS.map((c) => checkDone(c.id, equipId, iso(TODAY)))
+    .filter((x) => x && x.result === 'fail')
+    .map((x) => CHECKS.find((c) => c.id === x.checkId).label);
+}
+function equipUsable(e) { return validationDaysLeft(e) >= 0 && failedCheckToday(e.id).length === 0; }
 
 function openNcs() { return state.ncs.filter((n) => n.status === 'open'); }
-function runningCycles() { return state.cycles.filter((c) => c.status === 'running'); }
+function runningCycles() { return state.cycles.filter((c) => c.status === 'running').sort((a, b) => a.endedAt - b.endedAt); }
 function todayCycles() { return state.cycles.filter((c) => c.date === iso(TODAY)).sort((a, b) => b.startedAt - a.startedAt); }
+function lastFinished() {
+  const done = state.cycles.filter((c) => c.status !== 'running' && c.items && c.items.length);
+  return done.length ? done[done.length - 1] : null;
+}
 
-// The readiness list is the whole point of the product: the things an auditor
-// would find, surfaced before the auditor does.
+// Split by who can actually do something about it, so nobody gets a red
+// warning about a job that is not theirs.
 function gaps() {
-  const g = [];
+  const mine = [], sandys = [];
+  const oc = outstandingChecks();
+  if (oc.length) mine.push({level:'warn', text:oc.length === 1 ? 'One check still to do today' : oc.length + ' checks still to do today', where:'checks'});
+  state.equipment.forEach((e) => {
+    const bad = failedCheckToday(e.id);
+    if (bad.length) mine.push({level:'fail', text:e.name + ' failed its ' + bad[0].toLowerCase() + ', so it is out of action', where:'equipment'});
+  });
   state.equipment.forEach((e) => {
     const left = validationDaysLeft(e);
-    if (left < 0) g.push({level:'fail', text:e.name + ' validation expired ' + Math.abs(left) + ' days ago', where:'equipment'});
-    else if (left <= 60) g.push({level:'warn', text:e.name + ' validation due in ' + left + ' days', where:'equipment'});
+    if (left < 0) sandys.push({level:'fail', text:e.name + ' has been out of validation for ' + humanDays(left), where:'equipment'});
+    else if (left <= 60) sandys.push({level:'warn', text:e.name + ' needs revalidating in ' + humanDays(left), where:'equipment'});
   });
-  const oc = outstandingChecks();
-  if (oc.length) g.push({level:'warn', text:oc.length + ' reprocessing ' + (oc.length === 1 ? 'check' : 'checks') + ' not logged today', where:'checks'});
   const on = openNcs();
-  if (on.length) g.push({level:'fail', text:on.length + ' open non-conformance ' + (on.length === 1 ? 'record' : 'records'), where:'ncs'});
+  if (on.length) sandys.push({level:'fail', text:on.length === 1 ? 'A held load is still waiting to be signed off' : on.length + ' held loads are still waiting to be signed off', where:'ncs'});
   state.training.forEach((t) => {
     const left = trainingDaysLeft(t);
-    if (left < 0) g.push({level:'fail', text:t.name + ' IPC training expired ' + Math.abs(left) + ' days ago', where:'training'});
-    else if (left <= 45) g.push({level:'warn', text:t.name + ' IPC training due in ' + left + ' days', where:'training'});
+    if (left < 0) sandys.push({level:'fail', text:t.name + ' is ' + humanDays(left) + ' overdue for IPC training', where:'training'});
+    else if (left <= 45) sandys.push({level:'warn', text:t.name + ' is due for IPC training in ' + humanDays(left), where:'training'});
   });
-  return g;
+  return {mine, sandys, all:mine.concat(sandys)};
+}
+
+// How many working days in the range had every check logged. The one number
+// Sandy actually gets asked for. Counting only starts from the first day we
+// hold records for, because a stretch before the practice was using SteriLog
+// is not a run of missed checks and should not be shown as one.
+function firstRecordDay() {
+  const dates = state.checks.map((c) => c.date).concat(state.cycles.map((c) => c.date));
+  return dates.length ? dates.slice().sort()[0] : iso(TODAY);
+}
+function checkCoverage(fromIso) {
+  let full = 0, total = 0;
+  const start = fromIso > firstRecordDay() ? fromIso : firstRecordDay();
+  for (let d = parseIso(start); d <= TODAY; d = addDays(d, 1)) {
+    if (isWeekend(d)) continue;
+    total++;
+    const dIso = iso(d);
+    const want = CHECKS.filter((c) => c.every === 1)
+      .reduce((acc, c) => acc + state.equipment.filter((e) => e.kind === c.equip).length, 0);
+    const got = state.checks.filter((c) => c.date === dIso && c.result === 'pass' &&
+      (CHECKS.find((x) => x.id === c.checkId) || {}).every === 1).length;
+    if (got >= want) full++;
+  }
+  return {full, total};
 }
 
 /* --------------------------------------------------------------------------
-   Rendering. Plain string templates and one root re-render, which is plenty
-   for a prototype and keeps the whole app readable in one sitting.
+   Rendering.
    -------------------------------------------------------------------------- */
 const app = document.getElementById('app');
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function me() { return state.who ? STAFF[state.who] : null; }
 function isManager() { return !!(me() && me().manager); }
+function corners() { return '<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>'; }
 
-function flash(msg, undo) {
-  state.toast = msg; state.undo = undo || null;
+function flash(msg) {
+  state.toast = msg;
   clearTimeout(flash._t);
-  flash._t = setTimeout(() => { state.toast = null; state.undo = null; render(); }, 6000);
+  flash._t = setTimeout(() => { state.toast = null; render(); }, 5000);
   render();
 }
-function deny(msg) { flash(msg); }
 
 function statusChip(status) {
   if (status === 'released') return '<span class="chip chip-pass">Released</span>';
-  if (status === 'quarantined') return '<span class="chip chip-fail">Quarantined</span>';
+  if (status === 'held') return '<span class="chip chip-fail">Held</span>';
   return '<span class="chip chip-run">Running</span>';
 }
-
 function loadSummary(items) {
-  if (!items || !items.length) return 'No load (test cycle)';
+  if (!items || !items.length) return 'Empty, test cycle';
   return items.map((i) => i.qty + ' × ' + i.type.replace(/s$/, i.qty === 1 ? '' : 's')).join(', ');
 }
+function minsLeft(c) { return Math.round((c.endedAt - Date.now()) / 60000); }
 
-/* ---- screens ---- */
+/* ---- Today ---- */
 
 function viewToday() {
   const g = gaps();
   const oc = outstandingChecks();
   const run = runningCycles();
   const tc = todayCycles();
-  const worst = g.some((x) => x.level === 'fail') ? 'fail' : (g.length ? 'warn' : 'pass');
+  const mgr = isManager();
+
+  const readiness = mgr ? g.all : g.mine;
+  const worst = readiness.some((x) => x.level === 'fail') ? 'fail' : (readiness.length ? 'warn' : 'pass');
+
+  // Anything out of the chamber and waiting on a decision goes to the very
+  // top. It is the only thing on this screen that is holding up the surgery.
+  const heroes = run.map((c) => {
+    const e = equipOf(c.equipId), p = progOf(c.prog);
+    const left = minsLeft(c);
+    const ready = left <= 0;
+    return `<div class="hero ${ready ? 'ready' : ''}">
+      <div class="hero-top">
+        <span class="card-kicker">${ready ? 'Out of the chamber' : 'Still running'}</span>
+        <span class="hero-clock" data-clock="${c.id}">${ready ? 'Ready now' : left + ' min to go'}</span>
+      </div>
+      <div class="hero-name">${esc(c.id)} on the ${esc(e.name)}</div>
+      <div class="hero-sub">${esc(p.label)} · ${esc(loadSummary(c.items))} · started ${esc(fmtTime(c.startedAt))} by ${esc(c.startedBy)}</div>
+      <button class="btn ${ready ? 'btn-primary' : 'btn-secondary'} hero-btn" data-cycle="${c.id}">
+        ${ready ? 'Check it off and release' : 'Release it early'}
+      </button>
+    </div>`;
+  }).join('');
 
   return `
-  <div class="scroll">
+  <div class="scroll" id="scroller">
     <div class="pad">
       <div class="row-head">
-        <h2>Today</h2>
+        <h2>${esc(greeting())}</h2>
         <span class="muted">${esc(fmtShort(TODAY))}</span>
       </div>
 
-      <div class="blueprint readiness ${worst}">${corners()}
-        <div class="card-kicker">Audit readiness</div>
-        ${g.length === 0
-          ? '<div class="big-ok">Nothing outstanding. Records are complete and current.</div>'
-          : g.map((x) => `<button class="gap-line" data-go="${esc(x.where)}"><span class="dot ${x.level}"></span><span>${esc(x.text)}</span><span class="chev">›</span></button>`).join('')}
-      </div>
+      ${heroes}
 
-      ${run.length ? `
+      ${mgr ? readinessPanel(readiness, worst, g, mgr) : ''}
+
+      ${oc.length ? `
       <div class="section">
-        <div class="card-kicker">In the chamber</div>
-        ${run.map((c) => {
-          const e = equipOf(c.equipId), p = progOf(c.prog);
-          const left = Math.max(0, Math.round((c.startedAt + p.mins * 60000 - Date.now()) / 60000));
-          return `<button class="cycle-row running" data-cycle="${c.id}">
-            <span class="stripe" style="background:${C.warn}"></span>
-            <span class="cycle-main">
-              <span class="cycle-name">${esc(c.id)} · ${esc(e.name)}</span>
-              <span class="cycle-sub">${esc(p.label)} · started ${esc(fmtTime(c.startedAt))} · ${esc(loadSummary(c.items))}</span>
-            </span>
-            <span class="cycle-right">${left > 0 ? '~' + left + ' min' : 'Ready'}</span>
-          </button>`;
-        }).join('')}
+        <div class="sec-head"><span class="card-kicker">Before the first load</span><span class="muted">${oc.length} to go</span></div>
+        ${oc.map((o) => checkRow(o.check, o.equip, null)).join('')}
       </div>` : ''}
 
-      <div class="section">
-        <div class="card-kicker">Checks before the first load</div>
-        ${CHECKS.map((c) => {
-          const rows = state.equipment.filter((e) => e.kind === c.equip).map((e) => {
-            const done = checkDone(c.id, e.id, iso(TODAY));
-            const due = oc.some((o) => o.check.id === c.id && o.equip.id === e.id);
-            if (!done && !due) return '';
-            return `<button class="check-row" data-check="${c.id}" data-equip="${e.id}" ${done ? 'disabled' : ''}>
-              <span class="tick ${done ? 'done' : ''}">${done ? '✓' : ''}</span>
-              <span class="check-main">
-                <span class="check-name">${esc(c.label)}</span>
-                <span class="check-sub">${esc(e.name)}${done ? ' · logged ' + esc(fmtTime(done.at)) + ' by ' + esc(done.by) : ' · ' + esc(c.note)}</span>
-              </span>
-            </button>`;
-          }).join('');
-          return rows;
-        }).join('')}
-      </div>
+      ${mgr ? '' : readinessPanel(readiness, worst, g, mgr)}
+
+      ${doneChecks()}
 
       <div class="section">
-        <div class="card-kicker">Cycles logged today (${tc.length})</div>
-        ${tc.length === 0 ? '<div class="empty">No cycles logged yet today.</div>' :
-          tc.map((c) => {
-            const e = equipOf(c.equipId), p = progOf(c.prog);
-            const col = c.status === 'quarantined' ? C.fail : (c.status === 'running' ? C.warn : C.pass);
-            return `<button class="cycle-row" data-cycle="${c.id}">
-              <span class="stripe" style="background:${col}"></span>
-              <span class="cycle-main">
-                <span class="cycle-name">${esc(c.id)} · ${esc(e.name)}</span>
-                <span class="cycle-sub">${esc(fmtTime(c.startedAt))} · ${esc(p.label)} · ${esc(loadSummary(c.items))}</span>
-              </span>
-              <span class="cycle-right">${statusChip(c.status)}</span>
-            </button>`;
-          }).join('')}
+        <div class="sec-head"><span class="card-kicker">Loads today</span><span class="muted">${tc.length}</span></div>
+        ${tc.length === 0 ? '<div class="empty">Nothing through the steriliser yet today.</div>' :
+          tc.map((c) => cycleRow(c, fmtTime(c.startedAt) + ' · ' + progOf(c.prog).label + ' · ' + loadSummary(c.items))).join('')}
       </div>
     </div>
   </div>
   <div class="footer">
-    <button class="btn btn-primary big" data-act="newCycle">Log a cycle</button>
+    ${lastFinished() ? `<button class="btn btn-secondary big narrow" data-act="repeatLast" aria-label="Start the same load as last time">Same as last</button>` : ''}
+    <button class="btn btn-primary big" data-act="newCycle">Start a load</button>
   </div>`;
 }
+
+function readinessPanel(readiness, worst, g, mgr) {
+  return `<div class="blueprint readiness ${worst}">${corners()}
+    <div class="card-kicker">${mgr ? 'What needs sorting' : 'How the room is tracking'}</div>
+    ${readiness.length === 0
+      ? '<div class="big-ok">All up to date. Nothing waiting on anyone.</div>'
+      : readiness.map((x) => `<button class="gap-line" data-go="${esc(x.where)}"><span class="dot ${x.level}"></span><span>${esc(x.text)}</span><span class="chev">\u203a</span></button>`).join('')}
+    ${!mgr && g.sandys.length ? `<div class="gap-note">${g.sandys.length === 1 ? 'One other thing is' : g.sandys.length + ' other things are'} sitting with Sandy.</div>` : ''}
+  </div>`;
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  const who = me() ? me().name : '';
+  if (h < 12) return 'Morning, ' + who;
+  if (h < 17) return 'Afternoon, ' + who;
+  return 'Evening, ' + who;
+}
+
+function checkRow(c, e, done) {
+  if (done) {
+    const failed = done.result === 'fail';
+    return `<div class="check-row done-row">
+      <span class="tick ${failed ? 'failed' : 'done'}">${failed ? '✕' : '✓'}</span>
+      <span class="check-main">
+        <span class="check-name">${esc(c.label)}</span>
+        <span class="check-sub">${esc(e.name)} · ${failed ? 'failed, ' : ''}logged ${esc(fmtTime(done.at))} by ${esc(done.by)}</span>
+      </span>
+    </div>`;
+  }
+  return `<div class="check-row">
+    <button class="tick-btn" data-check="${c.id}" data-equip="${e.id}" data-result="pass" aria-label="Record ${esc(c.label)} on ${esc(e.name)} as passed">
+      <span class="tick"></span>
+      <span class="check-main">
+        <span class="check-name">${esc(c.label)}</span>
+        <span class="check-sub">${esc(e.name)} · ${esc(c.note)}</span>
+      </span>
+    </button>
+    <button class="btn failbtn" data-check="${c.id}" data-equip="${e.id}" data-result="fail" aria-label="Record ${esc(c.label)} on ${esc(e.name)} as failed">Failed</button>
+  </div>`;
+}
+
+function doneChecks() {
+  const rows = [];
+  CHECKS.forEach((c) => state.equipment.filter((e) => e.kind === c.equip).forEach((e) => {
+    const d = checkDone(c.id, e.id, iso(TODAY));
+    if (d) rows.push(checkRow(c, e, d));
+  }));
+  if (!rows.length) return '';
+  return `<details class="fold"><summary>Checks already done today (${rows.length})</summary>${rows.join('')}</details>`;
+}
+
+function cycleRow(c, sub) {
+  const col = c.status === 'held' ? C.fail : (c.status === 'running' ? C.warn : C.pass);
+  return `<button class="cycle-row" data-cycle="${c.id}">
+    <span class="stripe" style="background:${col}"></span>
+    <span class="cycle-main">
+      <span class="cycle-name">${esc(c.id)} · ${esc(equipOf(c.equipId).name)}</span>
+      <span class="cycle-sub">${esc(sub)}</span>
+    </span>
+    <span class="cycle-right">${statusChip(c.status)}</span>
+  </button>`;
+}
+
+/* ---- starting a load ---- */
 
 function viewLogCycle() {
   const d = state.draft;
-  const e = d.equipId ? equipOf(d.equipId) : null;
-  const expired = e && validationDaysLeft(e) < 0;
+  if (d.stage === 'release') return viewRelease();
+  if (d.stage === 'hold') return viewHold();
 
-  if (d.stage === 'start') {
-    return `
-    <div class="scroll"><div class="pad">
-      <div class="row-head"><button class="btn btn-ghost back" data-act="home">← Back</button><h2>Log a cycle</h2></div>
+  const e = equipOf(d.equipId);
+  const usable = equipUsable(e);
+  const last = lastFinished();
+  const p = progOf(d.prog);
 
-      <div class="field-lg">
-        <div class="card-kicker">1. Which steriliser</div>
-        ${state.equipment.filter((x) => x.kind === 'steriliser').map((x) => {
-          const bad = validationDaysLeft(x) < 0;
-          return `<button class="pick ${d.equipId === x.id ? 'on' : ''}" data-set="equipId" data-val="${x.id}">
-            <span class="pick-main"><span class="pick-name">${esc(x.name)}</span>
-            <span class="pick-sub">Class ${esc(x.cls)} · ${esc(x.location)} · ${bad ? 'validation expired' : 'validated to ' + esc(fmtDate(validationDue(x)))}</span></span>
-            ${bad ? '<span class="chip chip-fail">Expired</span>' : ''}
-          </button>`;
-        }).join('')}
-      </div>
+  return `
+  <div class="scroll" id="scroller"><div class="pad">
+    <div class="row-head"><button class="btn btn-ghost back" data-act="home">← Back</button><h2>Start a load</h2></div>
 
-      ${expired ? `<div class="warnbox">${esc(e.name)} is outside its validation date. A load released from it cannot be evidenced as sterile. Log the cycle if you need the record, but the load will be held until Sandy records a current validation.</div>` : ''}
+    ${last && !d.touched ? `<button class="repeat" data-act="repeatLast">
+      <span class="card-kicker">Same as last time</span>
+      <span class="repeat-main">${esc(loadSummary(last.items))}</span>
+      <span class="repeat-sub">${esc(progOf(last.prog).label)} on the ${esc(equipOf(last.equipId).name)} · tap to fill it in</span>
+    </button>` : ''}
 
-      <div class="field-lg">
-        <div class="card-kicker">2. Programme</div>
-        ${PROGRAMMES.map((p) => `<button class="pick ${d.prog === p.id ? 'on' : ''}" data-set="prog" data-val="${p.id}">
-          <span class="pick-main"><span class="pick-name">${esc(p.label)}</span>
-          <span class="pick-sub">${esc(p.note)} · ${p.temp}°C · ${p.hold} min hold · about ${p.mins} min</span></span>
+    <div class="field-lg">
+      <div class="card-kicker">Which steriliser</div>
+      ${state.equipment.filter((x) => x.kind === 'steriliser').map((x) => {
+        const ok = equipUsable(x);
+        const why = validationDaysLeft(x) < 0 ? 'Out of validation' : (failedCheckToday(x.id).length ? 'Failed its test today' : '');
+        return `<button class="pick ${d.equipId === x.id ? 'on' : ''}" data-set="equipId" data-val="${x.id}" aria-pressed="${d.equipId === x.id}">
+          <span class="pick-main"><span class="pick-name">${esc(x.name)}</span>
+          <span class="pick-sub">${esc(x.location)}${ok ? '' : ' · ' + esc(why)}</span></span>
+          ${ok ? '' : '<span class="chip chip-fail">Out of action</span>'}
+        </button>`;
+      }).join('')}
+    </div>
+
+    ${!usable ? `<div class="warnbox">Anything that goes through the ${esc(e.name)} today will be held rather than released, because we cannot show it is working properly. Log the load if you need the record, but keep those instruments aside.</div>` : ''}
+
+    <div class="field-lg">
+      <div class="card-kicker">Which programme</div>
+      <div class="proggrid">
+        ${PROGRAMMES.map((x) => `<button class="prog ${d.prog === x.id ? 'on' : ''}" data-set="prog" data-val="${x.id}" aria-pressed="${d.prog === x.id}">
+          <span class="prog-name">${esc(x.label)}</span>
+          <span class="prog-sub">${esc(x.note)}</span>
+          <span class="prog-time">about ${x.mins} min</span>
         </button>`).join('')}
       </div>
-
-      <div class="field-lg">
-        <div class="card-kicker">3. What is in the load</div>
-        ${d.prog === 'helix'
-          ? '<div class="empty">A helix test runs empty. Nothing to add.</div>'
-          : `<div class="chips">
-              ${LOAD_TYPES.map((t) => {
-                const it = d.items.find((x) => x.type === t);
-                return `<button class="loadchip ${it ? 'on' : ''}" data-load="${esc(t)}">${esc(t)}${it ? ' <b>× ' + it.qty + '</b>' : ''}</button>`;
-              }).join('')}
-            </div>
-            <div class="hint">Tap to add one, tap again to add another. Long list, but it is the same six every day so they sit at the top of muscle memory.</div>`}
-      </div>
-
-      <div class="field-lg">
-        <div class="card-kicker">4. Load note (optional)</div>
-        <input id="loadNote" class="input tall" placeholder="e.g. Dr Patel's surgical kit for Thursday" value="${esc(d.note || '')}">
-      </div>
-    </div></div>
-    <div class="footer">
-      <button class="btn btn-primary big" data-act="startCycle">Start cycle</button>
-    </div>`;
-  }
-
-  // stage: release
-  const p = progOf(d.prog);
-  return `
-  <div class="scroll"><div class="pad">
-    <div class="row-head"><button class="btn btn-ghost back" data-act="home">← Back</button><h2>Release ${esc(d.id)}</h2></div>
-    <div class="blueprint summary">${corners()}
-      <div><b>${esc(equipOf(d.equipId).name)}</b></div>
-      <div class="muted">${esc(p.label)} · started ${esc(fmtTime(d.startedAt))} by ${esc(d.startedBy)}</div>
-      <div class="muted">${esc(loadSummary(d.items))}${d.note ? ' · ' + esc(d.note) : ''}</div>
     </div>
 
+    ${d.prog === 'helix' ? '<div class="hint">A helix test runs empty, so there is nothing to pack.</div>' : `
     <div class="field-lg">
-      <div class="card-kicker">1. Confirm against the printout</div>
-      <div class="paramgrid">
-        <label>Temperature reached<span><input id="pTemp" class="input" type="number" step="0.1" value="${p.temp}"> °C</span></label>
-        <label>Pressure<span><input id="pPress" class="input" type="number" step="0.1" value="${p.pressure}"> bar</span></label>
-        <label>Hold time<span><input id="pHold" class="input" type="number" step="0.5" value="${p.hold}"> min</span></label>
+      <div class="card-kicker">What is going in</div>
+      ${d.items.length ? `<div class="inload">
+        ${d.items.map((it) => `<div class="steprow">
+          <span class="step-name">${esc(it.type)}</span>
+          <button class="stepbtn" data-qty="${esc(it.type)}" data-dir="-1" aria-label="One less ${esc(it.type)}">−</button>
+          <span class="step-qty">${it.qty}</span>
+          <button class="stepbtn" data-qty="${esc(it.type)}" data-dir="1" aria-label="One more ${esc(it.type)}">+</button>
+        </div>`).join('')}
+      </div>` : '<div class="hint">Nothing added yet. Tap what is on the tray.</div>'}
+      <div class="chips">
+        ${LOAD_TYPES.filter((t) => !d.items.some((x) => x.type === t)).map((t) =>
+          `<button class="loadchip" data-load="${esc(t)}">${esc(t)}</button>`).join('')}
       </div>
-      <label class="checkline"><input type="checkbox" id="pPrintout" ${d.printout !== false ? 'checked' : ''}> Printout or data log filed against this cycle</label>
-    </div>
+    </div>`}
 
-    <div class="field-lg">
-      <div class="card-kicker">2. Indicators</div>
-      <div class="twoup">
-        <div><div class="lbl">External (Class 1)</div>
-          <div class="seg2">
-            <button class="segbtn ${d.ciExternal === 'pass' ? 'on pass' : ''}" data-set="ciExternal" data-val="pass">Pass</button>
-            <button class="segbtn ${d.ciExternal === 'fail' ? 'on fail' : ''}" data-set="ciExternal" data-val="fail">Fail</button>
-          </div></div>
-        <div><div class="lbl">Internal (Class 4 to 6)</div>
-          <div class="seg2">
-            <button class="segbtn ${d.ciInternal === 'pass' ? 'on pass' : ''}" data-set="ciInternal" data-val="pass">Pass</button>
-            <button class="segbtn ${d.ciInternal === 'fail' ? 'on fail' : ''}" data-set="ciInternal" data-val="fail">Fail</button>
-          </div></div>
-      </div>
-      <label class="checkline"><input type="checkbox" id="pDry" ${d.dryIntact !== false ? 'checked' : ''}> Load dry, packs intact and seals sound</label>
-    </div>
+    <details class="fold"><summary>Add a note about this load</summary>
+      <input id="loadNote" class="input tall" placeholder="e.g. Dr Patel's surgical kit for Thursday" value="${esc(d.note || '')}">
+    </details>
   </div></div>
-  <div class="footer footer-2">
-    <button class="btn btn-secondary big" data-act="quarantine">Quarantine load</button>
-    <button class="btn btn-primary big" data-act="release">Release load</button>
+  <div class="footer">
+    <button class="btn btn-primary big" data-act="startCycle">Start it · ${esc(p.label)}</button>
   </div>`;
 }
+
+/* ---- releasing a load ---- */
+
+function viewRelease() {
+  const d = state.draft;
+  const p = progOf(d.prog), e = equipOf(d.equipId);
+  const usable = equipUsable(e);
+
+  return `
+  <div class="scroll" id="scroller"><div class="pad">
+    <div class="row-head"><button class="btn btn-ghost back" data-act="home">← Back</button><h2>${esc(d.id)}</h2></div>
+
+    <div class="blueprint summary">${corners()}
+      <div class="sum-name">${esc(loadSummary(d.items))}</div>
+      <div class="muted">${esc(p.label)} on the ${esc(e.name)}</div>
+      <div class="muted">Started ${esc(fmtTime(d.startedAt))} by ${esc(d.startedBy)}${d.note ? ' · ' + esc(d.note) : ''}</div>
+    </div>
+
+    ${usable ? '' : `<div class="warnbox">This one has to be held. The ${esc(e.name)} ${validationDaysLeft(e) < 0 ? 'is out of validation' : 'failed its test this morning'}, so we cannot show the load is sterile.</div>`}
+
+    <div class="askbox">
+      <div class="ask">Printout fine, both indicators changed, packs dry and sealed?</div>
+      <div class="hint">Have a look at the printout and the strips before you answer. Once you release it, the record is locked in.</div>
+    </div>
+
+    <details class="fold" ${state.showDetail ? 'open' : ''}><summary>See or change the numbers</summary>
+      <div class="paramgrid">
+        <label>Temperature<span><input id="pTemp" class="input" type="number" step="0.1" value="${p.temp}" inputmode="decimal"> °C</span></label>
+        <label>Pressure<span><input id="pPress" class="input" type="number" step="0.1" value="${p.pressure}" inputmode="decimal"> bar</span></label>
+        <label>Hold time<span><input id="pHold" class="input" type="number" step="0.5" value="${p.hold}" inputmode="decimal"> min</span></label>
+      </div>
+      <div class="hint">These come off the programme. Change them if the printout says something different.</div>
+    </details>
+  </div></div>
+  <div class="footer footer-2">
+    <button class="btn btn-secondary big" data-act="toHold">Something was off</button>
+    <button class="btn btn-primary big" data-act="release" ${usable ? '' : 'disabled'}>${usable ? 'All good, release' : 'Cannot release'}</button>
+  </div>
+  ${usable ? '' : `<div class="footer"><button class="btn btn-secondary big" data-act="toHold">Hold this load</button></div>`}`;
+}
+
+// Picking what went wrong is quicker than typing it, and it means the
+// non-conformance record says something useful instead of "failed".
+const HOLD_REASONS = [
+  {id:'ciInternal', text:'Inside indicator did not change'},
+  {id:'ciExternal', text:'Outside indicator did not change'},
+  {id:'wet',        text:'Packs came out damp'},
+  {id:'seal',       text:'Packaging torn or a seal had gone'},
+  {id:'printout',   text:'Printout missing or the numbers were wrong'},
+  {id:'aborted',    text:'Cycle stopped part way through'},
+  {id:'other',      text:'Something else'}
+];
+
+function viewHold() {
+  const d = state.draft;
+  const any = Object.keys(state.holdReasons).some((k) => state.holdReasons[k]);
+  return `
+  <div class="scroll" id="scroller"><div class="pad">
+    <div class="row-head"><button class="btn btn-ghost back" data-act="backToRelease">← Back</button><h2>Holding ${esc(d.id)}</h2></div>
+    <div class="hint">Put those instruments aside so nobody picks them up, then tell us what you saw. Sandy gets it from here, and you do not need to sort it yourself.</div>
+
+    <div class="field-lg">
+      <div class="card-kicker">What was wrong</div>
+      ${HOLD_REASONS.map((r) => `<button class="reason ${state.holdReasons[r.id] ? 'on' : ''}" data-reason="${r.id}" aria-pressed="${!!state.holdReasons[r.id]}">
+        <span class="rbox">${state.holdReasons[r.id] ? '✓' : ''}</span><span>${esc(r.text)}</span>
+      </button>`).join('')}
+    </div>
+
+    <details class="fold" ${state.holdReasons.other ? 'open' : ''}><summary>Anything else worth noting</summary>
+      <textarea id="holdNote" class="input" rows="3" placeholder="Whatever you noticed. A sentence is plenty."></textarea>
+    </details>
+  </div></div>
+  <div class="footer">
+    <button class="btn btn-primary big" data-act="confirmHold" ${any ? '' : 'disabled'}>Hold the load and tell Sandy</button>
+  </div>`;
+}
+
+/* ---- the record ---- */
 
 function viewCycle() {
   const c = state.cycles.find((x) => x.id === state.detail);
@@ -1065,102 +1291,103 @@ function viewCycle() {
   const e = equipOf(c.equipId), p = progOf(c.prog);
   const nc = c.ncId ? state.ncs.find((n) => n.id === c.ncId) : null;
   return `
-  <div class="scroll"><div class="pad">
+  <div class="scroll" id="scroller"><div class="pad">
     <div class="row-head"><button class="btn btn-ghost back" data-act="back">← Back</button><h2>${esc(c.id)}</h2>${statusChip(c.status)}</div>
 
     <div class="blueprint rec">${corners()}
-      <div class="card-kicker">Sterilisation cycle record</div>
-      ${recRow('Load / batch ID', c.id)}
+      <div class="card-kicker">The record for this load</div>
+      ${recRow('Batch number', c.id)}
       ${recRow('Steriliser', e.name + ' (' + e.serial + ')')}
-      ${recRow('Programme', p.label)}
+      ${recRow('Programme', p.label + ', ' + p.sub)}
       ${recRow('Date', fmtDate(c.date))}
       ${recRow('Started', fmtTime(c.startedAt) + ' by ' + c.startedBy)}
-      ${c.status !== 'running' ? recRow('Cycle ended', fmtTime(c.endedAt)) : ''}
-      ${recRow('Load contents', loadSummary(c.items))}
-      ${c.note ? recRow('Load note', c.note) : ''}
+      ${c.status !== 'running' ? recRow('Came out', fmtTime(c.endedAt)) : ''}
+      ${recRow('What was in it', loadSummary(c.items))}
+      ${c.note ? recRow('Note', c.note) : ''}
       ${recRow('Temperature', c.temp + ' °C')}
       ${recRow('Pressure', c.pressure + ' bar')}
       ${recRow('Hold time', c.hold + ' min')}
-      ${recRow('Printout filed', c.printout ? 'Yes' : 'No')}
-      ${recRow('External indicator', c.ciExternal === 'pass' ? 'Pass' : 'Fail', c.ciExternal)}
-      ${recRow('Internal indicator', c.ciInternal === 'pass' ? 'Pass' : 'Fail', c.ciInternal)}
-      ${recRow('Load dry and intact', c.dryIntact ? 'Yes' : 'No', c.dryIntact ? 'pass' : 'fail')}
-      ${c.status === 'released' ? recRow('Released for use', fmtTime(c.releasedAt) + ' by ' + c.releasedBy, 'pass') : ''}
-      ${c.status === 'quarantined' ? recRow('Quarantined', fmtTime(c.releasedAt) + ' by ' + c.releasedBy, 'fail') : ''}
+      ${recRow('Printout kept', c.printout ? 'Yes' : 'No', c.printout ? '' : 'fail')}
+      ${recRow('Outside indicator', c.ciExternal === 'pass' ? 'Changed properly' : 'Did not change', c.ciExternal)}
+      ${recRow('Inside indicator', c.ciInternal === 'pass' ? 'Changed properly' : 'Did not change', c.ciInternal)}
+      ${recRow('Dry and sealed', c.dryIntact ? 'Yes' : 'No', c.dryIntact ? '' : 'fail')}
+      ${c.status === 'released' ? recRow('Released', fmtTime(c.releasedAt) + ' by ' + c.releasedBy, 'pass') : ''}
+      ${c.status === 'held' ? recRow('Held', fmtTime(c.releasedAt) + ' by ' + c.releasedBy, 'fail') : ''}
     </div>
 
     ${nc ? `<button class="blueprint ncbox" data-nc="${nc.id}">${corners()}
-      <div class="card-kicker">Linked non-conformance</div>
-      <div class="ncline"><b>${esc(nc.id)}</b> ${nc.status === 'open' ? '<span class="chip chip-fail">Open</span>' : '<span class="chip chip-pass">Closed</span>'}</div>
+      <div class="card-kicker">Held load report</div>
+      <div class="ncline"><b>${esc(nc.id)}</b> ${nc.status === 'open' ? '<span class="chip chip-fail">Waiting on Sandy</span>' : '<span class="chip chip-pass">Sorted</span>'}</div>
       <div class="muted">${esc(nc.issue)}</div>
     </button>` : ''}
 
-    <div class="tracenote">This record is the traceability link for every instrument in the load. Write <b>${esc(c.id)}</b> in the patient notes for any procedure using instruments from this batch, and the two records tie together at audit.</div>
+    ${c.status === 'released' ? `<div class="tracenote">Put <b>${esc(c.id)}</b> in the patient notes whenever you use something out of this load. That is what ties an instrument back to the cycle that did it, and it is the first thing you get asked for at an audit.</div>` : ''}
   </div></div>`;
 }
 
 function recRow(k, v, tone) {
   return `<div class="recrow"><span>${esc(k)}</span><span class="${tone ? 'tone-' + tone : ''}">${esc(v)}</span></div>`;
 }
-function corners() { return '<i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>'; }
+
+/* ---- records and the audit copy ---- */
 
 function viewRecords() {
   const from = iso(addDays(TODAY, -state.rangeDays));
   const rows = state.cycles.filter((c) => c.date >= from && (state.filterEquip === 'all' || c.equipId === state.filterEquip))
     .sort((a, b) => b.startedAt - a.startedAt);
-  const fails = rows.filter((r) => r.status === 'quarantined').length;
+  const held = rows.filter((r) => r.status === 'held').length;
+  const cov = checkCoverage(from);
+  const RANGES = [[7, 'Week'], [28, 'Month'], [90, '3 months'], [365, 'Year']];
+
   return `
-  <div class="scroll"><div class="pad">
+  <div class="scroll" id="scroller"><div class="pad">
     <div class="row-head"><h2>Records</h2></div>
 
-    <div class="filters">
-      <div class="seg2 wide">
-        ${[7, 28, 90].map((d) => `<button class="segbtn ${state.rangeDays === d ? 'on' : ''}" data-range="${d}">${d} days</button>`).join('')}
-      </div>
-      <select id="fEquip" class="input">
-        <option value="all">All sterilisers</option>
-        ${state.equipment.filter((e) => e.kind === 'steriliser').map((e) => `<option value="${e.id}" ${state.filterEquip === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}
-      </select>
+    <div class="seg2 wide">
+      ${RANGES.map(([d, l]) => `<button class="segbtn ${state.rangeDays === d ? 'on' : ''}" data-range="${d}" aria-pressed="${state.rangeDays === d}">${l}</button>`).join('')}
     </div>
 
     <div class="statstrip">
-      <div><b>${rows.length}</b><span>cycles</span></div>
-      <div><b>${rows.length - fails}</b><span>released</span></div>
-      <div class="${fails ? 'bad' : ''}"><b>${fails}</b><span>quarantined</span></div>
+      <div><b>${rows.length}</b><span>loads</span></div>
+      <div class="${held ? 'bad' : ''}"><b>${held}</b><span>held</span></div>
+      <div class="${cov.full < cov.total ? 'warnstat' : ''}"><b>${cov.full}/${cov.total}</b><span>days fully checked</span></div>
+    </div>
+
+    <button class="auditcta" data-act="auditPack">
+      <span class="card-kicker">Ready for an audit</span>
+      <span class="cta-main">Print the ${esc(rangeWord())} of records</span>
+      <span class="cta-sub">Every load, every check, held loads and how they were sorted, gear validation and training, in one document.</span>
+    </button>
+
+    <select id="fEquip" class="input" aria-label="Filter by steriliser">
+      <option value="all">Both sterilisers</option>
+      ${state.equipment.filter((e) => e.kind === 'steriliser').map((e) => `<option value="${e.id}" ${state.filterEquip === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}
+    </select>
+
+    <div class="section">
+      <div class="card-kicker">Every load</div>
+      ${rows.length === 0 ? '<div class="empty">Nothing in this stretch.</div>' :
+        rows.slice(0, 60).map((c) => cycleRow(c, fmtShort(c.date) + ' ' + fmtTime(c.startedAt) + ' · ' + loadSummary(c.items))).join('')}
+      ${rows.length > 60 ? `<div class="hint">Showing the most recent 60 of ${rows.length}. The printed copy has the lot.</div>` : ''}
     </div>
 
     <div class="section">
-      <div class="card-kicker">Cycle log</div>
-      ${rows.length === 0 ? '<div class="empty">No cycles in this range.</div>' : rows.map((c) => {
-        const e = equipOf(c.equipId);
-        const col = c.status === 'quarantined' ? C.fail : (c.status === 'running' ? C.warn : C.pass);
-        return `<button class="cycle-row" data-cycle="${c.id}">
-          <span class="stripe" style="background:${col}"></span>
-          <span class="cycle-main">
-            <span class="cycle-name">${esc(c.id)} · ${esc(fmtShort(c.date))} ${esc(fmtTime(c.startedAt))}</span>
-            <span class="cycle-sub">${esc(e.name)} · ${esc(loadSummary(c.items))}</span>
-          </span>
-          <span class="cycle-right">${statusChip(c.status)}</span>
-        </button>`;
-      }).join('')}
-    </div>
-
-    <div class="section">
-      <div class="card-kicker">Non-conformance register</div>
-      ${state.ncs.length === 0 ? '<div class="empty">No non-conformances recorded.</div>' :
+      <div class="card-kicker">Held loads</div>
+      ${state.ncs.length === 0 ? '<div class="empty">No loads have had to be held. Good sign.</div>' :
         state.ncs.slice().reverse().map((n) => `<button class="cycle-row" data-nc="${n.id}">
           <span class="stripe" style="background:${n.status === 'open' ? C.fail : C.pass}"></span>
           <span class="cycle-main">
             <span class="cycle-name">${esc(n.id)} · ${esc(fmtShort(n.date))}</span>
             <span class="cycle-sub">${esc(n.issue)}</span>
           </span>
-          <span class="cycle-right">${n.status === 'open' ? '<span class="chip chip-fail">Open</span>' : '<span class="chip chip-pass">Closed</span>'}</span>
+          <span class="cycle-right">${n.status === 'open' ? '<span class="chip chip-fail">Open</span>' : '<span class="chip chip-pass">Sorted</span>'}</span>
         </button>`).join('')}
     </div>
-  </div></div>
-  <div class="footer">
-    <button class="btn btn-primary big" data-act="auditPack">Build the audit record</button>
-  </div>`;
+  </div></div>`;
+}
+
+function rangeWord() {
+  return {7:'week', 28:'month', 90:'three months', 365:'year'}[state.rangeDays] || 'period';
 }
 
 function viewNc() {
@@ -1168,67 +1395,70 @@ function viewNc() {
   if (!n) return viewRecords();
   const mgr = isManager();
   return `
-  <div class="scroll"><div class="pad">
+  <div class="scroll" id="scroller"><div class="pad">
     <div class="row-head"><button class="btn btn-ghost back" data-act="back">← Back</button><h2>${esc(n.id)}</h2>
-      ${n.status === 'open' ? '<span class="chip chip-fail">Open</span>' : '<span class="chip chip-pass">Closed</span>'}</div>
+      ${n.status === 'open' ? '<span class="chip chip-fail">Open</span>' : '<span class="chip chip-pass">Sorted</span>'}</div>
 
     <div class="blueprint rec">${corners()}
-      <div class="card-kicker">Non-conformance record</div>
-      ${recRow('Raised', fmtDate(n.date) + ' ' + fmtTime(n.raisedAt) + ' by ' + n.raisedBy)}
-      ${recRow('Linked cycle', n.cycleId)}
+      <div class="card-kicker">Held load report</div>
+      ${recRow('Picked up', fmtDate(n.date) + ' at ' + fmtTime(n.raisedAt) + ' by ' + n.raisedBy)}
+      ${recRow('The load', n.cycleId)}
       ${recRow('What happened', n.issue)}
-      ${recRow('Immediate action', n.immediate)}
-      ${n.status === 'closed' ? recRow('Corrective action', n.corrective, 'pass') : ''}
-      ${n.status === 'closed' ? recRow('Closed', fmtDate(iso(new Date(n.closedAt))) + ' by ' + n.closedBy, 'pass') : ''}
+      ${recRow('Done straight away', n.immediate)}
+      ${n.status === 'closed' ? recRow('How it was sorted', n.corrective, 'pass') : ''}
+      ${n.status === 'closed' ? recRow('Signed off', fmtDate(iso(new Date(n.closedAt))) + ' by ' + n.closedBy, 'pass') : ''}
     </div>
 
     ${n.status === 'open' ? (mgr ? `
       <div class="field-lg">
-        <div class="card-kicker">Close this record</div>
-        <div class="hint">Say what was done so it does not happen again. This is the text an auditor reads.</div>
-        <textarea id="ncFix" class="input" rows="5" placeholder="e.g. Drain filter cleaned, drying phase extended, three consecutive test loads passed, technician attended."></textarea>
-        <button class="btn btn-primary big block" data-act="closeNc">Record corrective action and close</button>
+        <div class="card-kicker">Sign it off</div>
+        <div class="hint">Write down what you did so it does not happen again. This is the bit an auditor reads, so a couple of plain sentences beats one word.</div>
+        <textarea id="ncFix" class="input" rows="5" placeholder="e.g. Cleaned the drain filter, put the drying time up by three minutes, ran three test loads and they all came out clean."></textarea>
+        <button class="btn btn-primary big block" data-act="closeNc">Sign it off</button>
       </div>` : `
-      <div class="warnbox">This record stays open until the practice manager records what was done about it. Let Sandy know.</div>`) : ''}
+      <div class="warnbox">This stays open until Sandy writes down what was done about it. Worth giving her a nudge if it has been sitting a while.</div>`) : ''}
 
-    <button class="btn btn-secondary block" data-cycle="${esc(n.cycleId)}">Open cycle ${esc(n.cycleId)}</button>
+    <button class="btn btn-secondary block" data-cycle="${esc(n.cycleId)}">Open load ${esc(n.cycleId)}</button>
   </div></div>`;
 }
 
 function viewEquipment() {
   const mgr = isManager();
   return `
-  <div class="scroll"><div class="pad">
-    <div class="row-head"><h2>Equipment</h2></div>
-    <div class="hint">Every piece of reprocessing equipment, with the date its validation runs out. Missing validation records are the most common finding at a practice audit, so they sit on their own screen rather than buried in a folder.</div>
+  <div class="scroll" id="scroller"><div class="pad">
+    <div class="row-head"><h2>The gear</h2></div>
+    <div class="hint">Everything that cleans or sterilises, and when each one is next due for validation. Missing validation paperwork is the thing practices most often get pinged for, so it lives on its own screen rather than in a folder somewhere.</div>
 
     ${state.equipment.map((e) => {
       const left = validationDaysLeft(e);
-      const tone = left < 0 ? 'fail' : (left <= 60 ? 'warn' : 'pass');
+      const failedToday = failedCheckToday(e.id);
+      const tone = (left < 0 || failedToday.length) ? 'fail' : (left <= 60 ? 'warn' : 'pass');
       return `<div class="blueprint eq ${tone}">${corners()}
-        <div class="eq-head"><b>${esc(e.name)}</b><span class="chip chip-${tone === 'pass' ? 'pass' : (tone === 'warn' ? 'warn' : 'fail')}">${left < 0 ? 'Expired' : left + ' days'}</span></div>
-        <div class="muted">${esc(e.kind === 'steriliser' ? 'Class ' + e.cls + ' steriliser' : e.kind === 'washer' ? 'Washer-disinfector' : 'Ultrasonic cleaner')} · ${esc(e.serial)} · ${esc(e.location)}</div>
+        <div class="eq-head"><b>${esc(e.name)}</b>
+          <span class="chip chip-${tone}">${left < 0 ? 'Overdue' : 'OK for ' + humanDays(left)}</span></div>
+        <div class="muted">${esc(e.kind === 'steriliser' ? 'Class ' + e.cls + ' steriliser' : e.kind === 'washer' ? 'Washer-disinfector' : 'Ultrasonic')} · ${esc(e.serial)} · ${esc(e.location)}</div>
+        ${failedToday.length ? `<div class="warnbox tight">Out of action today: it failed its ${esc(failedToday[0].toLowerCase())}. Log a pass once it has been sorted.</div>` : ''}
         ${recRow('Last validated', fmtDate(e.validated))}
-        ${recRow('Validation due', fmtDate(validationDue(e)), tone)}
+        ${recRow('Next validation', fmtDate(validationDue(e)) + (left < 0 ? ', ' + humanDays(left) + ' ago' : ''), tone)}
         ${recRow('Last serviced', fmtDate(e.serviced))}
         ${mgr ? `<div class="eq-actions">
-          <input type="date" class="input" id="val-${e.id}" value="${iso(TODAY)}">
-          <button class="btn btn-secondary" data-validate="${e.id}">Record validation</button>
-        </div>` : '<div class="hint">Only Sandy records validation and service dates.</div>'}
+          <input type="date" class="input" id="val-${e.id}" value="${iso(TODAY)}" aria-label="Validation date for ${esc(e.name)}">
+          <button class="btn btn-secondary" data-validate="${e.id}">Log it</button>
+        </div>` : '<div class="hint">Sandy looks after validation and service dates.</div>'}
       </div>`;
     }).join('')}
 
     <div class="section">
-      <div class="card-kicker">IPC training register</div>
-      <div class="hint">Infection prevention and control training is expected annually for everyone doing clinical work.</div>
+      <div class="card-kicker">IPC training</div>
+      <div class="hint">Everyone doing clinical work needs infection prevention and control training once a year.</div>
       ${state.training.map((t) => {
         const left = trainingDaysLeft(t);
         const tone = left < 0 ? 'fail' : (left <= 45 ? 'warn' : 'pass');
         return `<div class="trow">
           <span class="dot ${tone}"></span>
           <span class="cycle-main"><span class="cycle-name">${esc(t.name)}</span>
-          <span class="cycle-sub">${esc(t.role)} · last ${esc(fmtDate(t.done))} · due ${esc(fmtDate(trainingDue(t)))}</span></span>
-          ${mgr ? `<button class="btn btn-secondary sm" data-train="${esc(t.name)}">Log training</button>` : ''}
+          <span class="cycle-sub">${esc(t.role)} · ${left < 0 ? humanDays(left) + ' overdue' : 'due ' + esc(fmtDate(trainingDue(t)))}</span></span>
+          ${mgr ? `<button class="btn btn-secondary sm" data-train="${esc(t.name)}">Log it</button>` : ''}
         </div>`;
       }).join('')}
     </div>
@@ -1239,133 +1469,142 @@ function viewAudit() {
   const from = iso(addDays(TODAY, -state.rangeDays));
   const cycles = state.cycles.filter((c) => c.date >= from).sort((a, b) => a.startedAt - b.startedAt);
   const checks = state.checks.filter((c) => c.date >= from);
-  const g = gaps();
+  const g = gaps().all;
+  const cov = checkCoverage(from);
   const now = new Date();
 
   return `
-  <div class="scroll"><div class="pad">
-    <div class="row-head"><button class="btn btn-ghost back" data-act="records">← Back</button><h2>Audit record</h2></div>
-    <div class="hint">One document covering ${state.rangeDays} days: the cycle log, the daily checks, the non-conformance register, the equipment validation status and the training register. Print it or save it as a PDF for the practice file.</div>
+  <div class="scroll" id="scroller"><div class="pad">
+    <div class="row-head"><button class="btn btn-ghost back" data-act="records">← Back</button><h2>The audit copy</h2></div>
+    <div class="hint">The last ${esc(rangeWord())} in one document: every load, every check, any load that had to be held and how it was sorted, the gear and its validation, and who has done their training. Print it or save it as a PDF for the practice folder.</div>
     <div class="footer-inline">
       <button class="btn btn-primary" data-act="print">Print or save as PDF</button>
-      <button class="btn btn-secondary" data-act="csv">Download cycle log (CSV)</button>
+      <button class="btn btn-secondary" data-act="csv">Download the load list</button>
     </div>
+    <div class="hint">Covering ${esc(fmtDate(from))} to ${esc(fmtDate(iso(TODAY)))} · ${cycles.length} loads · ${checks.length} checks</div>
   </div></div>
 
   <div id="auditDoc" class="auditdoc">
-    <h1>Sterilisation and reprocessing record</h1>
+    <h1>Sterilising and reprocessing records</h1>
     <p class="doc-sub">Ōtepoti Dental, 118 Moray Place, Dunedin<br>
-      Period ${esc(fmtDate(from))} to ${esc(fmtDate(iso(TODAY)))} · generated ${esc(fmtDate(iso(now)))} ${esc(fmtTime(now.getTime()))} by ${esc(me() ? me().name : '')}<br>
-      Held against the Dental Council Infection Prevention and Control practice standard (December 2024) and AS 5369:2023. Retain for 10 years.</p>
+      ${esc(fmtDate(from))} to ${esc(fmtDate(iso(TODAY)))} · printed ${esc(fmtDate(iso(now)))} at ${esc(fmtTime(now.getTime()))} by ${esc(me() ? me().name : '')}<br>
+      Kept to meet the Dental Council Infection Prevention and Control practice standard (December 2024) and AS 5369:2023. Hold on to these for ten years.</p>
 
-    <h2>1. Readiness summary</h2>
-    ${g.length === 0 ? '<p>No outstanding items at the time of generation.</p>' :
-      `<table><thead><tr><th>Level</th><th>Item</th></tr></thead><tbody>
-        ${g.map((x) => `<tr><td>${x.level === 'fail' ? 'Action required' : 'Due soon'}</td><td>${esc(x.text)}</td></tr>`).join('')}
+    <h2>1. Where things stand</h2>
+    <p>Daily checks were fully logged on ${cov.full} of the ${cov.total} working days covered by these records${firstRecordDay() > from ? ', which start on ' + esc(fmtDate(firstRecordDay())) : ''}.</p>
+    ${g.length === 0 ? '<p>Nothing outstanding when this was printed.</p>' :
+      `<table><thead><tr><th>How urgent</th><th>What it is</th></tr></thead><tbody>
+        ${g.map((x) => `<tr><td>${x.level === 'fail' ? 'Needs sorting' : 'Coming up'}</td><td>${esc(x.text)}</td></tr>`).join('')}
       </tbody></table>`}
 
-    <h2>2. Reprocessing equipment</h2>
-    <table><thead><tr><th>Equipment</th><th>Serial</th><th>Location</th><th>Validated</th><th>Due</th></tr></thead><tbody>
+    <h2>2. The gear</h2>
+    <table><thead><tr><th>What it is</th><th>Serial</th><th>Where</th><th>Last validated</th><th>Next due</th></tr></thead><tbody>
       ${state.equipment.map((e) => `<tr><td>${esc(e.name)}</td><td>${esc(e.serial)}</td><td>${esc(e.location)}</td><td>${esc(fmtDate(e.validated))}</td><td>${esc(fmtDate(validationDue(e)))}</td></tr>`).join('')}
     </tbody></table>
 
-    <h2>3. Sterilisation cycle log (${cycles.length} cycles)</h2>
-    <table><thead><tr><th>Batch</th><th>Date</th><th>Time</th><th>Steriliser</th><th>Programme</th><th>Load</th><th>°C</th><th>Bar</th><th>Hold</th><th>Ext CI</th><th>Int CI</th><th>Dry</th><th>Outcome</th><th>By</th></tr></thead><tbody>
+    <h2>3. Every load (${cycles.length})</h2>
+    <table><thead><tr><th>Batch</th><th>Date</th><th>Time</th><th>Steriliser</th><th>Programme</th><th>What was in it</th><th>°C</th><th>Bar</th><th>Hold</th><th>Outside</th><th>Inside</th><th>Dry</th><th>Outcome</th><th>Who</th></tr></thead><tbody>
       ${cycles.map((c) => {
         const e = equipOf(c.equipId), p = progOf(c.prog);
-        return `<tr class="${c.status === 'quarantined' ? 'r-fail' : ''}"><td>${esc(c.id)}</td><td>${esc(fmtDate(c.date))}</td><td>${esc(fmtTime(c.startedAt))}</td><td>${esc(e.name)}</td><td>${esc(p.label)}</td><td>${esc(loadSummary(c.items))}</td><td>${c.temp}</td><td>${c.pressure}</td><td>${c.hold}</td><td>${c.ciExternal === 'pass' ? 'Pass' : 'Fail'}</td><td>${c.ciInternal === 'pass' ? 'Pass' : 'Fail'}</td><td>${c.dryIntact ? 'Y' : 'N'}</td><td>${c.status === 'released' ? 'Released' : (c.status === 'quarantined' ? 'Quarantined' : 'Running')}</td><td>${esc(c.releasedBy || c.startedBy)}</td></tr>`;
+        return `<tr class="${c.status === 'held' ? 'r-fail' : ''}"><td>${esc(c.id)}</td><td>${esc(fmtDate(c.date))}</td><td>${esc(fmtTime(c.startedAt))}</td><td>${esc(e.name)}</td><td>${esc(p.label)}</td><td>${esc(loadSummary(c.items))}</td><td>${c.temp}</td><td>${c.pressure}</td><td>${c.hold}</td><td>${c.ciExternal === 'pass' ? 'Pass' : 'Fail'}</td><td>${c.ciInternal === 'pass' ? 'Pass' : 'Fail'}</td><td>${c.dryIntact ? 'Y' : 'N'}</td><td>${c.status === 'released' ? 'Released' : (c.status === 'held' ? 'Held' : 'Running')}</td><td>${esc(c.releasedBy || c.startedBy)}</td></tr>`;
       }).join('')}
     </tbody></table>
 
-    <h2>4. Daily and weekly checks (${checks.length} entries)</h2>
-    <table><thead><tr><th>Date</th><th>Check</th><th>Equipment</th><th>Result</th><th>By</th></tr></thead><tbody>
+    <h2>4. Daily and weekly checks (${checks.length})</h2>
+    <table><thead><tr><th>Date</th><th>Check</th><th>On what</th><th>Result</th><th>Who</th></tr></thead><tbody>
       ${checks.slice().sort((a, b) => a.date.localeCompare(b.date)).map((c) => {
         const def = CHECKS.find((x) => x.id === c.checkId) || {label:c.checkId};
-        return `<tr><td>${esc(fmtDate(c.date))}</td><td>${esc(def.label)}</td><td>${esc(equipOf(c.equipId).name)}</td><td>${c.result === 'pass' ? 'Pass' : 'Fail'}</td><td>${esc(c.by)}</td></tr>`;
+        return `<tr class="${c.result === 'fail' ? 'r-fail' : ''}"><td>${esc(fmtDate(c.date))}</td><td>${esc(def.label)}</td><td>${esc(equipOf(c.equipId).name)}</td><td>${c.result === 'pass' ? 'Pass' : 'Fail'}</td><td>${esc(c.by)}</td></tr>`;
       }).join('')}
     </tbody></table>
 
-    <h2>5. Non-conformance register</h2>
-    ${state.ncs.length === 0 ? '<p>No non-conformances recorded in this period.</p>' :
-      `<table><thead><tr><th>Ref</th><th>Date</th><th>Cycle</th><th>Issue</th><th>Immediate action</th><th>Corrective action</th><th>Status</th></tr></thead><tbody>
-        ${state.ncs.map((n) => `<tr class="${n.status === 'open' ? 'r-fail' : ''}"><td>${esc(n.id)}</td><td>${esc(fmtDate(n.date))}</td><td>${esc(n.cycleId)}</td><td>${esc(n.issue)}</td><td>${esc(n.immediate)}</td><td>${esc(n.corrective || 'Not yet recorded')}</td><td>${n.status === 'open' ? 'Open' : 'Closed ' + esc(fmtDate(iso(new Date(n.closedAt)))) + ' by ' + esc(n.closedBy)}</td></tr>`).join('')}
+    <h2>5. Loads that had to be held</h2>
+    ${state.ncs.length === 0 ? '<p>None in this period.</p>' :
+      `<table><thead><tr><th>Ref</th><th>Date</th><th>Load</th><th>What happened</th><th>Done straight away</th><th>How it was sorted</th><th>Where it got to</th></tr></thead><tbody>
+        ${state.ncs.map((n) => `<tr class="${n.status === 'open' ? 'r-fail' : ''}"><td>${esc(n.id)}</td><td>${esc(fmtDate(n.date))}</td><td>${esc(n.cycleId)}</td><td>${esc(n.issue)}</td><td>${esc(n.immediate)}</td><td>${esc(n.corrective || 'Not written up yet')}</td><td>${n.status === 'open' ? 'Still open' : 'Signed off ' + esc(fmtDate(iso(new Date(n.closedAt)))) + ' by ' + esc(n.closedBy)}</td></tr>`).join('')}
       </tbody></table>`}
 
-    <h2>6. Infection prevention and control training</h2>
-    <table><thead><tr><th>Name</th><th>Role</th><th>Last completed</th><th>Next due</th></tr></thead><tbody>
+    <h2>6. IPC training</h2>
+    <table><thead><tr><th>Name</th><th>Role</th><th>Last done</th><th>Next due</th></tr></thead><tbody>
       ${state.training.map((t) => `<tr class="${trainingDaysLeft(t) < 0 ? 'r-fail' : ''}"><td>${esc(t.name)}</td><td>${esc(t.role)}</td><td>${esc(fmtDate(t.done))}</td><td>${esc(fmtDate(trainingDue(t)))}</td></tr>`).join('')}
     </tbody></table>
 
-    <p class="doc-foot">Generated by SteriLog. Every entry above carries the name of the person who logged it and the time it was logged. Entries cannot be edited after release, only superseded by a non-conformance record.</p>
+    <p class="doc-foot">Printed from SteriLog. Every line above has the name of whoever logged it and the time they did. Once a load is released the record is locked, and the only way to change the story is a held load report sitting alongside it.</p>
   </div>`;
 }
 
 function viewAbout() {
   return `
-  <div class="scroll"><div class="pad">
+  <div class="scroll" id="scroller"><div class="pad">
     <div class="row-head"><button class="btn btn-ghost back" data-act="back">← Back</button><h2>About SteriLog</h2></div>
-    <p>SteriLog is the reprocessing record for the practice. Every steriliser cycle, every daily check and every load that had to be held gets logged as it happens, by the person who did it, so the audit record builds itself instead of being reconstructed the week before an audit.</p>
+    <p>SteriLog is where the sterilising room writes things down. Every load, every morning check and every load that had to be held goes in as it happens, by whoever did it, so the audit paperwork is already sitting there instead of being pieced together the week before someone comes to look at it.</p>
 
-    <div class="card-kicker">What it covers</div>
-    <p>Sterilisation cycles with the parameters off the printout, the daily air removal and leak tests, the weekly ultrasonic check, the washer-disinfector, equipment validation dates, non-conformances and their corrective actions, and annual IPC training. That is the set of records the Dental Council standard expects a practice to be able to produce, and they have to be kept for ten years.</p>
+    <div class="card-kicker">What goes in it</div>
+    <p>Loads through the steriliser with the numbers off the printout, the morning leak and helix tests, the weekly ultrasonic foil test, the washer-disinfector, when the gear was last validated, any load that had to be held and what was done about it, and who has done their yearly IPC training. That is the lot the Dental Council standard expects you to be able to produce, and it has to be kept for ten years.</p>
 
-    <div class="card-kicker">Traceability</div>
-    <p>Each load gets a batch ID. Write it in the patient notes and any instrument can be traced back to the cycle that processed it, which is the question you least want to be guessing at.</p>
+    <div class="card-kicker">Batch numbers</div>
+    <p>Every load gets a batch number. Write it in the patient notes and any instrument can be traced back to the load that did it, which is the question you least want to be guessing at.</p>
 
-    <div class="card-kicker">Who can do what</div>
+    <div class="card-kicker">Who does what</div>
     <div class="rolebox">
       <div class="role-name">DENTAL ASSISTANTS · Johanna (22) &amp; Liz (11)</div>
-      <p>Log cycles, record the daily checks, release a load that passed, and hold one that did not. Raising a problem takes one tap and does not need anyone's permission, because the worst outcome is a load that gets released when it should not have been.</p>
+      <p>Start loads, do the morning checks, release a load that came out right and hold one that did not. Holding a load takes one tap and does not need anyone's say so, because the thing you really do not want is a load going out because someone was waiting on permission.</p>
     </div>
     <div class="rolebox">
       <div class="role-name">PRACTICE MANAGER · Sandy (00)</div>
-      <p>Everything the assistants can do, plus the equipment register and validation dates, closing out a non-conformance with what was actually done about it, the training register, and building the audit record.</p>
+      <p>All of the above, plus the gear and its validation dates, signing off a held load once it has been sorted, the training list, and printing the audit copy.</p>
     </div>
 
-    <p class="muted">To swap accounts, tap the name in the top right and enter the other PIN. This prototype keeps everything in the browser and nothing is sent anywhere.</p>
+    <p class="muted">Tap your name in the top corner to swap over. This is a prototype: everything sits in the browser and nothing gets sent anywhere.</p>
   </div></div>`;
 }
 
 /* ---- shell ---- */
 
+const TABS = [{id:'today', label:'Today'}, {id:'records', label:'Records'}, {id:'equipment', label:'The gear'}];
+
 function render() {
   const who = me();
-  const nav = [
-    {id:'today', label:'Today'},
-    {id:'records', label:'Records'},
-    {id:'equipment', label:'Equipment'}
-  ];
-  const screens = {
-    today:viewToday, log:viewLogCycle, cycle:viewCycle, records:viewRecords,
-    nc:viewNc, equipment:viewEquipment, audit:viewAudit, about:viewAbout
-  };
+  const screens = {today:viewToday, log:viewLogCycle, cycle:viewCycle, records:viewRecords,
+    nc:viewNc, equipment:viewEquipment, audit:viewAudit, about:viewAbout};
+
+  // Hold on to where the list was scrolled and what was typed, so logging six
+  // checks in a row does not throw you back to the top every time.
+  const old = document.getElementById('scroller');
+  const scrollTop = old ? old.scrollTop : 0;
+  const activeId = document.activeElement && document.activeElement.id;
+
   const body = (screens[state.screen] || viewToday)();
+  const showTabs = TABS.some((t) => t.id === state.screen);
 
   app.innerHTML = `
     <div class="topbar">
       <span class="brand">STERI<span class="brand-2">LOG</span></span>
       <button class="btn btn-ghost icon" data-act="about" aria-label="About SteriLog">i</button>
-      <button class="btn btn-secondary whoami" data-act="pin">
+      <button class="btn btn-secondary whoami" data-act="pin" aria-label="${who ? 'Signed in as ' + esc(who.name) + '. Tap to swap.' : 'Sign in'}">
         <span>${esc(who ? who.name : 'Sign in')}</span>
         <span class="whorole">${esc(who ? who.short : 'PIN')}</span>
       </button>
     </div>
     <div class="body">${body}</div>
-    ${['today', 'records', 'equipment'].indexOf(state.screen) >= 0 ? `
-    <nav class="tabs">
-      ${nav.map((n) => `<button class="tab ${state.screen === n.id ? 'on' : ''}" data-act="${n.id}">${n.label}</button>`).join('')}
-    </nav>` : ''}
-    ${state.toast ? `<div class="toast" style="bottom:${toastBottom()}px"><span>${esc(state.toast)}</span>${state.undo ? '<button class="btn btn-ghost undo" data-act="undo">Undo</button>' : ''}</div>` : ''}
+    ${showTabs ? `<nav class="tabs">${TABS.map((n) => `<button class="tab ${state.screen === n.id ? 'on' : ''}" data-act="${n.id}" aria-current="${state.screen === n.id}">${n.label}</button>`).join('')}</nav>` : ''}
+    <div class="toastwrap" role="status" aria-live="polite">
+      ${state.toast ? `<div class="toast" style="bottom:${toastBottom()}px"><span>${esc(state.toast)}</span></div>` : ''}
+    </div>
     ${state.pinOpen ? pinDialog() : ''}
   `;
+
+  const next = document.getElementById('scroller');
+  if (next && scrollTop) {
+    void next.scrollHeight; // force layout, otherwise the assignment below clamps to 0
+    next.scrollTop = scrollTop;
+  }
+  if (activeId) { const el = document.getElementById(activeId); if (el) el.focus({preventScroll:true}); }
 }
 
-// Keeps the toast above the footer button and the tab bar, both of which
-// come and go depending on the screen.
 function toastBottom() {
-  const hasTabs = ['today', 'records', 'equipment'].indexOf(state.screen) >= 0;
-  const hasFooter = state.screen === 'today' || state.screen === 'records' ||
-    (state.screen === 'log' && state.draft);
+  const hasTabs = TABS.some((t) => t.id === state.screen);
+  const hasFooter = state.screen === 'today' || state.screen === 'log';
   return 12 + (hasTabs ? 46 : 0) + (hasFooter ? 84 : 0);
 }
 
@@ -1375,50 +1614,48 @@ function pinDialog() {
   <div class="backdrop">
     <div class="blueprint pinbox">${corners()}
       <div class="row-head"><h3>Who is on the bench?</h3>${state.who ? '<button class="btn btn-ghost" data-act="closePin">Close</button>' : ''}</div>
-      <div class="pindots">
+      <div class="pindots" role="status" aria-live="polite" aria-label="${state.pin.length} of 2 digits entered">
         ${[0, 1].map((i) => `<span class="pindot ${state.pin.length > i ? 'on' : ''}"></span>`).join('')}
       </div>
       <div class="keypad">
-        ${keys.map((k) => `<button class="btn btn-secondary key ${k === 'clear' || k === 'back' ? 'key-alt' : ''}" data-key="${k}">${k === 'clear' ? 'Clear' : (k === 'back' ? '⌫' : k)}</button>`).join('')}
+        ${keys.map((k) => `<button class="btn btn-secondary key ${k === 'clear' || k === 'back' ? 'key-alt' : ''}" data-key="${k}" aria-label="${k === 'clear' ? 'Clear' : (k === 'back' ? 'Delete last digit' : k)}">${k === 'clear' ? 'Clear' : (k === 'back' ? '⌫' : k)}</button>`).join('')}
       </div>
       <div class="pinmsg ${state.pinErr ? 'err' : ''}">${esc(state.pinErr || 'Johanna 22 · Liz 11 · Sandy 00')}</div>
     </div>
   </div>`;
 }
 
-/* ---- actions ---- */
+/* ---- doing things ---- */
 
-function startDraft() {
-  const last = state.cycles.filter((c) => c.status !== 'running').slice(-1)[0];
+function startDraft(from) {
+  const last = lastFinished();
   state.draft = {
-    stage:'start', equipId:(last && last.equipId) || 'st1', prog:'b134', items:[], note:'',
-    ciExternal:'pass', ciInternal:'pass', dryIntact:true, printout:true
+    stage:'start', touched:!!from,
+    equipId:(from && from.equipId) || (last && last.equipId) || 'st1',
+    prog:(from && from.prog) || 'b134',
+    items:from ? from.items.map((i) => Object.assign({}, i)) : [],
+    note:'', ciExternal:'pass', ciInternal:'pass', dryIntact:true, printout:true
   };
   state.screen = 'log';
-}
-
-function nextId() {
-  const nums = state.cycles.map((c) => c.num || 0);
-  const n = Math.max(0, ...nums) + 1;
-  return {id:'C' + String(n).padStart(4, '0'), num:n};
 }
 
 function commitStart() {
   const d = state.draft;
   const noteEl = document.getElementById('loadNote');
   if (noteEl) d.note = noteEl.value.trim();
-  if (d.prog !== 'helix' && d.items.length === 0) return flash('Add what is in the load first');
+  if (d.prog !== 'helix' && d.items.length === 0) return flash('Add what is going in the load first');
   const p = progOf(d.prog);
-  const idn = nextId();
-  const cyc = Object.assign({}, d, idn, {
+  const n = Math.max(0, ...state.cycles.map((c) => c.num || 0)) + 1;
+  const cyc = Object.assign({}, d, {
+    id:'C' + String(n).padStart(4, '0'), num:n,
     date:iso(TODAY), startedAt:Date.now(), startedBy:me().name,
     temp:p.temp, pressure:p.pressure, hold:p.hold,
     status:'running', endedAt:Date.now() + p.mins * 60000
   });
-  delete cyc.stage;
+  delete cyc.stage; delete cyc.touched;
   state.cycles.push(cyc);
   state.draft = null; state.screen = 'today';
-  flash(cyc.id + ' started on ' + equipOf(cyc.equipId).name);
+  flash(cyc.id + ' away on the ' + equipOf(cyc.equipId).name + ', about ' + p.mins + ' min');
 }
 
 function openRelease(id) {
@@ -1426,88 +1663,108 @@ function openRelease(id) {
   if (!c) return;
   if (c.status !== 'running') { state.detail = id; state.screen = 'cycle'; return; }
   state.draft = Object.assign({}, c, {stage:'release'});
+  state.holdReasons = {}; state.showDetail = false;
   state.screen = 'log';
 }
 
-function finishCycle(outcome) {
-  const d = state.draft;
-  const c = state.cycles.find((x) => x.id === d.id);
-  if (!c) return;
+function readParams(c) {
   const num = (sel, fallback) => { const el = document.getElementById(sel); const v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? fallback : v; };
   c.temp = num('pTemp', c.temp);
   c.pressure = num('pPress', c.pressure);
   c.hold = num('pHold', c.hold);
-  const pr = document.getElementById('pPrintout'); c.printout = pr ? pr.checked : true;
-  const dry = document.getElementById('pDry'); c.dryIntact = dry ? dry.checked : true;
-  c.ciExternal = d.ciExternal; c.ciInternal = d.ciInternal;
-  c.endedAt = Date.now(); c.releasedAt = Date.now(); c.releasedBy = me().name;
-
-  // A load off a steriliser that is out of validation cannot be evidenced as
-  // sterile, so it is held whatever the indicators say.
-  const outOfValidation = validationDaysLeft(equipOf(c.equipId)) < 0;
-  const problem = outcome === 'quarantine' || outOfValidation ||
-    c.ciExternal === 'fail' || c.ciInternal === 'fail' || !c.dryIntact || !c.printout;
-  if (problem) {
-    c.status = 'quarantined';
-    const reasons = [];
-    if (c.ciExternal === 'fail') reasons.push('external chemical indicator failed');
-    if (c.ciInternal === 'fail') reasons.push('internal chemical indicator failed');
-    if (!c.dryIntact) reasons.push('load damp or packaging not intact');
-    if (!c.printout) reasons.push('no printout or data log filed');
-    if (outOfValidation) reasons.push(equipOf(c.equipId).name + ' is outside its validation date');
-    if (!reasons.length) reasons.push('held by the operator');
-    const ncNum = Math.max(0, ...state.ncs.map((x) => parseInt(x.id.slice(2), 10) || 0)) + 1;
-    const nc = {
-      id:'NC' + String(ncNum).padStart(3, '0'), cycleId:c.id, date:c.date,
-      raisedBy:me().name, raisedAt:Date.now(),
-      issue:'Cycle ' + c.id + ': ' + reasons.join(', ') + '.',
-      immediate:'Load quarantined, not released for clinical use. Instruments returned for full reprocessing.',
-      status:'open', corrective:'', closedBy:'', closedAt:null
-    };
-    state.ncs.push(nc); c.ncId = nc.id;
-    state.draft = null; state.detail = c.id; state.screen = 'cycle';
-    flash(c.id + ' quarantined · ' + nc.id + ' raised for Sandy');
-  } else {
-    c.status = 'released';
-    state.draft = null; state.detail = c.id; state.screen = 'cycle';
-    flash(c.id + ' released · batch ID goes in the patient notes');
-  }
 }
 
-function logCheck(checkId, equipId) {
-  if (checkDone(checkId, equipId, iso(TODAY))) return;
-  state.checks.push({id:'chk' + state.checks.length, checkId, equipId, date:iso(TODAY),
-    result:'pass', by:me().name, at:Date.now()});
+function releaseLoad() {
+  const c = state.cycles.find((x) => x.id === state.draft.id);
+  if (!c) return;
+  const e = equipOf(c.equipId);
+  if (!equipUsable(e)) return flash('That one has to be held, the ' + e.name + ' is not signed off today');
+  readParams(c);
+  c.ciExternal = 'pass'; c.ciInternal = 'pass'; c.dryIntact = true; c.printout = true;
+  c.status = 'released'; c.endedAt = Date.now(); c.releasedAt = Date.now(); c.releasedBy = me().name;
+  state.draft = null; state.detail = c.id; state.backTo = 'today'; state.screen = 'cycle';
+  flash(c.id + ' released. Batch number goes in the notes.');
+}
+
+function confirmHold() {
+  const c = state.cycles.find((x) => x.id === state.draft.id);
+  if (!c) return;
+  const r = state.holdReasons;
+  const noteEl = document.getElementById('holdNote');
+  const extra = noteEl ? noteEl.value.trim() : '';
+  readParams(c);
+  c.ciExternal = r.ciExternal ? 'fail' : 'pass';
+  c.ciInternal = r.ciInternal ? 'fail' : 'pass';
+  c.dryIntact = !(r.wet || r.seal);
+  c.printout = !r.printout;
+  c.status = 'held'; c.endedAt = Date.now(); c.releasedAt = Date.now(); c.releasedBy = me().name;
+
+  const e = equipOf(c.equipId);
+  const reasons = HOLD_REASONS.filter((x) => r[x.id] && x.id !== 'other').map((x) => x.text.toLowerCase());
+  if (!equipUsable(e)) reasons.push(validationDaysLeft(e) < 0 ? 'the ' + e.name + ' is out of validation' : 'the ' + e.name + ' failed its test today');
+  const ncNum = Math.max(0, ...state.ncs.map((x) => parseInt(x.id.slice(2), 10) || 0)) + 1;
+  const nc = {
+    id:'NC' + String(ncNum).padStart(3, '0'), cycleId:c.id, date:c.date,
+    raisedBy:me().name, raisedAt:Date.now(),
+    issue:(reasons.length ? sentence(reasons.join(', ')) : 'Held by whoever was on the bench.') + (extra ? ' ' + extra : ''),
+    immediate:'Load held and not used on anyone. Everything goes back through from the start.',
+    status:'open', corrective:'', closedBy:'', closedAt:null
+  };
+  state.ncs.push(nc); c.ncId = nc.id;
+  state.draft = null; state.holdReasons = {};
+  state.detail = c.id; state.backTo = 'today'; state.screen = 'cycle';
+  flash(c.id + ' held. Sandy will pick it up as ' + nc.id + '.');
+}
+function sentence(s) { return s.charAt(0).toUpperCase() + s.slice(1) + '.'; }
+
+function logCheck(checkId, equipId, result) {
   const def = CHECKS.find((c) => c.id === checkId);
-  flash(def.label + ' logged on ' + equipOf(equipId).name);
+  const e = equipOf(equipId);
+  state.checks.push({id:'chk' + state.checks.length, checkId, equipId, date:iso(TODAY),
+    result:result, by:me().name, at:Date.now()});
+  if (result === 'fail') {
+    const ncNum = Math.max(0, ...state.ncs.map((x) => parseInt(x.id.slice(2), 10) || 0)) + 1;
+    state.ncs.push({
+      id:'NC' + String(ncNum).padStart(3, '0'), cycleId:'n/a', date:iso(TODAY),
+      raisedBy:me().name, raisedAt:Date.now(),
+      issue:e.name + ' failed its ' + def.label.toLowerCase() + '.',
+      immediate:'Taken out of use. Nothing released off it until it passes.',
+      status:'open', corrective:'', closedBy:'', closedAt:null
+    });
+    flash(e.name + ' marked out of action. Sandy has been told.');
+  } else {
+    flash(def.label + ' done on the ' + e.name);
+  }
 }
 
 function downloadCsv() {
   const from = iso(addDays(TODAY, -state.rangeDays));
   const rows = state.cycles.filter((c) => c.date >= from).sort((a, b) => a.startedAt - b.startedAt);
-  const head = ['Batch ID', 'Date', 'Time', 'Steriliser', 'Serial', 'Programme', 'Load', 'Temp C', 'Pressure bar', 'Hold min',
-    'External CI', 'Internal CI', 'Dry and intact', 'Printout filed', 'Outcome', 'Logged by', 'Non-conformance'];
+  const head = ['Batch', 'Date', 'Time', 'Steriliser', 'Serial', 'Programme', 'What was in it', 'Temp C', 'Pressure bar',
+    'Hold min', 'Outside indicator', 'Inside indicator', 'Dry and sealed', 'Printout kept', 'Outcome', 'Who', 'Held load ref'];
   const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const lines = [head.map(q).join(',')];
   rows.forEach((c) => {
     const e = equipOf(c.equipId), p = progOf(c.prog);
     lines.push([c.id, fmtDate(c.date), fmtTime(c.startedAt), e.name, e.serial, p.label, loadSummary(c.items),
-      c.temp, c.pressure, c.hold, c.ciExternal, c.ciInternal, c.dryIntact ? 'Yes' : 'No', c.printout ? 'Yes' : 'No',
-      c.status, c.releasedBy || c.startedBy, c.ncId || ''].map(q).join(','));
+      c.temp, c.pressure, c.hold, c.ciExternal === 'pass' ? 'Pass' : 'Fail', c.ciInternal === 'pass' ? 'Pass' : 'Fail',
+      c.dryIntact ? 'Yes' : 'No', c.printout ? 'Yes' : 'No',
+      c.status === 'released' ? 'Released' : (c.status === 'held' ? 'Held' : 'Running'),
+      c.releasedBy || c.startedBy, c.ncId || ''].map(q).join(','));
   });
   const blob = new Blob(['﻿' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'sterilisation-cycle-log-' + iso(TODAY) + '.csv';
+  a.download = 'sterilising-loads-' + iso(TODAY) + '.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  flash('Cycle log downloaded');
+  flash('Load list downloaded');
 }
 
-/* ---- one delegated click handler ---- */
+/* ---- one click handler for the lot ---- */
 
 app.addEventListener('click', (ev) => {
-  const t = ev.target.closest('[data-act],[data-key],[data-set],[data-load],[data-cycle],[data-check],[data-nc],[data-range],[data-validate],[data-train],[data-go]');
+  const t = ev.target.closest('[data-act],[data-key],[data-set],[data-load],[data-qty],[data-cycle],[data-check],[data-nc],[data-range],[data-validate],[data-train],[data-go],[data-reason]');
   if (!t) return;
 
   if (t.dataset.key != null) {
@@ -1520,25 +1777,33 @@ app.addEventListener('click', (ev) => {
       const found = STAFF[state.pin];
       if (found) {
         state.who = state.pin; state.pin = ''; state.pinOpen = false;
-        render(); flash(found.name + ' signed in · ' + found.role);
+        render(); flash('Kia ora ' + found.name);
         return;
       }
-      state.pinErr = 'No one here uses that PIN'; state.pin = '';
+      state.pinErr = 'That PIN is not one of ours'; state.pin = '';
     }
     return render();
   }
-
   if (!state.who) return;
 
-  if (t.dataset.set) { state.draft[t.dataset.set] = t.dataset.val; return render(); }
+  if (t.dataset.set) { state.draft[t.dataset.set] = t.dataset.val; state.draft.touched = true; return render(); }
 
   if (t.dataset.load) {
-    const type = t.dataset.load;
-    const it = state.draft.items.find((x) => x.type === type);
-    if (it) { it.qty += 1; if (it.qty > 9) state.draft.items = state.draft.items.filter((x) => x.type !== type); }
-    else state.draft.items.push({type, qty:1});
-    const noteEl = document.getElementById('loadNote');
-    if (noteEl) state.draft.note = noteEl.value;
+    state.draft.items.push({type:t.dataset.load, qty:1});
+    state.draft.touched = true;
+    const n = document.getElementById('loadNote'); if (n) state.draft.note = n.value;
+    return render();
+  }
+  if (t.dataset.qty) {
+    const it = state.draft.items.find((x) => x.type === t.dataset.qty);
+    if (it) {
+      it.qty += (+t.dataset.dir);
+      if (it.qty <= 0) state.draft.items = state.draft.items.filter((x) => x.type !== t.dataset.qty);
+    }
+    return render();
+  }
+  if (t.dataset.reason) {
+    state.holdReasons[t.dataset.reason] = !state.holdReasons[t.dataset.reason];
     return render();
   }
 
@@ -1549,67 +1814,82 @@ app.addEventListener('click', (ev) => {
     else { state.detail = t.dataset.cycle; state.screen = 'cycle'; }
     return render();
   }
-
-  if (t.dataset.check) { logCheck(t.dataset.check, t.dataset.equip); return; }
+  if (t.dataset.check) { logCheck(t.dataset.check, t.dataset.equip, t.dataset.result); return; }
   if (t.dataset.nc) {
     if (state.screen === 'today' || state.screen === 'records') state.backTo = state.screen;
     state.ncDetail = t.dataset.nc; state.screen = 'nc'; return render();
   }
   if (t.dataset.range) { state.rangeDays = +t.dataset.range; return render(); }
-
   if (t.dataset.go) {
-    const map = {equipment:'equipment', checks:'today', ncs:'records', training:'equipment'};
-    state.screen = map[t.dataset.go] || 'today';
+    state.screen = {equipment:'equipment', checks:'today', ncs:'records', training:'equipment'}[t.dataset.go] || 'today';
     return render();
   }
-
   if (t.dataset.validate) {
-    if (!isManager()) return deny('Only Sandy records validation dates');
+    if (!isManager()) return flash('Sandy looks after validation dates');
     const el = document.getElementById('val-' + t.dataset.validate);
     const e = state.equipment.find((x) => x.id === t.dataset.validate);
-    if (el && el.value) { e.validated = el.value; e.serviced = el.value; flash(e.name + ' validation recorded'); }
+    if (el && el.value) { e.validated = el.value; e.serviced = el.value; flash(e.name + ' validation logged'); }
     return;
   }
-
   if (t.dataset.train) {
-    if (!isManager()) return deny('Only Sandy updates the training register');
+    if (!isManager()) return flash('Sandy looks after the training list');
     const rec = state.training.find((x) => x.name === t.dataset.train);
     rec.done = iso(TODAY);
-    flash(rec.name + ' IPC training logged for today');
+    flash(rec.name + ' training logged for today');
     return;
   }
 
   const act = t.dataset.act;
   if (act === 'pin') { state.pinOpen = true; state.pin = ''; state.pinErr = ''; return render(); }
   if (act === 'closePin') { state.pinOpen = false; return render(); }
-  if (act === 'about') { state.screen = 'about'; return render(); }
+  if (act === 'about') { state.backTo = state.screen; state.screen = 'about'; return render(); }
   if (act === 'home' || act === 'today') { state.draft = null; state.screen = 'today'; return render(); }
   if (act === 'records') { state.screen = 'records'; return render(); }
   if (act === 'equipment') { state.screen = 'equipment'; return render(); }
   if (act === 'back') { state.screen = state.backTo || 'today'; return render(); }
-  if (act === 'newCycle') { startDraft(); return render(); }
+  if (act === 'newCycle') { startDraft(null); return render(); }
+  if (act === 'repeatLast') { startDraft(lastFinished()); return render(); }
   if (act === 'startCycle') return commitStart();
-  if (act === 'release') return finishCycle('release');
-  if (act === 'quarantine') return finishCycle('quarantine');
+  if (act === 'release') return releaseLoad();
+  if (act === 'toHold') { readParams(state.draft); state.draft.stage = 'hold'; return render(); }
+  if (act === 'backToRelease') { state.draft.stage = 'release'; return render(); }
+  if (act === 'confirmHold') return confirmHold();
   if (act === 'auditPack') { state.screen = 'audit'; return render(); }
   if (act === 'print') { window.print(); return; }
   if (act === 'csv') return downloadCsv();
   if (act === 'closeNc') {
-    if (!isManager()) return deny('Only Sandy closes a non-conformance');
+    if (!isManager()) return flash('Sandy signs these off');
     const el = document.getElementById('ncFix');
     const text = el ? el.value.trim() : '';
-    if (text.length < 10) return flash('Write what was done about it first');
+    if (text.length < 10) return flash('Write down what was done about it first');
     const n = state.ncs.find((x) => x.id === state.ncDetail);
     n.corrective = text; n.status = 'closed'; n.closedBy = me().name; n.closedAt = Date.now();
-    flash(n.id + ' closed');
+    flash(n.id + ' signed off');
     return;
   }
-  if (act === 'undo') { state.toast = null; state.undo = null; return render(); }
 });
 
 app.addEventListener('change', (ev) => {
   if (ev.target.id === 'fEquip') { state.filterEquip = ev.target.value; render(); }
 });
+app.addEventListener('toggle', (ev) => {
+  if (ev.target.tagName === 'DETAILS' && state.screen === 'log') state.showDetail = ev.target.open;
+}, true);
+
+// Tick the countdown on its own rather than redrawing the screen, so nothing
+// jumps under your finger while a load is running.
+setInterval(() => {
+  if (state.screen !== 'today') return;
+  let flipped = false;
+  runningCycles().forEach((c) => {
+    const el = document.querySelector('[data-clock="' + c.id + '"]');
+    if (!el) return;
+    const left = minsLeft(c);
+    if (left <= 0 && !el.closest('.hero').classList.contains('ready')) flipped = true;
+    el.textContent = left > 0 ? left + ' min to go' : 'Ready now';
+  });
+  if (flipped) render();
+}, 15000);
 
 render();
 
