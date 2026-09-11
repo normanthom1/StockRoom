@@ -3,6 +3,7 @@ Django settings for stockroom project.
 """
 
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -117,6 +118,11 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+if "test" in sys.argv:
+    # Real password hashing is deliberately slow; tests create a lot of users.
+    # https://docs.djangoproject.com/en/stable/topics/testing/overview/#password-hashing
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 
 # Internationalization

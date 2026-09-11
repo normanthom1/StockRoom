@@ -55,3 +55,38 @@ class SignupForm(forms.Form):
             organisation=org,
             role=User.Role.ADMIN,
         )
+
+
+class InviteForm(forms.Form):
+    email = forms.EmailField(label="Their email", widget=forms.EmailInput(attrs={"autocomplete": "email"}))
+    role = forms.ChoiceField(label="Role", choices=User.Role.choices, initial=User.Role.ASSISTANT, widget=forms.RadioSelect)
+
+    def clean_email(self):
+        email = self.cleaned_data["email"]
+        if User.objects.filter(email__iexact=email).exists():
+            raise ValidationError("Someone already uses that email address.")
+        return email
+
+
+class AcceptInviteForm(forms.Form):
+    """The invite token already fixes the email, org and role; this is just
+    the two things only the invitee can supply."""
+
+    name = forms.CharField(
+        label="Your name", max_length=150, widget=forms.TextInput(attrs={"autofocus": True, "autocomplete": "name"})
+    )
+    password = forms.CharField(
+        label="Password",
+        strip=False,
+        help_text="At least 8 characters, and not a common password.",
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+
+    def __init__(self, *args, email, **kwargs):
+        self.email = email
+        super().__init__(*args, **kwargs)
+
+    def clean_password(self):
+        password = self.cleaned_data["password"]
+        validate_password(password, User(email=self.email, name=self.cleaned_data.get("name", "")))
+        return password
