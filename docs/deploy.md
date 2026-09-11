@@ -17,13 +17,19 @@
 
 ## Email
 
-There's no email provider yet (see [#13](https://github.com/normanthom1/StockRoom/issues/13)), so email is printed to stdout as plain text, which on Railway means the deploy logs. To fetch a password reset link someone asked for:
+There's no email provider, by design (see [#13](https://github.com/normanthom1/StockRoom/issues/13)). Team invites and password resets for a teammate go out as `mailto:` links: an admin clicks one, their own mail client opens pre-filled, and they send it from their own account. Nothing on Railway needs to send that mail (and its Hobby plan blocks outbound SMTP anyway, so a real provider would need an HTTPS API such as Resend rather than SMTP settings — reopen #13 if that's ever needed).
+
+The one thing `mailto:` can't do is the self-service **"Forgotten your password?"** link, since whoever's locked out isn't logged in to click anything. That link is printed to stdout as plain text, which on Railway means the deploy logs. To fetch one:
 
 ```bash
 railway logs --service StockRoom --deployment --lines 1000 | grep -A 12 "Subject: Reset your StockRoom password"
 ```
 
-Railway's Hobby plan blocks outbound SMTP, so a real provider will need an HTTPS API (e.g. Resend via django-anymail), not SMTP settings.
+If a practice's only admin is the one who's locked out, they contact you and you set their password directly instead:
+
+```bash
+railway ssh --service StockRoom -- python manage.py changepassword someone@example.com
+```
 
 ## Healthcheck
 

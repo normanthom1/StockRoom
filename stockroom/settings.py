@@ -99,9 +99,11 @@ SESSION_COOKIE_AGE = 60 * 60 * 24 * 60  # 60 days
 # Off on the public demo, so visitors use the demo practice instead of making their own.
 SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", True)
 
-# No email provider yet (#13): mail is written to stdout, which is Railway's
-# logs in production. A real provider will be an HTTPS API, because Railway's
-# Hobby plan blocks outbound SMTP.
+# Deliberately no provider (#13): invites and password resets for a team
+# member go out as mailto: links an admin sends from their own inbox
+# (accounts.mailto). The one thing that can't cover, a signed self-service
+# password reset link with nobody logged in to send it, prints to stdout,
+# which is Railway's logs in production, and stays a manual last resort.
 MAILERS = {"default": {"BACKEND": "stockroom.mail.ReadableConsoleBackend"}}
 DEFAULT_FROM_EMAIL = "StockRoom <no-reply@stockroom.invalid>"
 
