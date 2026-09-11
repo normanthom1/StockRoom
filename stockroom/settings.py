@@ -90,6 +90,21 @@ DATABASES = {
 
 AUTH_USER_MODEL = "accounts.User"
 
+LOGIN_REDIRECT_URL = "stock:home"
+LOGOUT_REDIRECT_URL = "login"
+
+# Staff log in on their phones once and stay logged in.
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 60  # 60 days
+
+# Off on the public demo, so visitors use the demo practice instead of making their own.
+SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", True)
+
+# No email provider yet (#13): mail is written to stdout, which is Railway's
+# logs in production. A real provider will be an HTTPS API, because Railway's
+# Hobby plan blocks outbound SMTP.
+MAILERS = {"default": {"BACKEND": "stockroom.mail.ReadableConsoleBackend"}}
+DEFAULT_FROM_EMAIL = "StockRoom <no-reply@stockroom.invalid>"
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators

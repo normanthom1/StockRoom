@@ -1,0 +1,14 @@
+{% extends "registration/auth_base.html" %}
+
+{% block title %}Set up your practice · StockRoom{% endblock %}
+{% block heading %}Set up your practice{% endblock %}
+
+{% block body %}
+<p class="text-gray-700">You'll be the practice manager. You can add your team once you're in.</p>
+<form method="post" class="mt-6 space-y-4">
+  {% csrf_token %}
+  {{ form }}
+  <button type="submit" class="btn-primary">Create account</button>
+</form>
+<p class="mt-6 text-center">Already use StockRoom? <a class="link" href="{% url 'login' %}">Log in</a></p>
+{% endblock %}

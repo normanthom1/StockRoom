@@ -6,3 +6,21 @@ class HealthzTest(TestCase):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"ok")
+
+
+class ReadableConsoleEmailTest(TestCase):
+    def test_long_links_are_printed_whole(self):
+        # The reason this backend exists: stock console output wraps at 76
+        # characters with '=' breaks, which splits a reset link in two.
+        from io import StringIO
+
+        from django.core.mail import EmailMessage
+
+        from .mail import ReadableConsoleBackend
+
+        link = "https://stockroom-production-1adf.up.railway.app/accounts/reset/MQ/derlav-4994933fb525d9d5128f69a43e766b1a/"
+        stream = StringIO()
+        ReadableConsoleBackend(stream=stream).send_messages(
+            [EmailMessage("Reset your StockRoom password", f"Set a new one here:\n\n{link}\n", to=["sandy@kowhai.test"])]
+        )
+        self.assertIn(link, stream.getvalue())

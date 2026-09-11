@@ -21,6 +21,25 @@
     {% endfor %}
   </div>
 
+  {% if user.is_authenticated %}
+    {# Placeholder until the app shell (#18). #}
+    <header class="border-b border-gray-200 bg-white">
+      <div class="mx-auto flex max-w-md items-center justify-between gap-3 px-4 py-1">
+        <div class="min-w-0">
+          <p class="truncate font-semibold text-primary-dark">{{ user.organisation|default:"StockRoom" }}</p>
+          <p class="truncate text-sm text-gray-600">{{ user.name|default:user.email }}</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <a class="link px-2 text-sm" href="{% url 'password_change' %}">Password</a>
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">Log out</button>
+          </form>
+        </div>
+      </div>
+    </header>
+  {% endif %}
+
   <main class="mx-auto max-w-md p-4">
     {% block content %}{% endblock %}
   </main>
