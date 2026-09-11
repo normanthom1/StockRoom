@@ -18,7 +18,7 @@ from django.urls import path, reverse
 
 from accounts.decorators import admin_required
 from accounts.models import Organisation, User
-from stock.models import Item, Supplier
+from stock.models import Item, StockEvent, Supplier
 
 
 class Case(NamedTuple):
@@ -39,12 +39,24 @@ def make_item(org):
     return Item.objects.create(organisation=org, name=f"Item {Item.objects.count()}", unit="box", supplier=supplier)
 
 
+def make_stock_event(org):
+    """A stock event in org, for Cases that need some existing event's pk."""
+    item = make_item(org)
+    user = User.objects.create_user(f"eventuser-{User.objects.count()}@{org.slug}.test", "pw", organisation=org)
+    return StockEvent.objects.create(organisation=org, item=item, user=user, kind="low")
+
+
 # Objects a practice owns. Another practice's user gets a 404 for each.
 ORG_OBJECT_URLS: list[Case] = [
     Case("team_role", make=make_member, method="post"),
     Case("team_set_active", make=make_member, method="post"),
     Case("team_reset_link", make=make_member, method="post"),
     Case("stock:item_detail", make=make_item),
+    Case("stock:log_usage_sheet", make=make_item),
+    Case("stock:log_used_one", make=make_item, method="post"),
+    Case("stock:log_running_low", make=make_item, method="post"),
+    Case("stock:log_used_last", make=make_item, method="post"),
+    Case("stock:log_undo", make=make_stock_event, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -66,6 +78,7 @@ ASSISTANT_PAGES: list[Case] = [
     Case("stock:reorder_list"),
     Case("stock:deliveries"),
     Case("stock:item_detail", make=make_item),
+    Case("stock:log_usage_sheet", make=make_item),
 ]
 
 PRICE = re.compile(r"\$\s?\d")  # "$8.50", "$ 1,489.20"

@@ -9,7 +9,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 17 | Demo organisation seed command | done |
 | 18 | App shell: nav, toast, bottom sheet | done |
 | 19 | Home: what to order today | done |
-| 20 | Log usage: search, quick taps, undo | todo |
+| 20 | Log usage: search, quick taps, undo | done |
 | 21 | Item detail: forecast + usage chart | todo |
 | 22 | Stocktake: record shelf counts | todo |
 | 23 | Supplier management | todo |
@@ -57,6 +57,19 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   CSRF/HTMX wiring - is now done by real views); kept `demo_toast`/`demo_sheet`
   from #18 but detached their fragment from home.html into their own
   `stock/templates/stock/demo_sheet.html`.
+- Issue 20's "redirect then toast" pattern (used by any action that should
+  land back on another page, not swap in place): create the StockEvent, call
+  `messages.success(request, text, extra_tags=undo_url)`, then respond with
+  `HttpResponse(status=200)` plus an `HX-Redirect` header set to the target
+  URL. base.html's static Django-messages loop already renders an Undo button
+  when `message.extra_tags` is set (plain `hx-post`, no Alpine needed since
+  it's server-rendered HTML htmx auto-processes on load - only *dynamically*
+  inserted nodes, like the Alpine `x-for` toast list, need `htmx.ajax(...)`
+  instead of `hx-post`). Reuse this for #22/#25/#26's own undo-within-window
+  actions rather than reinventing it.
+- `_org_items(org)` / `_forecast_for(item, now)` in stock/views.py are the
+  shared per-item forecast helpers home and log-usage both use - reuse them
+  for #21/#22/#25 rather than re-querying events/order_lines per item.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
