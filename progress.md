@@ -10,7 +10,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 18 | App shell: nav, toast, bottom sheet | done |
 | 19 | Home: what to order today | done |
 | 20 | Log usage: search, quick taps, undo | done |
-| 21 | Item detail: forecast + usage chart | todo |
+| 21 | Item detail: forecast + usage chart | done |
 | 22 | Stocktake: record shelf counts | todo |
 | 23 | Supplier management | todo |
 | 24 | Item management and CSV import | todo |
@@ -69,7 +69,25 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   actions rather than reinventing it.
 - `_org_items(org)` / `_forecast_for(item, now)` in stock/views.py are the
   shared per-item forecast helpers home and log-usage both use - reuse them
-  for #21/#22/#25 rather than re-querying events/order_lines per item.
+  for #22/#25 rather than re-querying events/order_lines per item.
+- Issue 21 added `stock/chart.py` (`usage_chart_svg`) - server-rendered inline
+  SVG bar chart, no JS library. Excluded weeks render with a diagonal hatch
+  fill (`url(#excluded-week-hatch)`), not just faded opacity - matches the
+  issue's literal wording, check for it by string if a future issue needs to
+  assert the chart flags a week.
+- `forecast.weekly_consumption` now takes an optional `window_weeks` (default
+  8, same as before); `forecast.drop_outliers` is now built on a new
+  `forecast.outlier_mask(weeks) -> list[bool]`, which is what the chart uses
+  to know *which* weeks to hatch (drop_outliers alone only gives a count).
+  Both are newest-first like weekly_consumption; reverse before charting.
+- `stock/humanize.py` also gained `build_sentence`, `build_caveat`,
+  `format_rate_sentence`, `CONFIDENCE_LABEL` - the item detail page's copy.
+  Reuse for #25/#27 rather than re-deriving forecast copy.
+- Added `Item.pinned_to_reorder_at` toggle (`stock:item_toggle_reorder`) and
+  price/order_size inline edit forms on item detail - #24's item edit form and
+  #25's reorder list both build on the same `pinned_to_reorder_at` field.
+- `stock:item_count_sheet` is a "coming soon" stub sheet for #22 to replace
+  (same incremental pattern as #18's stubs).
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

@@ -108,20 +108,21 @@ def on_hand(events) -> int | None:
     return max(0, (base or 0) + received - used)
 
 
-def weekly_consumption(events, now: datetime) -> list[float]:
-    """Consumption in each of the last 8 weeks, newest first, each scaled to 7 days.
+def weekly_consumption(events, now: datetime, window_weeks: int = WINDOW_WEEKS) -> list[float]:
+    """Consumption in each of the last `window_weeks` weeks, newest first, each scaled to 7 days.
 
     Weeks go back no further than the first event, and the oldest can be a
     partial week. Between two stocktakes, consumption = count1 + received - count2
     (floored at 0), spread evenly over the time between them. Outside the
     first-to-last stocktake span, "used" taps are the consumption. Taps inside it
     are ignored, because people only tap some of the time and the counts are the
-    truth.
+    truth. `window_weeks` defaults to the forecast's own averaging window; the
+    item detail chart asks for a longer one (12 weeks) purely for display.
     """
     if not events:
         return []
     start = events[0].created_at
-    n = min(WINDOW_WEEKS, math.ceil((now - start) / WEEK))
+    n = min(window_weeks, math.ceil((now - start) / WEEK))
     if n == 0:
         return []
 
@@ -148,23 +149,27 @@ def weekly_consumption(events, now: datetime) -> list[float]:
     return weeks
 
 
-def drop_outliers(weeks: list[float]) -> tuple[list[float], int]:
-    """Leave out weeks above 2.5x the window median. Returns (kept weeks, number left out).
-
-    Two or more high weeks in a row are the new normal and are kept. Nothing is
-    left out when the median is 0 (e.g. sparse taps), since every week would
-    count as high.
+def outlier_mask(weeks: list[float]) -> list[bool]:
+    """True for each week left out of the average: more than 2.5x the window
+    median, unless a neighbouring week is high too (two or more high weeks in
+    a row are the new normal, not an outlier). Nothing is flagged when the
+    median is 0 (e.g. sparse taps), since every week would count as high.
     """
     limit = OUTLIER_FACTOR * median(weeks) if weeks else 0
     if limit <= 0:
-        return weeks, 0
+        return [False] * len(weeks)
     high = [w > limit for w in weeks]
-    kept = [
-        w
-        for i, w in enumerate(weeks)
-        if not high[i] or (i > 0 and high[i - 1]) or (i + 1 < len(weeks) and high[i + 1])
+    return [
+        high[i] and not (i > 0 and high[i - 1]) and not (i + 1 < len(weeks) and high[i + 1])
+        for i in range(len(weeks))
     ]
-    return kept, len(weeks) - len(kept)
+
+
+def drop_outliers(weeks: list[float]) -> tuple[list[float], int]:
+    """Leave out weeks flagged by outlier_mask. Returns (kept weeks, number left out)."""
+    mask = outlier_mask(weeks)
+    kept = [w for w, excluded in zip(weeks, mask) if not excluded]
+    return kept, sum(mask)
 
 
 def days_left(stock: int | None, weekly_usage: float, events) -> float | None:
