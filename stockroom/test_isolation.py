@@ -27,11 +27,26 @@ class Case(NamedTuple):
     method: str = "get"
 
 
+def make_member(org):
+    """A plain assistant in org, for Cases that need some existing user's pk."""
+    return User.objects.create_user(f"member-{User.objects.count()}@{org.slug}.test", "pw", organisation=org)
+
+
 # Objects a practice owns. Another practice's user gets a 404 for each.
-ORG_OBJECT_URLS: list[Case] = []
+ORG_OBJECT_URLS: list[Case] = [
+    Case("team_role", make=make_member, method="post"),
+    Case("team_set_active", make=make_member, method="post"),
+    Case("team_reset_link", make=make_member, method="post"),
+]
 
 # Manager-only views. Assistants get a 403 for each.
-ADMIN_ONLY_URLS: list[Case] = []
+ADMIN_ONLY_URLS: list[Case] = [
+    Case("team"),
+    Case("team_invite", method="post"),
+    Case("team_role", make=make_member, method="post"),
+    Case("team_set_active", make=make_member, method="post"),
+    Case("team_reset_link", make=make_member, method="post"),
+]
 
 # Pages an assistant can open. None of them may show a price.
 ASSISTANT_PAGES: list[Case] = [

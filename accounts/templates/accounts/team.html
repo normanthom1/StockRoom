@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Team · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-4 text-2xl font-bold text-primary">Team</h1>
+
+<section class="mb-8">
+  <h2 class="mb-2 text-lg font-semibold">Invite someone</h2>
+  <form method="post" action="{% url 'team_invite' %}" class="space-y-4">
+    {% csrf_token %}
+    {{ invite_form }}
+    <button type="submit" class="btn-primary">Create invite link</button>
+  </form>
+</section>
+
+<section>
+  <h2 class="mb-2 text-lg font-semibold">Staff</h2>
+  <ul class="divide-y divide-gray-200">
+    {% for member in members %}
+      <li class="py-4">
+        <p class="font-medium">
+          {{ member.name|default:member.email }}{% if member == request.user %} (you){% endif %}
+        </p>
+        <p class="mb-3 text-sm text-gray-600">
+          {{ member.email }} ·
+          {% if member.is_active %}{{ member.get_role_display }}{% else %}<span class="text-status-out">Deactivated</span>{% endif %}
+        </p>
+
+        {% if member.is_active %}
+          <div class="flex flex-wrap gap-2">
+            <form method="post" action="{% url 'team_role' member.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="role" value="{% if member.role == 'admin' %}assistant{% else %}admin{% endif %}">
+              <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">
+                {% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}
+              </button>
+            </form>
+            <form method="post" action="{% url 'team_reset_link' member.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">
+                Password reset link
+              </button>
+            </form>
+            {% if member != request.user %}
+              <form method="post" action="{% url 'team_set_active' member.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="active" value="0">
+                <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-status-now">
+                  Deactivate
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        {% else %}
+          <form method="post" action="{% url 'team_set_active' member.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="active" value="1">
+            <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">
+              Reactivate
+            </button>
+          </form>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}
