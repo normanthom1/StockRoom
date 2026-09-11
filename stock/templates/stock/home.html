@@ -34,4 +34,20 @@
     </button>
   </form>
 </section>
+
+<section class="mb-6 flex flex-col gap-2">
+  <button type="button" class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary-dark"
+          hx-post="{% url 'stock:demo_toast' %}" hx-swap="none" hx-disabled-elt="this">
+    Show a toast with undo
+  </button>
+  <button type="button" class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary-dark"
+          hx-get="{% url 'stock:demo_sheet' %}" hx-target="#sheet-content" hx-swap="innerHTML">
+    Open the bottom sheet
+  </button>
+</section>
+{% partialdef demo_sheet inline %}
+<p class="mb-3 text-sm text-gray-700">This is the shared bottom sheet, used for capture, stocktake and receiving.</p>
+<button type="button" class="tap-target w-full rounded-lg bg-primary px-4 font-medium text-white"
+        onclick="document.getElementById('sheet').close()">Close</button>
+{% endpartialdef %}
 {% endblock %}

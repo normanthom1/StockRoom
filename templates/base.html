@@ -10,7 +10,8 @@
 <body class="min-h-screen bg-app-bg text-gray-900"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
-  <div id="toast-slot" class="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center gap-2 p-3"
+  <div id="toast-slot" x-data="toastHub()" @toast.window="add($event.detail)"
+       class="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center gap-2 p-3"
        aria-live="polite">
     {% for message in messages %}
       <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 6000)"
@@ -19,34 +20,123 @@
         <button type="button" class="tap-target text-white/70" @click="show = false" aria-label="Dismiss">&times;</button>
       </div>
     {% endfor %}
+    <template x-for="item in items" :key="item.id">
+      <div class="tap-target pointer-events-auto flex items-center gap-3 rounded-lg bg-gray-900 px-4 text-white shadow-lg">
+        <span x-text="item.message"></span>
+        <button type="button" x-show="item.undoUrl" class="tap-target font-semibold text-white underline" @click="undo(item)">Undo</button>
+        <button type="button" class="tap-target text-white/70" @click="remove(item.id)" aria-label="Dismiss">&times;</button>
+      </div>
+    </template>
   </div>
 
   {% if user.is_authenticated %}
-    {# Placeholder until the app shell (#18). #}
-    <header class="border-b border-gray-200 bg-white">
-      <div class="mx-auto flex max-w-md items-center justify-between gap-3 px-4 py-1">
-        <div class="min-w-0">
+    <header class="sticky top-0 z-30 border-b border-gray-200 bg-white">
+      <div class="mx-auto flex max-w-md items-center gap-3 px-4 py-1">
+        <button type="button" class="tap-target shrink-0 rounded-full border-2 border-primary text-sm font-bold text-primary-dark"
+                onclick="document.getElementById('about').showModal()" aria-label="About StockRoom">i</button>
+        <div class="min-w-0 flex-1">
           <p class="truncate font-semibold text-primary-dark">{{ user.organisation|default:"StockRoom" }}</p>
-          <p class="truncate text-sm text-gray-600">{{ user.name|default:user.email }}</p>
+          <p class="truncate text-sm text-gray-600">{{ user.name|default:user.email }} &middot; {{ user.get_role_display }}</p>
         </div>
-        <div class="flex shrink-0 items-center gap-2">
-          {% if user.is_org_admin %}
-            <a class="link px-2 text-sm" href="{% url 'team' %}">Team</a>
-          {% endif %}
-          <a class="link px-2 text-sm" href="{% url 'password_change' %}">Password</a>
-          <form method="post" action="{% url 'logout' %}">
-            {% csrf_token %}
-            <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">Log out</button>
-          </form>
-        </div>
+        <a class="link shrink-0 px-2 text-sm" href="{% url 'password_change' %}">Password</a>
+        <form method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="tap-target shrink-0 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">Log out</button>
+        </form>
       </div>
     </header>
+
+    <dialog id="about" class="w-[min(90vw,32rem)] rounded-lg p-0 backdrop:bg-gray-900/50"
+            onclick="if (event.target === this) this.close()">
+      <div class="max-h-[85vh] overflow-y-auto p-5">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-lg font-bold text-primary-dark">About StockRoom</h2>
+          <button type="button" class="tap-target rounded-lg border border-gray-300 px-3 text-sm font-medium"
+                  onclick="document.getElementById('about').close()">Close</button>
+        </div>
+        <div class="space-y-4 text-sm leading-relaxed text-gray-800">
+          <p>StockRoom is the practice's shared stock list. Instead of a monthly stocktake, it's kept up to date by whoever's actually using the supplies, so the picture of what's on the shelf is always current.</p>
+          <div>
+            <p class="mb-1 font-semibold text-primary-dark">How it works</p>
+            <p>Assistants log an item as soon as they use it, no counting sheets, no forms to fill in. StockRoom watches each item's usage rate and tells you when it's likely to run out, rather than waiting for someone to notice a gap on the shelf. The manager then works from a single reorder list grouped by supplier, calls or emails them in a tap, and ticks items off once they're ordered.</p>
+          </div>
+          <div>
+            <p class="mb-1 font-semibold text-primary-dark">Why it's worth using</p>
+            <p>It catches items before they run out instead of after, saves the team from doing mental maths or keeping a whiteboard tally, and gives a rough sense of what the practice spends on supplies without anyone having to dig through invoices.</p>
+          </div>
+          <div>
+            <p class="mb-1 font-semibold text-primary-dark">Roles</p>
+            <p>Dental assistants can log what they've used and flag an item as running low, and that's about all &mdash; no prices, no supplier calls, no admin screens to wade through, so it stays quick to use with gloves on between patients. Practice managers and owners can do everything assistants can, plus order stock, call or email suppliers, add and edit items, update counts and prices, edit suppliers and their delivery times, and see the Spending page.</p>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="sheet" class="w-[min(90vw,32rem)] rounded-t-2xl rounded-b-none p-0 backdrop:bg-gray-900/50 sm:rounded-b-2xl"
+            style="position:fixed;top:auto;bottom:0;left:0;right:0;margin:0 auto"
+            onclick="if (event.target === this) this.close()">
+      <div id="sheet-content" class="max-h-[80vh] overflow-y-auto p-4"></div>
+    </dialog>
   {% endif %}
 
-  <main class="mx-auto max-w-md p-4">
+  <main class="mx-auto max-w-md p-4 {% if user.is_authenticated %}pb-24{% endif %}">
     {% block content %}{% endblock %}
   </main>
 
+  {% if user.is_authenticated %}
+    <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]"
+         {% if user.is_org_admin %}x-data="{ more: false }"{% endif %}>
+      <div class="mx-auto flex max-w-md gap-1 px-1">
+        {% url 'stock:home' as url_home %}
+        {% url 'stock:log_usage' as url_log_usage %}
+        {% url 'stock:reorder_list' as url_reorder_list %}
+        {% url 'stock:deliveries' as url_deliveries %}
+        <a href="{{ url_home }}" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium {% if request.path == url_home %}text-primary-dark{% else %}text-gray-500{% endif %}">Home</a>
+        <a href="{{ url_log_usage }}" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium {% if request.path == url_log_usage %}text-primary-dark{% else %}text-gray-500{% endif %}">Log usage</a>
+        <a href="{{ url_reorder_list }}" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium {% if request.path == url_reorder_list %}text-primary-dark{% else %}text-gray-500{% endif %}">Reorder list</a>
+        <a href="{{ url_deliveries }}" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium {% if request.path == url_deliveries %}text-primary-dark{% else %}text-gray-500{% endif %}">Deliveries</a>
+        {% if user.is_org_admin %}
+          <div class="relative flex min-w-0 flex-1">
+            <button type="button" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium text-gray-500"
+                    @click="more = !more" @click.outside="more = false" :class="more && 'text-primary-dark'">
+              More
+            </button>
+            <div x-show="more" x-cloak class="absolute bottom-full right-0 mb-2 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+              <a href="{% url 'stock:items' %}" class="tap-target flex items-center px-4 text-sm text-gray-800">Stock</a>
+              <a href="{% url 'stock:suppliers' %}" class="tap-target flex items-center px-4 text-sm text-gray-800">Suppliers</a>
+              <a href="{% url 'stock:spending' %}" class="tap-target flex items-center px-4 text-sm text-gray-800">Spending</a>
+              <a href="{% url 'team' %}" class="tap-target flex items-center px-4 text-sm text-gray-800">Team</a>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </nav>
+  {% endif %}
+
   <script src="{% static 'vendor/alpine.min.js' %}" defer></script>
+  <script>
+    function toastHub() {
+      return {
+        items: [],
+        add(detail) {
+          const id = Date.now() + Math.random();
+          this.items.push({ id, message: detail.message, undoUrl: detail.undo_url || null });
+          setTimeout(() => this.remove(id), 6000);
+        },
+        remove(id) {
+          this.items = this.items.filter((item) => item.id !== id);
+        },
+        async undo(item) {
+          // htmx.ajax (not a plain fetch) so the response's own HX-Trigger
+          // toast - e.g. confirming the undo - fires normally.
+          await htmx.ajax("POST", item.undoUrl, { swap: "none" });
+          this.remove(item.id);
+        },
+      };
+    }
+    document.body.addEventListener("htmx:afterSwap", (event) => {
+      if (event.target.id === "sheet-content") document.getElementById("sheet").showModal();
+    });
+  </script>
 </body>
 </html>

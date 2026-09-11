@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import timedelta
 
@@ -105,3 +106,46 @@ class HomeSmokeTest(TestCase):
 
         response = csrf_client.post("/bump/", HTTP_X_CSRFTOKEN=token)
         self.assertContains(response, '<span id="counter">2</span>')
+
+
+class AppShellTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        org = Organisation.objects.create(name="Test Dental")
+        cls.admin = User.objects.create_user("sandy@example.com", "pw", organisation=org, role=User.Role.ADMIN)
+        cls.assistant = User.objects.create_user("liz@example.com", "pw", organisation=org)
+
+    def test_assistant_nav_has_no_admin_only_links(self):
+        self.client.force_login(self.assistant)
+        response = self.client.get("/")
+        content = response.content.decode()
+        for label in ["Home", "Log usage", "Reorder list", "Deliveries"]:
+            self.assertContains(response, label)
+        self.assertNotIn("more = !more", content)
+        self.assertNotIn("/items/", content)
+        self.assertNotIn("/suppliers/", content)
+        self.assertNotIn("/spending/", content)
+
+    def test_admin_nav_has_the_overflow_menu(self):
+        self.client.force_login(self.admin)
+        response = self.client.get("/")
+        self.assertContains(response, "More")
+        self.assertContains(response, 'href="/items/"')
+        self.assertContains(response, 'href="/suppliers/"')
+        self.assertContains(response, 'href="/spending/"')
+        self.assertContains(response, 'href="/accounts/team/"')
+
+    def test_demo_toast_sets_the_hx_trigger_header(self):
+        self.client.force_login(self.assistant)
+        response = self.client.post("/demo/toast/")
+        self.assertEqual(response.status_code, 204)
+        payload = json.loads(response["HX-Trigger"])
+        self.assertEqual(payload["toast"]["message"], "Logged: running low on gloves")
+        self.assertTrue(payload["toast"]["undo_url"])
+
+    def test_demo_sheet_returns_a_fragment_for_the_shared_sheet(self):
+        self.client.force_login(self.assistant)
+        response = self.client.get("/demo/sheet/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "shared bottom sheet")
+        self.assertNotContains(response, "<html")

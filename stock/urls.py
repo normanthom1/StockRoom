@@ -6,6 +6,15 @@ app_name = "stock"
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("log-usage/", views.log_usage, name="log_usage"),
+    path("reorder/", views.reorder_list, name="reorder_list"),
+    path("deliveries/", views.deliveries, name="deliveries"),
+    path("items/", views.items, name="items"),
+    path("suppliers/", views.suppliers, name="suppliers"),
+    path("spending/", views.spending, name="spending"),
+    path("demo/sheet/", views.demo_sheet, name="demo_sheet"),
+    path("demo/toast/", views.demo_toast, name="demo_toast"),
+    path("demo/undo/", views.demo_undo, name="demo_undo"),
     path("ping/", views.ping, name="ping"),
     path("bump/", views.bump, name="bump"),
 ]

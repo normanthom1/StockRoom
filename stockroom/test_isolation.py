@@ -46,11 +46,17 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("team_role", make=make_member, method="post"),
     Case("team_set_active", make=make_member, method="post"),
     Case("team_reset_link", make=make_member, method="post"),
+    Case("stock:items"),
+    Case("stock:suppliers"),
+    Case("stock:spending"),
 ]
 
 # Pages an assistant can open. None of them may show a price.
 ASSISTANT_PAGES: list[Case] = [
     Case("stock:home"),
+    Case("stock:log_usage"),
+    Case("stock:reorder_list"),
+    Case("stock:deliveries"),
 ]
 
 PRICE = re.compile(r"\$\s?\d")  # "$8.50", "$ 1,489.20"
