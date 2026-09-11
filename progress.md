@@ -11,7 +11,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 19 | Home: what to order today | done |
 | 20 | Log usage: search, quick taps, undo | done |
 | 21 | Item detail: forecast + usage chart | done |
-| 22 | Stocktake: record shelf counts | todo |
+| 22 | Stocktake: record shelf counts | done |
 | 23 | Supplier management | todo |
 | 24 | Item management and CSV import | todo |
 | 25 | Reorder list and placing orders | todo |
@@ -88,6 +88,21 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   #25's reorder list both build on the same `pinned_to_reorder_at` field.
 - `stock:item_count_sheet` is a "coming soon" stub sheet for #22 to replace
   (same incremental pattern as #18's stubs).
+- Issue 22 replaced that stub with the real count sheet, and gave `stock:items`
+  (the "Stock" admin page, still otherwise a stub for #24) a real "Start a
+  full stocktake" entry point at `stock/stock_page.html` - #24 should keep
+  that button when it builds out the full item list on the same page/URL.
+  A quick "Count" button was also added to home's "other items" fine-rows
+  list (admin only), opening the same shared sheet.
+  `stock/templates/stock/coming_soon_sheet.html` (the #21 stub) is deleted -
+  no longer referenced anywhere.
+- Full stocktake mode (`stock:stocktake_step`/`stocktake_save`) tracks
+  progress in `request.session["stocktake"]` (`{item_ids, index}`) rather than
+  a DB model - resuming is just revisiting `/stocktake/`, no extra state to
+  design around. Items are walked in name order. This is a plain (non-htmx)
+  form/redirect flow, unlike the sheet actions - a full per-step page reload
+  is fine for a deliberate walk-the-shelf task and avoids HX-Redirect vs.
+  htmx-follows-3xx-transparently footguns.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

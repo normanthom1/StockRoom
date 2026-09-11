@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Stock · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-3 text-2xl font-bold text-primary-dark">Stock</h1>
+
+<a href="{% url 'stock:stocktake_step' %}" class="btn-primary mb-3 inline-flex">Start a full stocktake</a>
+<p class="mb-6 text-sm text-gray-600">Steps through every item one at a time, for a monthly full count. If you leave partway through, it picks up where you left off.</p>
+
+<p class="text-sm text-gray-600">The full item list, search and CSV import are coming soon.</p>
+{% endblock %}

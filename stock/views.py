@@ -138,10 +138,59 @@ def _chart_history_text(weeks_shown, excluded):
     return base
 
 
+def _parse_nonneg_int(raw):
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+def _maybe_update_order_size(item, raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return
+    try:
+        size = int(raw)
+    except ValueError:
+        return
+    if size >= 1:
+        item.order_size = size
+        item.save(update_fields=["order_size"])
+
+
 @admin_required
 def item_count_sheet(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
-    return render(request, "stock/coming_soon_sheet.html", {"title": f"Count {item.name}"})
+    f = _forecast_for(item, timezone.localtime())
+    context = {
+        "item": item,
+        "current_qty": f.on_hand,
+        "order_size_placeholder": item.order_size or f.order_qty,
+        "error": None,
+    }
+    return render(request, "stock/item_count_sheet.html", context)
+
+
+@require_POST
+@admin_required
+def item_count_save(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    qty = _parse_nonneg_int(request.POST.get("qty", "").strip())
+    if qty is None:
+        f = _forecast_for(item, timezone.localtime())
+        context = {
+            "item": item,
+            "current_qty": f.on_hand,
+            "order_size_placeholder": item.order_size or f.order_qty,
+            "error": "Enter a whole number of 0 or more.",
+        }
+        return render(request, "stock/item_count_sheet.html", context)
+
+    _maybe_update_order_size(item, request.POST.get("order_size"))
+    return _log_event(
+        request, item, "count", qty, f"Counted {item.name}: {format_qty(qty, item.unit)} · the forecast is updated"
+    )
 
 
 @require_POST
@@ -273,6 +322,70 @@ def log_undo(request, pk):
     return _toast_response("Undone.")
 
 
+SESSION_KEY = "stocktake"
+
+
+@admin_required
+def stocktake_step(request):
+    org = request.user.organisation
+    state = request.session.get(SESSION_KEY)
+    if not state:
+        item_ids = list(_org_items(org).order_by("name").values_list("pk", flat=True))
+        if not item_ids:
+            messages.info(request, "No items to count yet.")
+            return redirect("stock:home")
+        state = {"item_ids": item_ids, "index": 0}
+        request.session[SESSION_KEY] = state
+
+    if state["index"] >= len(state["item_ids"]):
+        del request.session[SESSION_KEY]
+        messages.success(request, "Stocktake complete - every item has a fresh count.")
+        return redirect("stock:home")
+
+    item = get_object_or_404(Item.objects.for_org(org), pk=state["item_ids"][state["index"]])
+    f = _forecast_for(item, timezone.localtime())
+    context = {
+        "item": item,
+        "index": state["index"],
+        "total": len(state["item_ids"]),
+        "current_qty": f.on_hand,
+        "order_size_placeholder": item.order_size or f.order_qty,
+        "error": None,
+    }
+    return render(request, "stock/stocktake_step.html", context)
+
+
+@require_POST
+@admin_required
+def stocktake_save(request):
+    org = request.user.organisation
+    state = request.session.get(SESSION_KEY)
+    if not state or state["index"] >= len(state["item_ids"]):
+        return redirect("stock:stocktake_step")
+
+    item = get_object_or_404(Item.objects.for_org(org), pk=state["item_ids"][state["index"]])
+    qty = _parse_nonneg_int(request.POST.get("qty", "").strip())
+    if qty is None:
+        f = _forecast_for(item, timezone.localtime())
+        context = {
+            "item": item,
+            "index": state["index"],
+            "total": len(state["item_ids"]),
+            "current_qty": f.on_hand,
+            "order_size_placeholder": item.order_size or f.order_qty,
+            "error": "Enter a whole number of 0 or more.",
+        }
+        return render(request, "stock/stocktake_step.html", context)
+
+    _maybe_update_order_size(item, request.POST.get("order_size"))
+    StockEvent.objects.create(organisation=org, item=item, user=request.user, kind="count", qty=qty)
+
+    state["index"] += 1
+    request.session[SESSION_KEY] = state
+    request.session.modified = True
+    return redirect("stock:stocktake_step")
+
+
 def reorder_list(request):
     return _coming_soon(request, "Reorder list")
 
@@ -283,7 +396,8 @@ def deliveries(request):
 
 @admin_required
 def items(request):
-    return _coming_soon(request, "Stock")
+    # Full item management lands in #24; for now this just gets a stocktake going.
+    return render(request, "stock/stock_page.html")
 
 
 @admin_required
