@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_tailwind_cli",
     "accounts",
     "stock",
 ]
@@ -116,10 +117,24 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").is_dir() else []
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    "staticfiles": {
+        # The manifest storage needs collectstatic to have run, so {% static %}
+        # can only resolve hashed filenames once that manifest exists. Plain
+        # storage in DEBUG lets runserver and tests serve static files as-is.
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if DEBUG
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        )
+    },
 }
+
+# Tailwind CSS (django-tailwind-cli): our own source file carries the design
+# tokens below, so the library never regenerates it (see .claude/skills/ui-design).
+TAILWIND_CLI_SRC_CSS = "src/tailwind.css"
+TAILWIND_CLI_DIST_CSS = "css/tailwind.css"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

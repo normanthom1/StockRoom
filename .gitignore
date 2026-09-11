@@ -6,3 +6,7 @@ venv/
 db.sqlite3
 staticfiles/
 *.log
+
+# Tailwind CLI binary and its build output (built from static/src/tailwind.css)
+.django_tailwind_cli/
+static/css/
