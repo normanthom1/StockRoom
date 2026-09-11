@@ -3,51 +3,74 @@
 {% block title %}StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-1 text-2xl font-bold text-primary">StockRoom</h1>
-<p class="mb-6 text-sm text-gray-600">Base template check: Tailwind, HTMX and Alpine are wired up.</p>
+{% partialdef rows inline %}
+<div class="mb-3 flex items-end gap-3">
+  <h1 class="flex-1 text-2xl font-bold text-primary-dark">What to order today</h1>
+  {% if user.is_org_admin %}
+    <a href="{% url 'stock:reorder_list' %}" class="tap-target shrink-0 rounded-lg border border-primary px-3 text-sm font-semibold text-primary-dark">
+      Reorder list &middot; {{ reorder_count }}
+    </a>
+  {% endif %}
+</div>
+{% if not user.is_org_admin %}
+  <p class="mb-3 text-sm text-gray-600">{{ reorder_count }} waiting for the manager to order.</p>
+{% endif %}
 
-<section class="mb-6" x-data="{ open: false }">
-  <button type="button"
-          class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary"
-          @click="open = !open">
-    <span x-text="open ? 'Hide details' : 'Show details'"></span>
-  </button>
-  <p x-show="open" x-cloak class="mt-2 text-sm text-gray-700">Alpine toggle works.</p>
-</section>
+{% if rows %}
+  <div class="mb-4 overflow-hidden rounded-lg border border-gray-200">
+    {% for row in rows %}
+      <a href="{% url 'stock:item_detail' row.id %}"
+         class="tap-target flex items-stretch {% if not forloop.last %}border-b border-gray-200{% endif %} {% if row.status_color == 'out' %}bg-red-50{% endif %}">
+        <span class="w-1.5 shrink-0
+          {% if row.status_color == 'out' %}bg-status-out
+          {% elif row.status_color == 'now' %}bg-status-now
+          {% elif row.status_color == 'week' %}bg-status-week
+          {% else %}bg-status-ok{% endif %}"></span>
+        <div class="flex min-w-0 flex-1 flex-col gap-1 px-3 py-3 text-left">
+          <span class="flex items-baseline gap-2">
+            <span class="flex-1 truncate text-lg font-semibold text-gray-900">{{ row.name }}</span>
+            <span class="shrink-0 text-sm font-semibold
+              {% if row.status_color == 'out' %}text-status-out
+              {% elif row.status_color == 'now' %}text-status-now
+              {% elif row.status_color == 'week' %}text-status-week
+              {% else %}text-status-ok{% endif %}">{{ row.days_label }}</span>
+          </span>
+          <span class="text-sm text-gray-600">{{ row.sub }}</span>
+          <span class="flex flex-wrap items-center gap-2">
+            <span class="rounded px-2 py-0.5 text-xs font-semibold
+              {% if row.solid %}
+                text-white {% if row.status_color == 'out' %}bg-status-out{% else %}bg-status-now{% endif %}
+              {% elif row.status_color == 'week' %}border border-status-week text-status-week
+              {% else %}border border-status-ok text-status-ok{% endif %}">{{ row.status_label }}</span>
+            {% if row.order_by %}<span class="text-xs text-gray-600">{{ row.order_by }}</span>{% endif %}
+          </span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="mb-4 text-sm text-gray-600">Nothing needs ordering right now.</p>
+{% endif %}
 
-<section class="mb-6">
-  <button type="button"
-          class="tap-target w-full rounded-lg bg-primary px-4 font-medium text-white"
-          hx-get="{% url 'stock:ping' %}" hx-target="#ping-result" hx-swap="outerHTML">
-    Ping the server
-  </button>
-  {% partialdef ping_result inline %}
-  <p id="ping-result" class="mt-2 text-sm text-gray-700">{{ ping_message|default:"Not pinged yet." }}</p>
-  {% endpartialdef %}
-</section>
-
-<section class="mb-6">
-  <form hx-post="{% url 'stock:bump' %}" hx-target="#counter" hx-swap="outerHTML" hx-disabled-elt="find button">
-    <button type="submit" class="tap-target w-full rounded-lg bg-status-ok px-4 font-medium text-white">
-      Tap to count (checks CSRF) &mdash;
-      {% partialdef counter inline %}<span id="counter">{{ count }}</span>{% endpartialdef %}
+{% if fine_rows %}
+  <section x-data="{ open: false }">
+    <button type="button" class="tap-target flex w-full items-center gap-2 py-2 text-left text-sm font-medium text-gray-600" @click="open = !open">
+      <span x-text="open ? '&#9652;' : '&#9662;'"></span>
+      {{ fine_rows|length }} other item{{ fine_rows|length|pluralize }} fine &middot; nothing to do
     </button>
-  </form>
-</section>
-
-<section class="mb-6 flex flex-col gap-2">
-  <button type="button" class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary-dark"
-          hx-post="{% url 'stock:demo_toast' %}" hx-swap="none" hx-disabled-elt="this">
-    Show a toast with undo
-  </button>
-  <button type="button" class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary-dark"
-          hx-get="{% url 'stock:demo_sheet' %}" hx-target="#sheet-content" hx-swap="innerHTML">
-    Open the bottom sheet
-  </button>
-</section>
-{% partialdef demo_sheet inline %}
-<p class="mb-3 text-sm text-gray-700">This is the shared bottom sheet, used for capture, stocktake and receiving.</p>
-<button type="button" class="tap-target w-full rounded-lg bg-primary px-4 font-medium text-white"
-        onclick="document.getElementById('sheet').close()">Close</button>
+    <div x-show="open" x-cloak class="flex flex-col">
+      {% for row in fine_rows %}
+        <a href="{% url 'stock:item_detail' row.id %}"
+           class="tap-target flex flex-col gap-0.5 border-b border-gray-100 px-1 py-2 text-left">
+          <span class="flex items-baseline gap-2">
+            <span class="flex-1 truncate font-medium text-gray-900">{{ row.name }}</span>
+            <span class="shrink-0 text-xs text-gray-600">{{ row.fine_label }}</span>
+          </span>
+          <span class="text-xs text-gray-600">{{ row.sub }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
 {% endpartialdef %}
 {% endblock %}

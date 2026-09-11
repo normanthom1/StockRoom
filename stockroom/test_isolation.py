@@ -18,6 +18,7 @@ from django.urls import path, reverse
 
 from accounts.decorators import admin_required
 from accounts.models import Organisation, User
+from stock.models import Item, Supplier
 
 
 class Case(NamedTuple):
@@ -32,11 +33,18 @@ def make_member(org):
     return User.objects.create_user(f"member-{User.objects.count()}@{org.slug}.test", "pw", organisation=org)
 
 
+def make_item(org):
+    """An item in org, for Cases that need some existing item's pk."""
+    supplier = Supplier.objects.create(organisation=org, name=f"Supplier {Supplier.objects.count()}")
+    return Item.objects.create(organisation=org, name=f"Item {Item.objects.count()}", unit="box", supplier=supplier)
+
+
 # Objects a practice owns. Another practice's user gets a 404 for each.
 ORG_OBJECT_URLS: list[Case] = [
     Case("team_role", make=make_member, method="post"),
     Case("team_set_active", make=make_member, method="post"),
     Case("team_reset_link", make=make_member, method="post"),
+    Case("stock:item_detail", make=make_item),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -57,6 +65,7 @@ ASSISTANT_PAGES: list[Case] = [
     Case("stock:log_usage"),
     Case("stock:reorder_list"),
     Case("stock:deliveries"),
+    Case("stock:item_detail", make=make_item),
 ]
 
 PRICE = re.compile(r"\$\s?\d")  # "$8.50", "$ 1,489.20"
