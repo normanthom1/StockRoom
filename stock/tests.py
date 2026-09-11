@@ -1,7 +1,17 @@
 from django.test import Client, TestCase
 
+from accounts.models import Organisation, User
+
 
 class HomeSmokeTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        org = Organisation.objects.create(name="Test Dental")
+        cls.user = User.objects.create_user("liz@example.com", "pw", organisation=org)
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
     def test_home_page_loads(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
@@ -18,11 +28,13 @@ class HomeSmokeTest(TestCase):
 
     def test_bump_without_csrf_token_is_rejected(self):
         csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
         response = csrf_client.post("/bump/")
         self.assertEqual(response.status_code, 403)
 
     def test_bump_with_csrf_header_increments_the_counter(self):
         csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
         csrf_client.get("/")  # sets the csrftoken cookie
         token = csrf_client.cookies["csrftoken"].value
 

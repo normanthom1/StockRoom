@@ -40,7 +40,31 @@ class Organisation(models.Model):
         return slug
 
 
-class UserManager(BaseUserManager):
+class OrgQuerySet(models.QuerySet):
+    def for_org(self, org):
+        """Rows belonging to org. None matches nothing, so a user without a
+        practice (a platform superuser) can never see practice data, and
+        User.objects.for_org(None) can't list the superusers themselves."""
+        if org is None:
+            return self.none()
+        return self.filter(organisation=org)
+
+
+class OrgOwned(models.Model):
+    """Base for everything a practice owns. Always query it through
+    Model.objects.for_org(request.user.organisation)."""
+
+    # CASCADE is safe: an organisation can't be deleted while it has users
+    # (User.organisation is PROTECT), so this only fires on a deliberate wipe.
+    organisation = models.ForeignKey(Organisation, on_delete=models.CASCADE)
+
+    objects = OrgQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+
+class UserManager(BaseUserManager.from_queryset(OrgQuerySet)):
     use_in_migrations = True
 
     def get_by_natural_key(self, email):
