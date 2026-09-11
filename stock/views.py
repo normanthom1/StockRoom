@@ -1,18 +1,23 @@
 import json
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import admin_required
 
-from .forecast import Status, forecast
+from .chart import usage_chart_svg
+from .forecast import Status, forecast, outlier_mask, weekly_consumption
 from .humanize import (
+    CONFIDENCE_LABEL,
+    build_caveat,
+    build_sentence,
     format_qty,
     format_rate,
     humanize_range,
@@ -20,6 +25,8 @@ from .humanize import (
     order_by_text,
 )
 from .models import Item, StockEvent
+
+CHART_WEEKS = 12
 
 UNDO_WINDOW = timedelta(minutes=10)
 
@@ -97,7 +104,94 @@ def home(request):
 
 def item_detail(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
-    return render(request, "stock/coming_soon.html", {"title": item.name})
+    now = timezone.localtime()
+    today = now.date()
+    events = list(item.events.all())
+    open_orders = [o for o in item.order_lines.all() if o.is_open]
+    f = forecast(events, open_orders, lead_days=item.supplier.lead_days, order_size=item.order_size, now=now)
+
+    # weekly_consumption/outlier_mask are newest-first; the chart reads left
+    # to right chronologically, so both get reversed together afterwards.
+    weeks_newest_first = weekly_consumption(events, now, window_weeks=CHART_WEEKS)
+    mask_newest_first = outlier_mask(weeks_newest_first)
+    weeks = list(reversed(weeks_newest_first))
+    mask = list(reversed(mask_newest_first))
+
+    context = {
+        "item": item,
+        "f": f,
+        "sentence": build_sentence(item, f, today),
+        "confidence_label": CONFIDENCE_LABEL[f.confidence],
+        "caveat": build_caveat(f),
+        "chart_history_text": _chart_history_text(len(weeks), sum(mask)),
+        "chart_svg": usage_chart_svg(weeks, mask),
+        "on_reorder_list": bool(item.pinned_to_reorder_at) or f.status != Status.OK,
+        "price_label": f"${item.price:.2f} / {item.unit}" if item.price is not None else "Not set",
+    }
+    return render(request, "stock/item_detail.html", context)
+
+
+def _chart_history_text(weeks_shown, excluded):
+    base = f"{weeks_shown} week{'s' if weeks_shown != 1 else ''} of history shown"
+    if excluded:
+        base += f" · {excluded} week{'s' if excluded != 1 else ''} excluded from the average"
+    return base
+
+
+@admin_required
+def item_count_sheet(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    return render(request, "stock/coming_soon_sheet.html", {"title": f"Count {item.name}"})
+
+
+@require_POST
+@admin_required
+def item_set_price(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    raw = request.POST.get("price", "").strip()
+    if raw:
+        try:
+            item.price = Decimal(raw)
+        except InvalidOperation:
+            messages.error(request, "Enter a valid price.")
+            return redirect("stock:item_detail", pk=pk)
+    else:
+        item.price = None
+    item.save(update_fields=["price"])
+    messages.success(request, f"Price updated for {item.name}.")
+    return redirect("stock:item_detail", pk=pk)
+
+
+@require_POST
+@admin_required
+def item_set_order_size(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    raw = request.POST.get("order_size", "").strip()
+    if raw:
+        try:
+            qty = int(raw)
+            if qty < 1:
+                raise ValueError
+        except ValueError:
+            messages.error(request, "Enter a whole number of 1 or more.")
+            return redirect("stock:item_detail", pk=pk)
+        item.order_size = qty
+    else:
+        item.order_size = None
+    item.save(update_fields=["order_size"])
+    messages.success(request, f"Order size updated for {item.name}.")
+    return redirect("stock:item_detail", pk=pk)
+
+
+@require_POST
+@admin_required
+def item_toggle_reorder(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    item.pinned_to_reorder_at = None if item.pinned_to_reorder_at else timezone.now()
+    item.save(update_fields=["pinned_to_reorder_at"])
+    verb = "Added" if item.pinned_to_reorder_at else "Removed"
+    messages.success(request, f"{verb} {item.name} {'to' if verb == 'Added' else 'from'} the reorder list.")
+    return redirect("stock:item_detail", pk=pk)
 
 
 def _coming_soon(request, title):

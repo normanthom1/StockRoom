@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}{{ item.name }} · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-2 text-2xl font-bold text-primary-dark">{{ item.name }}</h1>
+
+<p class="mb-3 text-base leading-relaxed text-gray-900">{{ sentence }}</p>
+
+<div class="mb-3 flex items-center gap-2">
+  <span class="rounded px-2 py-0.5 text-xs font-semibold
+    {% if f.confidence == 'low' %}border border-dashed border-status-week text-status-week
+    {% else %}border border-status-ok text-status-ok{% endif %}">{{ confidence_label }}</span>
+  <span class="text-xs text-gray-600">{{ chart_history_text }}</span>
+</div>
+
+{% if caveat %}
+  <p class="mb-3 text-sm text-gray-600">{{ caveat }}</p>
+{% endif %}
+
+<div class="mb-4 rounded-lg border border-gray-200 p-3">
+  {{ chart_svg }}
+</div>
+
+{% if user.is_org_admin %}
+  <div class="mb-4 flex flex-col gap-3 rounded-lg border border-gray-200 p-3">
+    <form method="post" action="{% url 'stock:item_set_price' item.pk %}" class="flex items-end gap-2">
+      {% csrf_token %}
+      <div class="flex-1">
+        <label for="price" class="text-sm font-medium text-gray-900">Price ({{ price_label }})</label>
+        <input id="price" type="number" inputmode="decimal" step="0.01" min="0" name="price"
+               value="{{ item.price|default_if_none:'' }}" placeholder="0.00">
+      </div>
+      <button type="submit" class="tap-target rounded-lg border border-gray-300 px-4 text-sm font-medium">Save</button>
+    </form>
+
+    <form method="post" action="{% url 'stock:item_set_order_size' item.pk %}" class="flex items-end gap-2">
+      {% csrf_token %}
+      <div class="flex-1">
+        <label for="order_size" class="text-sm font-medium text-gray-900">Standard order size ({{ item.unit }}s)</label>
+        <input id="order_size" type="number" inputmode="numeric" min="1" name="order_size"
+               value="{{ item.order_size|default_if_none:'' }}" placeholder="{{ f.order_qty }}">
+      </div>
+      <button type="submit" class="tap-target rounded-lg border border-gray-300 px-4 text-sm font-medium">Save</button>
+    </form>
+  </div>
+
+  <div class="mb-4 flex flex-col gap-2">
+    <button type="button" hx-get="{% url 'stock:item_count_sheet' item.pk %}" hx-target="#sheet-content" hx-swap="innerHTML"
+            class="tap-target w-full rounded-lg bg-gray-100 px-4 font-medium text-gray-900">Count now</button>
+    <form method="post" action="{% url 'stock:item_toggle_reorder' item.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary-dark">
+        {% if on_reorder_list %}On the reorder list &check;{% else %}Add to the reorder list{% endif %}
+      </button>
+    </form>
+  </div>
+{% else %}
+  <button type="button" hx-post="{% url 'stock:log_running_low' item.pk %}" hx-disabled-elt="this"
+          class="btn-primary">Tell the manager we're low</button>
+{% endif %}
+{% endblock %}

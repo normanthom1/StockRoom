@@ -31,14 +31,29 @@ def format_qty(qty: int | None, unit: str) -> str:
     return f"{qty} {pluralize_unit(unit, qty)}"
 
 
+def _rate_numbers(weekly_usage: float) -> tuple[float, int]:
+    """(display value, whole number for pluralization).
+
+    A whole-number round can hit 0 for a slow-moving item (e.g. 0.5/week),
+    which reads as "not used at all" - fall back to one decimal place.
+    """
+    rounded = round(weekly_usage)
+    return (rounded if rounded >= 1 else round(weekly_usage, 1)), rounded
+
+
 def format_rate(weekly_usage: float, unit: str) -> str:
     if weekly_usage <= 0:
         return "still learning"
-    # A whole-number round can hit 0 for a slow-moving item (e.g. 0.5/week),
-    # which reads as "not used at all" - fall back to one decimal place.
-    rounded = round(weekly_usage)
-    display = rounded if rounded >= 1 else round(weekly_usage, 1)
+    display, rounded = _rate_numbers(weekly_usage)
     return f"~{display} {pluralize_unit(unit, rounded)}/week"
+
+
+def format_rate_sentence(weekly_usage: float, unit: str) -> str:
+    """Like format_rate, but "a week" reads better inline in a sentence."""
+    if weekly_usage <= 0:
+        return "not enough history to say"
+    display, rounded = _rate_numbers(weekly_usage)
+    return f"~{display} {pluralize_unit(unit, rounded)} a week"
 
 
 def humanize_run_out(days: float | None) -> str:
@@ -78,3 +93,39 @@ def order_by_text(order_by, today):
     if delta <= 6:
         return f"Order by {order_by.strftime('%a')}"
     return f"Order by {order_by.day} {order_by.strftime('%b')}"
+
+
+CONFIDENCE_LABEL = {"low": "Low confidence", "high": "Confident"}
+
+
+def build_sentence(item, f, today):
+    """The item detail page's plain-language forecast summary, e.g.
+    "You use ~12 boxes a week. There are 18 boxes. Henry Schein takes
+    ~5 days. Order by today."
+    """
+    lead_text = f"{item.supplier.name} takes ~{item.supplier.lead_days} days"
+
+    if f.on_hand == 0:
+        return f"There's none left. {lead_text}, so order today."
+
+    if f.confidence == "low":
+        run_out_text = humanize_range(*(_days_from(d, today) for d in f.run_out_range)) if f.run_out_range else "soon"
+        when = order_by_text(f.order_by, today) if f.order_by else "soon"
+        when = when[0].lower() + when[1:]  # mid-sentence, but keep e.g. "Mon" capitalised
+        return f"Not enough history yet to be precise. Best guess: you run out in {run_out_text}. {lead_text}, so {when}."
+
+    when = f"{order_by_text(f.order_by, today)}." if f.order_by else ""
+    return f"You use {format_rate_sentence(f.weekly_usage, item.unit)}. There are {format_qty(f.on_hand, item.unit)}. {lead_text}. {when}"
+
+
+def build_caveat(f):
+    """Explains why the sentence's number might be off, or "" when it's not needed."""
+    if f.confidence == "low":
+        return "Confidence improves after a few more weeks of tapping, or count the shelf now and it firms up straight away."
+    if f.excluded_weeks:
+        return "One week used much more than usual. That week is left out of the average. Two busy weeks in a row and it becomes the new normal instead."
+    return ""
+
+
+def _days_from(when, today):
+    return (when - today).days
