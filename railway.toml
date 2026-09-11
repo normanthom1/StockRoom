@@ -2,8 +2,10 @@
 buildCommand = "python manage.py tailwind build && python manage.py collectstatic --noinput"
 
 [deploy]
-preDeployCommand = "python manage.py migrate"
-startCommand = "gunicorn stockroom.wsgi --bind 0.0.0.0:$PORT"
+# Migrate before gunicorn starts. Railway only routes traffic to the new
+# container once /healthz passes, so a failed migration leaves the old
+# deployment serving. (preDeployCommand here was silently never run.)
+startCommand = "python manage.py migrate --noinput && gunicorn stockroom.wsgi --bind 0.0.0.0:$PORT"
 healthcheckPath = "/healthz"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"

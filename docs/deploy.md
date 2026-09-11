@@ -20,4 +20,16 @@
 
 ## First deploy
 
-See [#8](https://github.com/normanthom1/StockRoom/issues/8) for creating the Railway project itself (a one-off, human step). Every push to `main` after that redeploys automatically.
+See [#8](https://github.com/normanthom1/StockRoom/issues/8) for creating the Railway project itself (a one-off, human step).
+
+## Deploying changes
+
+Pushes to `main` redeploy automatically only if the **Railway GitHub App** has access to this repo (GitHub → Settings → Applications → Railway → Configure → Repository access). Without it, Railway can still build the public repo but never hears about pushes, so deploy by hand:
+
+```bash
+railway redeploy --service StockRoom --from-source -y
+```
+
+Use `--from-source`. Plain `railway redeploy` reuses the previous build and its environment snapshot, which kept a stale `ALLOWED_HOSTS` alive during #8.
+
+Migrations run at container start (`startCommand` in `railway.toml`), before gunicorn. A new container only gets traffic once `/healthz` passes, so a migration that fails leaves the previous deployment serving.
