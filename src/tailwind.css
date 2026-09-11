@@ -17,6 +17,11 @@
   --color-status-ok: #2f7d4f;
 }
 
+/* Status colour classes are picked by name from Python (Item forecast ->
+   "out"/"now"/"week"/"ok"), so Tailwind's static scanner never sees them
+   written out in a template. Force-generate them here instead. */
+@source inline("{bg,text,border}-status-{out,now,week,ok}");
+
 /* Staff work with gloves on: every tap target is at least 48px. */
 @utility tap-target {
   min-height: 48px;

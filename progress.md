@@ -8,7 +8,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 |---|-------|--------|
 | 17 | Demo organisation seed command | done |
 | 18 | App shell: nav, toast, bottom sheet | done |
-| 19 | Home: what to order today | todo |
+| 19 | Home: what to order today | done |
 | 20 | Log usage: search, quick taps, undo | todo |
 | 21 | Item detail: forecast + usage chart | todo |
 | 22 | Stocktake: record shelf counts | todo |
@@ -38,6 +38,25 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 - After editing any template class names, `python manage.py tailwind build
   --force` before eyeballing in a browser - plain `runserver` does not rebuild
   CSS on its own (needs `manage.py tailwind runserver` for that).
+- Issue 19 added `stock/humanize.py` (plain-English formatting: run-out
+  estimates, order-by dates, qty/rate text) - reuse it in item detail (#21),
+  reorder list (#25) and anywhere else that shows a forecast to a person.
+  `round()` is banker's rounding in Python (`round(0.5) == 0`) - `format_rate`
+  already guards against this; watch for the same trap elsewhere.
+- Status colours (out/now/week/ok) are chosen by name in Python, so Tailwind's
+  static scanner never sees `bg-status-out` etc. written in a template -
+  `src/tailwind.css` force-generates all `{bg,text,border}-status-*` utilities
+  via `@source inline(...)`. Any *new* dynamic Tailwind class needs the same
+  treatment or it silently won't exist in the built CSS.
+- `{% partialdef name %}` alone only *defines* a fragment; add `inline` (`{%
+  partialdef name inline %}`) or it won't render on the full-page request -
+  bit us once on home.html's rows block.
+- Added `stock:item_detail` (`/item/<pk>/`) as a "coming soon" stub for #21 to
+  replace, same pattern as the #18 stubs.
+- Deleted the original scaffold `ping`/`bump` demo views (their job - proving
+  CSRF/HTMX wiring - is now done by real views); kept `demo_toast`/`demo_sheet`
+  from #18 but detached their fragment from home.html into their own
+  `stock/templates/stock/demo_sheet.html`.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
