@@ -6,6 +6,9 @@
  */
 @theme {
   --color-primary: #5980a6;
+  /* primary is ~4:1 on white: fine for large bold text and fills, too light
+     for body text. Use primary-dark (~9:1, also from the prototype) for links. */
+  --color-primary-dark: #2c455d;
   --color-app-bg: #faf9f5;
 
   --color-status-out: #7a1d18;
@@ -23,4 +26,41 @@
 /* Alpine.js is loaded with `defer`; hide x-cloak elements until it boots. */
 [x-cloak] {
   display: none !important;
+}
+
+/* Django renders forms as label, help text, errors, input. These make every
+   {{ form }} usable with gloves: 48px fields, 16px text so iOS doesn't zoom. */
+@layer base {
+  label {
+    @apply mb-1 block font-medium text-gray-900;
+  }
+  input:where([type="text"], [type="email"], [type="password"], [type="number"], [type="search"], [type="tel"], [type="url"]),
+  select,
+  textarea {
+    @apply block min-h-12 w-full rounded-lg border border-gray-300 bg-white px-3 text-base;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  button:focus-visible,
+  a:focus-visible {
+    @apply outline-3 outline-offset-2 outline-primary-dark;
+  }
+}
+
+@layer components {
+  .helptext {
+    @apply mb-1 text-sm text-gray-600;
+  }
+  .errorlist {
+    @apply mb-1 text-sm font-medium text-status-now;
+  }
+  /* The one main action on a screen: full width, 64px, large bold text
+     (white on primary only meets WCAG AA at large text sizes). */
+  .btn-primary {
+    @apply flex min-h-16 w-full items-center justify-center rounded-lg bg-primary px-4 text-xl font-bold text-white;
+  }
+  .link {
+    @apply inline-flex min-h-12 items-center font-medium text-primary-dark underline underline-offset-2;
+  }
 }
