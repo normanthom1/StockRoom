@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Stocktake · StockRoom{% endblock %}
+
+{% block content %}
+<div class="mb-3 flex items-center justify-between">
+  <p class="text-sm font-medium text-gray-600">Item {{ index|add:1 }} of {{ total }}</p>
+  <a href="{% url 'stock:home' %}" class="link text-sm">Finish later</a>
+</div>
+<div class="mb-4 h-2 overflow-hidden rounded-full bg-gray-200">
+  <div class="h-full rounded-full bg-primary" style="width:{% widthratio index|add:1 total 100 %}%"></div>
+</div>
+
+<h1 class="mb-3 text-2xl font-bold text-primary-dark">{{ item.name }}</h1>
+
+{% if error %}<p class="mb-2 text-sm font-medium text-status-now">{{ error }}</p>{% endif %}
+
+<form method="post" action="{% url 'stock:stocktake_save' %}" class="flex flex-col gap-3">
+  {% csrf_token %}
+  <div>
+    <label for="qty" class="text-sm font-medium text-gray-900">On the shelf now ({{ item.unit }}s)</label>
+    <input id="qty" type="number" inputmode="numeric" min="0" name="qty"
+           value="{{ current_qty|default_if_none:'' }}" placeholder="0" autofocus>
+  </div>
+  <div>
+    <label for="order_size" class="text-sm font-medium text-gray-900">Standard order size ({{ item.unit }}s), optional</label>
+    <input id="order_size" type="number" inputmode="numeric" min="1" name="order_size"
+           value="{{ item.order_size|default_if_none:'' }}" placeholder="{{ order_size_placeholder }}">
+  </div>
+  <button type="submit" class="btn-primary">
+    {% if index|add:1 == total %}Save and finish{% else %}Save and next{% endif %}
+  </button>
+</form>
+{% endblock %}
