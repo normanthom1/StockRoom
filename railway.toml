@@ -1,0 +1,9 @@
+[build]
+buildCommand = "python manage.py tailwind build && python manage.py collectstatic --noinput"
+
+[deploy]
+preDeployCommand = "python manage.py migrate"
+startCommand = "gunicorn stockroom.wsgi --bind 0.0.0.0:$PORT"
+healthcheckPath = "/healthz"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"

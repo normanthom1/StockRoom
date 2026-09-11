@@ -137,4 +137,12 @@ STORAGES = {
 TAILWIND_CLI_SRC_CSS = "src/tailwind.css"
 TAILWIND_CLI_DIST_CSS = "css/tailwind.css"
 
+
+# Deployment (Railway terminates TLS at the edge and proxies plain HTTP to us).
+
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
