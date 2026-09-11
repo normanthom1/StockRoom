@@ -1,0 +1,30 @@
+{% load static tailwind_cli %}<!doctype html>
+<html lang="en-nz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>{% block title %}StockRoom{% endblock %}</title>
+  {% tailwind_css %}
+  <script src="{% static 'vendor/htmx.min.js' %}"></script>
+</head>
+<body class="min-h-screen bg-app-bg text-gray-900"
+      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+
+  <div id="toast-slot" class="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center gap-2 p-3"
+       aria-live="polite">
+    {% for message in messages %}
+      <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 6000)"
+           class="tap-target pointer-events-auto flex items-center gap-3 rounded-lg bg-gray-900 px-4 text-white shadow-lg">
+        <span>{{ message }}</span>
+        <button type="button" class="tap-target text-white/70" @click="show = false" aria-label="Dismiss">&times;</button>
+      </div>
+    {% endfor %}
+  </div>
+
+  <main class="mx-auto max-w-md p-4">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{% static 'vendor/alpine.min.js' %}" defer></script>
+</body>
+</html>

@@ -1,8 +1,12 @@
-asgiref==3.12.1
-dj-database-url==3.1.2
 Django==6.1.1
+asgiref==3.12.1
+click==8.5.0
+dj-database-url==3.1.2
+django-click==2.5.0
+django-tailwind-cli==4.8.0
 gunicorn==26.2.0
 python-dotenv==1.2.3
+semver==3.0.4
 sqlparse==0.6.0
 tzdata==2026.3
 whitenoise==6.12.0

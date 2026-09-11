@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1 text-2xl font-bold text-primary">StockRoom</h1>
+<p class="mb-6 text-sm text-gray-600">Base template check: Tailwind, HTMX and Alpine are wired up.</p>
+
+<section class="mb-6" x-data="{ open: false }">
+  <button type="button"
+          class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary"
+          @click="open = !open">
+    <span x-text="open ? 'Hide details' : 'Show details'"></span>
+  </button>
+  <p x-show="open" x-cloak class="mt-2 text-sm text-gray-700">Alpine toggle works.</p>
+</section>
+
+<section class="mb-6">
+  <button type="button"
+          class="tap-target w-full rounded-lg bg-primary px-4 font-medium text-white"
+          hx-get="{% url 'stock:ping' %}" hx-target="#ping-result" hx-swap="outerHTML">
+    Ping the server
+  </button>
+  {% partialdef ping_result inline %}
+  <p id="ping-result" class="mt-2 text-sm text-gray-700">{{ ping_message|default:"Not pinged yet." }}</p>
+  {% endpartialdef %}
+</section>
+
+<section class="mb-6">
+  <form hx-post="{% url 'stock:bump' %}" hx-target="#counter" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <button type="submit" class="tap-target w-full rounded-lg bg-status-ok px-4 font-medium text-white">
+      Tap to count (checks CSRF) &mdash;
+      {% partialdef counter inline %}<span id="counter">{{ count }}</span>{% endpartialdef %}
+    </button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens ported from the StockRoom prototype (StockRoom.html).
+ * See .claude/skills/ui-design/SKILL.md for the rules behind these.
+ */
+@theme {
+  --color-primary: #5980a6;
+  --color-app-bg: #faf9f5;
+
+  --color-status-out: #7a1d18;
+  --color-status-now: #b3261e;
+  --color-status-week: #b3701a;
+  --color-status-ok: #2f7d4f;
+}
+
+/* Staff work with gloves on: every tap target is at least 48px. */
+@utility tap-target {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+/* Alpine.js is loaded with `defer`; hide x-cloak elements until it boots. */
+[x-cloak] {
+  display: none !important;
+}
