@@ -22,6 +22,7 @@ from stockroom.views import PRECACHE_STATIC, sw_version
 
 MANIFEST_PATH = Path(settings.BASE_DIR) / "static" / "manifest.webmanifest"
 ICONS_DIR = Path(settings.BASE_DIR) / "static" / "icons"
+APP_JS = Path(settings.BASE_DIR) / "static" / "js" / "app.js"
 
 
 def _png_size(path):
@@ -82,8 +83,8 @@ class BaseTemplateTests(TestCase):
         self.assertIn('name="apple-mobile-web-app-title" content="StockRoom"', content)
 
     def test_login_page_registers_the_service_worker(self):
-        content = self.client.get("/accounts/login/").content.decode()
-        self.assertIn('navigator.serviceWorker.register("/sw.js")', content)
+        self.assertIn('navigator.serviceWorker.register("/sw.js")', APP_JS.read_text(encoding="utf-8"))
+        self.assertIn("js/app.js", self.client.get("/accounts/login/").content.decode())
 
     def test_login_page_has_the_ios_install_hint(self):
         content = self.client.get("/accounts/login/").content.decode()
@@ -172,4 +173,4 @@ class UpdateToastTests(TestCase):
         content = self.client.get("/accounts/login/").content.decode()
         self.assertIn('id="sw-update"', content)
         self.assertIn("New version available, tap to reload", content)
-        self.assertIn('postMessage("skip-waiting")', content)
+        self.assertIn('postMessage("skip-waiting")', APP_JS.read_text(encoding="utf-8"))

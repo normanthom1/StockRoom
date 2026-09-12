@@ -30,5 +30,8 @@ ASSISTANT_PAGES = [Case("stock:home"), Case("stock:item_detail", make=make_item)
 - `ORG_OBJECT_URLS`: a user from another practice must get a 404.
 - `ADMIN_ONLY_URLS`: an assistant must get a 403.
 - `ASSISTANT_PAGES`: must render for an assistant with no `$` amount in it.
+- `NO_PRACTICE_DATA`: URLs that show no practice data (login, healthz...), with the reason.
+
+A test walks every URL pattern and fails if one isn't in any of these lists.
 
 `make(org)` creates an object owned by `org`; its `pk` fills the URL's `pk`.

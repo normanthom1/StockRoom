@@ -3,10 +3,13 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import AdminUserCreationForm, UserChangeForm
 
 from .models import Organisation, User
+from .ratelimit import login_rate_limit
 
 # Django admin is for platform staff only. Practice admins use the in-app
 # screens, which are scoped to their own practice; this site isn't.
 admin.site.has_permission = lambda request: request.user.is_active and request.user.is_superuser
+# Its login is a second way to guess a (superuser's) password; limit it like ours.
+admin.site.login = login_rate_limit(admin.site.login)
 
 
 class UserCreationAdminForm(AdminUserCreationForm):

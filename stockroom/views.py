@@ -22,7 +22,8 @@ def healthz(request):
 PRECACHE_STATIC = [
     "css/tailwind.css",
     "vendor/htmx.min.js",
-    "vendor/alpine.min.js",
+    "vendor/alpine-csp.min.js",
+    "js/app.js",
     "manifest.webmanifest",
     "icons/icon.svg",
     "icons/favicon-32.png",

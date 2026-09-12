@@ -55,8 +55,8 @@ class LogUsageTests(TestCase):
 
     def test_capture_buttons_send_a_client_id_and_are_marked_for_the_offline_queue(self):
         content = self.client.get("/log-usage/").content.decode()
-        self.assertIn("hx-headers='{\"X-Capture\": \"1\"}'", content)
-        self.assertIn(f'client_id: crypto.randomUUID(), user_id: "{self.assistant.pk}"', content)
+        # app.js adds the client_id and X-Capture header to anything inside data-capture.
+        self.assertIn(f'data-capture="{self.assistant.pk}"', content)
 
     def test_used_one_logs_an_event_and_redirects_home_with_undo(self):
         response = self.client.post(f"/log-usage/{self.counted_item.pk}/used-one/")

@@ -1,5 +1,5 @@
 {% if edit_form %}
-<form id="supplier-row-{{ supplier.pk }}" class="flex flex-col gap-2 border-b border-gray-200 p-2" onsubmit="return false">
+<form id="supplier-row-{{ supplier.pk }}" class="flex flex-col gap-2 border-b border-gray-200 p-2" data-htmx-only>
   {% if edit_form.non_field_errors %}<p class="text-sm font-medium text-status-now">{{ edit_form.non_field_errors|join:" " }}</p>{% endif %}
   {% for field in edit_form %}{% for error in field.errors %}<p class="text-sm font-medium text-status-now">{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}
   <input type="text" name="name" value="{{ edit_form.name.value|default:'' }}" placeholder="Name">

@@ -328,6 +328,24 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   `navigator.onLine === true` while requests still fail, so test the
   `online` event without reloading. (3) `wait_for_function` treats a returned
   Promise as truthy; poll `page.evaluate` from Python instead.
+- Issue 33 (security): strict CSP via Django 6's `SECURE_CSP` - no
+  'unsafe-inline'/'unsafe-eval'. So: NO inline `<script>`, `on*=` handlers or
+  `style=""` in templates (`stockroom/test_security.py` scans every template
+  and fails on them). All page JS is `static/js/app.js`, driven by data-*
+  attributes (`data-open-dialog`, `data-close-dialog`, `data-backdrop-close`,
+  `data-reload`, `data-htmx-only`, `data-disable-on-submit`, `data-select-all`,
+  `data-capture`, `data-capture-tile`, `data-tile-search`). Alpine is the CSP
+  build (`vendor/alpine-csp.min.js`): expressions must be bare property paths
+  or method names - register components with `Alpine.data` in app.js (another
+  test checks this). htmx runs with `allowEval: false`, so no `hx-on`/`js:`
+  values: capture taps get their client_id from an `htmx:configRequest`
+  listener instead. Rate limits in `accounts/ratelimit.py` (login 5/15min per
+  email + 30 per IP, signup 5/hour, invite 10/15min, admin login too); tests
+  use a DummyCache (see settings) and switch LocMem on themselves. Admin is at
+  `ADMIN_URL` (default `platform/`). Every URL must be registered in
+  test_isolation.py (`NO_PRACTICE_DATA` for ones with no practice data).
+  Found along the way: the About dialog sat in the top-left corner because
+  Tailwind's reset zeroes `<dialog>`'s `margin: auto`; it's now `m-auto`.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
