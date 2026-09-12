@@ -17,7 +17,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 25 | Reorder list and placing orders | done |
 | 26 | Deliveries: receive incoming orders | done |
 | 27 | Spending reports | done |
-| 28 | Activity log and CSV export | todo |
+| 28 | Activity log and CSV export | done |
 | 29 | PWA manifest, icons, installability | todo |
 
 ## Notes for resuming
@@ -241,6 +241,22 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   "Estimated ongoing spend" reuses `_org_items`/`_forecast_for` (weekly_usage
   x price x `spending.PERIOD_WEEKS[period]`), counting items with no price
   set rather than skipping them silently.
+- Issue 28's activity log merges two different models (StockEvent, OrderLine)
+  into one timeline of plain `{when, who, who_id, what}` dicts, sorted in
+  Python (materializing both querysets - fine at this practice's scale, same
+  trade-off `forecast.py` already makes). Real bug caught by hand-checking
+  the fix, not by a first-draft test: filtering by user by narrowing the
+  *queryset* (`Q(ordered_by=user) | Q(received_by=user)`) let BOTH of an
+  order line's entries (Ordered and Received) through the moment either
+  person matched, even attributing the other person's action to the filtered
+  user. Fixed by generating all entries unfiltered first, each tagged with
+  its own `who_id`, and filtering that flat list afterwards - filter after
+  fan-out, not before, whenever one DB row produces multiple attributed
+  entries. CSV exports (`export_items`/`export_stock_events`/
+  `export_order_lines`) use the stdlib `csv` module directly against
+  `HttpResponse` (it's writable like a file) and prepend a UTF-8 BOM
+  (`response.write("﻿")`) so Excel doesn't mangle non-ASCII text -
+  add the same prefix to any future CSV export.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
