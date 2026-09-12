@@ -2,7 +2,8 @@
 <html lang="en-nz">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  {# No maximum-scale: it would block pinch-zoom, which low-vision users rely on. #}
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}StockRoom{% endblock %}</title>
 
   <link rel="manifest" href="{% static 'manifest.webmanifest' %}">

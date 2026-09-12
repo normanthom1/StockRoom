@@ -10,7 +10,7 @@
   <a href="{% url 'stock:item_import' %}" class="tap-target flex flex-1 items-center justify-center rounded-lg bg-gray-100 px-3 text-center text-sm font-semibold text-primary-dark">Import a CSV</a>
 </div>
 
-<input type="search" name="q" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
+<input type="search" name="q" aria-label="Search items" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
        value="{{ query }}" placeholder="Search all {{ total_count }} items…" class="mb-3"
        hx-get="{% url 'stock:items' %}" hx-trigger="input changed delay:200ms" hx-target="#item-list" hx-swap="innerHTML">
 

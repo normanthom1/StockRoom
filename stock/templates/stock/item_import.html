@@ -8,7 +8,8 @@
 
 <form method="post" action="{% url 'stock:item_import_preview' %}" enctype="multipart/form-data" class="flex flex-col gap-3">
   {% csrf_token %}
-  <input type="file" name="csv_file" accept=".csv,text/csv" required>
+  <label for="csv_file" class="text-sm font-medium text-gray-900">CSV file</label>
+  <input id="csv_file" type="file" name="csv_file" accept=".csv,text/csv" required>
   <button type="submit" class="btn-primary">Preview import</button>
 </form>
 {% endblock %}

@@ -346,6 +346,31 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   test_isolation.py (`NO_PRACTICE_DATA` for ones with no practice data).
   Found along the way: the About dialog sat in the top-left corner because
   Tailwind's reset zeroes `<dialog>`'s `margin: auto`; it's now `m-auto`.
+- Issue 34 (accessibility): tap targets, aria-live toasts and native `<dialog>`
+  focus handling were already in place from earlier issues - real findings
+  from a real axe-core run (`scripts/axe_check.py`, dev-only, not in CI:
+  `pip install playwright axe-core-python`) were: (1) the viewport meta had
+  `maximum-scale=1`, blocking pinch-zoom for low-vision users - removed;
+  (2) the two `<select>` filters on Activity had no accessible name - added
+  `aria-label`; (3) `--color-primary` (#5980a6, 4.15:1 on white) and
+  `--color-status-week` (#b3701a, 4.00:1) both missed WCAG AA's 4.5:1 for
+  normal-size text - darkened to #54789c and #a66818, barely different to
+  the eye. Also added `aria-label` to every placeholder-only input (item/
+  supplier edit rows) since a placeholder alone isn't an accessible name.
+  `scripts/axe_check.py` logs in via seed_demo's demo users and walks the
+  main pages as both admin and assistant - rerun it after any template
+  change to colour, structure or ARIA. `stockroom/test_accessibility.py` has
+  two cheap non-browser regression guards (no Playwright needed) for the
+  viewport meta and the Activity labels, but isn't a substitute for rerunning
+  the real axe script.
+  Native `<dialog>.showModal()` already gives correct focus-trap-and-return
+  behaviour for free in every current browser - verified with a Playwright
+  keyboard test rather than adding custom focus-management JS.
+  Hit the "stale server serving old code" issue again (see memory
+  feedback_runserver_noreload.md) - a leftover runserver from an EARLIER,
+  different Python install (Windows Store Python, not the project's .venv)
+  was still bound to the same test port. Always check the process list for
+  more than one interpreter before concluding a restart didn't work.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
