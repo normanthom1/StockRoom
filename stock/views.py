@@ -1,3 +1,4 @@
+import csv
 import json
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -5,6 +6,7 @@ from statistics import median
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,6 +16,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.decorators import admin_required
 from accounts.mailto import build_mailto_link
+from accounts.models import User
 
 from .chart import usage_chart_svg
 from .csv_import import parse_csv
@@ -1044,3 +1047,123 @@ def demo_toast(request):
 @require_POST
 def demo_undo(request):
     return _toast_response("Undone.")
+
+
+def _activity_entries(org, item_id, user_id):
+    events = StockEvent.objects.for_org(org).select_related("item", "user")
+    orders = OrderLine.objects.for_org(org).select_related("item", "ordered_by", "received_by")
+
+    if item_id:
+        events = events.filter(item_id=item_id)
+        orders = orders.filter(item_id=item_id)
+
+    # Filtered by user at the entry level, not the queryset: an order line
+    # ordered by one person and received by another is two separate entries,
+    # each attributed to just the person who did that part.
+    entries = []
+    for event in events:
+        entries.append({"when": event.created_at, "who_id": event.user_id, "who": event.user.name or event.user.email, "what": str(event)})
+    for order in orders:
+        entries.append(
+            {
+                "when": order.ordered_at,
+                "who_id": order.ordered_by_id,
+                "who": order.ordered_by.name or order.ordered_by.email,
+                "what": f"Ordered {format_qty(order.qty, order.item.unit)} of {order.item.name} from {order.item.supplier.name}",
+            }
+        )
+        if order.received_at:
+            entries.append(
+                {
+                    "when": order.received_at,
+                    "who_id": order.received_by_id,
+                    "who": (order.received_by.name or order.received_by.email) if order.received_by else "someone",
+                    "what": f"Received {format_qty(order.received_qty, order.item.unit)} of {order.item.name}",
+                }
+            )
+
+    if user_id:
+        entries = [e for e in entries if str(e["who_id"]) == str(user_id)]
+
+    entries.sort(key=lambda e: e["when"], reverse=True)
+    return entries
+
+
+@admin_required
+def activity_log(request):
+    org = request.user.organisation
+    item_id = request.GET.get("item", "").strip()
+    user_id = request.GET.get("user", "").strip()
+
+    entries = _activity_entries(org, item_id if item_id.isdigit() else "", user_id if user_id.isdigit() else "")
+    page = Paginator(entries, 25).get_page(request.GET.get("page"))
+
+    context = {
+        "page": page,
+        "items": Item.objects.for_org(org).order_by("name"),
+        "users": User.objects.for_org(org).order_by("name"),
+        "item_id": item_id,
+        "user_id": user_id,
+    }
+    return render(request, "stock/activity_log.html", context)
+
+
+def _csv_response(filename, header, rows):
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.write("﻿")  # BOM, so Excel opens UTF-8 text correctly
+    writer = csv.writer(response)
+    writer.writerow(header)
+    writer.writerows(rows)
+    return response
+
+
+@admin_required
+def export_items(request):
+    org = request.user.organisation
+    rows = [
+        [item.name, item.unit, item.supplier.name, item.price, item.order_size, item.is_active]
+        for item in Item.objects.for_org(org).select_related("supplier").order_by("name")
+    ]
+    return _csv_response("items.csv", ["name", "unit", "supplier", "price", "order_size", "active"], rows)
+
+
+@admin_required
+def export_stock_events(request):
+    org = request.user.organisation
+    rows = [
+        [event.created_at.isoformat(), event.item.name, event.get_kind_display(), event.qty, event.user.name or event.user.email]
+        for event in StockEvent.objects.for_org(org).select_related("item", "user").order_by("created_at")
+    ]
+    return _csv_response("stock_events.csv", ["date", "item", "kind", "qty", "user"], rows)
+
+
+@admin_required
+def export_order_lines(request):
+    org = request.user.organisation
+    rows = [
+        [
+            order.ordered_at.isoformat(),
+            order.item.name,
+            order.item.supplier.name,
+            order.qty,
+            order.unit_price,
+            order.ordered_by.name or order.ordered_by.email,
+            order.expected_at.isoformat(),
+            order.received_qty,
+            order.received_at.isoformat() if order.received_at else "",
+            (order.received_by.name or order.received_by.email) if order.received_by else "",
+            order.cancelled_at.isoformat() if order.cancelled_at else "",
+        ]
+        for order in OrderLine.objects.for_org(org)
+        .select_related("item", "item__supplier", "ordered_by", "received_by")
+        .order_by("ordered_at")
+    ]
+    return _csv_response(
+        "order_lines.csv",
+        [
+            "ordered_at", "item", "supplier", "qty", "unit_price", "ordered_by",
+            "expected_at", "received_qty", "received_at", "received_by", "cancelled_at",
+        ],
+        rows,
+    )

@@ -130,6 +130,10 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:reorder_undo", make=make_order_line, method="post"),
     Case("stock:reorder_undo_batch", method="post"),
     Case("stock:supplier_apply_lead_days", make=make_supplier, method="post"),
+    Case("stock:activity_log"),
+    Case("stock:export_items"),
+    Case("stock:export_stock_events"),
+    Case("stock:export_order_lines"),
 ]
 
 # Pages an assistant can open. None of them may show a price.
