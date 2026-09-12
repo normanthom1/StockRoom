@@ -13,7 +13,6 @@ urlpatterns = [
     path("item/<int:pk>/order-size/", views.item_set_order_size, name="item_set_order_size"),
     path("item/<int:pk>/toggle-reorder/", views.item_toggle_reorder, name="item_toggle_reorder"),
     path("log-usage/", views.log_usage, name="log_usage"),
-    path("log-usage/<int:pk>/sheet/", views.log_usage_sheet, name="log_usage_sheet"),
     path("log-usage/<int:pk>/used-one/", views.log_used_one, name="log_used_one"),
     path("log-usage/<int:pk>/running-low/", views.log_running_low, name="log_running_low"),
     path("log-usage/<int:pk>/used-last/", views.log_used_last, name="log_used_last"),

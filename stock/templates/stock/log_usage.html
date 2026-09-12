@@ -5,31 +5,88 @@
 {% block content %}
 <h1 class="mb-3 text-2xl font-bold text-primary-dark">Tap what you used</h1>
 
-<input type="search" name="q" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
-       value="{{ query }}" placeholder="Search all {{ total_count }} items…"
-       class="mb-3"
-       hx-get="{% url 'stock:log_usage' %}" hx-trigger="input changed delay:200ms" hx-target="#tile-grid" hx-swap="innerHTML">
+{% if tiles %}
+  <input type="search" id="tile-search" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
+         placeholder="Search all {{ tiles|length }} items…" class="mb-3" oninput="filterTiles(this.value)">
 
-<div id="tile-grid">
-  {% partialdef tiles inline %}
-  {% if tiles %}
-    <div class="grid grid-cols-2 gap-2">
-      {% for tile in tiles %}
-        <button type="button"
-                hx-get="{% url 'stock:log_usage_sheet' tile.id %}" hx-target="#sheet-content" hx-swap="innerHTML"
-                class="tap-target flex h-28 flex-col items-start justify-between gap-1 rounded-lg bg-gray-100 p-3 text-left
-                  border-l-4 {% if tile.status_color == 'out' %}border-status-out
-                  {% elif tile.status_color == 'now' %}border-status-now
-                  {% elif tile.status_color == 'week' %}border-status-week
-                  {% else %}border-status-ok{% endif %}">
-          <span class="font-semibold leading-tight text-gray-900">{{ tile.name }}</span>
-          <span class="text-xs text-gray-600">{{ tile.qty }}</span>
-        </button>
-      {% endfor %}
-    </div>
-  {% else %}
-    <p class="py-10 text-center text-sm text-gray-600">No items match "{{ query }}".</p>
-  {% endif %}
-  {% endpartialdef %}
-</div>
+  <div id="tile-grid" class="grid grid-cols-2 gap-2">
+    {% for tile in tiles %}
+      <button type="button" onclick="openCaptureSheet(this)"
+              data-search="{{ tile.name|lower }}" data-name="{{ tile.name }}" data-unit="{{ tile.unit }}"
+              data-qty="{{ tile.qty }}" data-after="{{ tile.after }}" data-has-qty="{{ tile.has_qty|yesno:'1,' }}"
+              data-used-one="{% url 'stock:log_used_one' tile.id %}"
+              data-used-last="{% url 'stock:log_used_last' tile.id %}"
+              data-running-low="{% url 'stock:log_running_low' tile.id %}"
+              class="tap-target flex h-28 flex-col items-start justify-between gap-1 rounded-lg bg-gray-100 p-3 text-left
+                border-l-4 {% if tile.status_color == 'out' %}border-status-out
+                {% elif tile.status_color == 'now' %}border-status-now
+                {% elif tile.status_color == 'week' %}border-status-week
+                {% else %}border-status-ok{% endif %}">
+        <span class="font-semibold leading-tight text-gray-900">{{ tile.name }}</span>
+        <span class="text-xs text-gray-600">{{ tile.qty }}</span>
+      </button>
+    {% endfor %}
+  </div>
+  <p id="no-match" hidden class="py-10 text-center text-sm text-gray-600">No items match your search.</p>
+{% else %}
+  <p class="py-10 text-center text-sm text-gray-600">No items yet. Your manager adds them on the Stock page.</p>
+{% endif %}
+
+<template id="capture-sheet">
+  <div class="flex items-baseline gap-3">
+    <h2 data-slot="name" class="flex-1 text-xl font-bold text-primary-dark"></h2>
+    <button type="button" class="tap-target rounded-lg border border-gray-300 px-3 text-sm font-medium"
+            onclick="document.getElementById('sheet').close()">Cancel</button>
+  </div>
+  {# X-Capture tells the service worker to queue this tap if it can't reach us. #}
+  <div class="mt-3 flex flex-col gap-2" hx-headers='{"X-Capture": "1"}'
+       hx-vals='js:{client_id: crypto.randomUUID(), user_id: "{{ request.user.pk }}"}'>
+    <button type="button" data-action="usedOne" hx-disabled-elt="this"
+            class="tap-target flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-primary-dark/10 text-primary-dark">
+      <span data-slot="used-one" class="text-xl font-bold"></span>
+      <span data-slot="change" class="text-sm"></span>
+    </button>
+    <button type="button" data-action="usedLast" hx-disabled-elt="this"
+            class="tap-target flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-primary text-white">
+      <span class="text-xl font-bold">Used the last one</span>
+      <span class="text-sm opacity-90">Shelf is empty now</span>
+    </button>
+    <button type="button" data-action="runningLow" hx-disabled-elt="this"
+            class="tap-target flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-gray-200 text-gray-900">
+      <span class="text-xl font-bold">Running low</span>
+      <span class="text-sm text-gray-600">Tell the manager we're low</span>
+    </button>
+  </div>
+</template>
+
+<script>
+  function filterTiles(query) {
+    const q = query.trim().toLowerCase();
+    let shown = 0;
+    for (const tile of document.querySelectorAll("#tile-grid [data-search]")) {
+      tile.hidden = !tile.dataset.search.includes(q);
+      if (!tile.hidden) shown++;
+    }
+    document.getElementById("no-match").hidden = shown > 0;
+  }
+
+  function openCaptureSheet(tile) {
+    const item = tile.dataset;
+    const sheet = document.getElementById("capture-sheet").content.cloneNode(true);
+    sheet.querySelector("[data-slot=name]").textContent = item.name;
+    if (item.hasQty) {
+      sheet.querySelector("[data-slot=used-one]").textContent = `Used 1 ${item.unit}`;
+      sheet.querySelector("[data-slot=change]").textContent = `${item.qty} → ${item.after}`;
+    } else {
+      sheet.querySelector("[data-action=usedOne]").remove();
+    }
+    for (const button of sheet.querySelectorAll("[data-action]")) {
+      button.setAttribute("hx-post", item[button.dataset.action]);
+    }
+    const content = document.getElementById("sheet-content");
+    content.replaceChildren(sheet);
+    htmx.process(content);
+    document.getElementById("sheet").showModal();
+  }
+</script>
 {% endblock %}

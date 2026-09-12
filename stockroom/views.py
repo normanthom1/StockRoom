@@ -62,7 +62,8 @@ def service_worker(request):
         "version": sw_version(offline_html),
         "precache": json.dumps([static(path) for path in PRECACHE_STATIC] + [offline_url]),
         "offline_url": json.dumps(offline_url),
-        "logout_url": json.dumps(reverse("logout")),
+        "capture_page_url": json.dumps(reverse("stock:log_usage")),
+        "session_urls": json.dumps([reverse("login"), reverse("logout")]),
         "offline_fragment": json.dumps(render_to_string("offline.html#message").strip()),
     })
     return HttpResponse(js, content_type="application/javascript")
