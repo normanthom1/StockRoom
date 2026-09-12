@@ -18,7 +18,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 26 | Deliveries: receive incoming orders | done |
 | 27 | Spending reports | done |
 | 28 | Activity log and CSV export | done |
-| 29 | PWA manifest, icons, installability | todo |
+| 29 | PWA manifest, icons, installability | done (verified locally; #8's Railway deploy is still open, see notes) |
 
 ## Notes for resuming
 - Issue 18 added stub "coming soon" views/URLs for pages later issues own:
@@ -257,6 +257,28 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   `HttpResponse` (it's writable like a file) and prepend a UTF-8 BOM
   (`response.write("﻿")`) so Excel doesn't mangle non-ASCII text -
   add the same prefix to any future CSV export.
+- **Issue 29 has an unresolved dependency**: it depends on #8 ("Provision the
+  Railway project and do the first deploy"), which is still OPEN - an
+  infra/ops task needing the user's Railway account, not something to do
+  solo. Per user direction, shipped everything buildable and verified
+  locally instead of blocking: manifest (`static/manifest.webmanifest`),
+  icons (`static/icons/` - `icon.svg` reuses the prototype's own bundler
+  thumbnail mark, rendered to PNG at 192/512/180/32 via a throwaway
+  Playwright screenshot script since no image library is installed -
+  ladder rung: reuse infra already proven this session over adding Pillow),
+  iOS meta tags, `/sw.js` (a real Django view at the site ROOT, not
+  `/static/sw.js`, so its scope covers the whole app - `stockroom/views.py`,
+  `login_not_required` since it must load before anyone's logged in), and
+  the iOS "Add to Home Screen" hint (`localStorage`-remembered dismissal,
+  positioned differently depending on `user.is_authenticated` since the
+  bottom nav isn't present pre-login). Verified installability with
+  Playwright's CDP session (`Page.getInstallabilityErrors` /
+  `Page.getAppManifest`) - the direct automatable equivalent of "Chrome
+  DevTools -> Application -> Manifest": zero errors both ways. Still
+  outstanding once #8 lands: confirm install actually works from the real
+  Railway URL on Android Chrome and iOS Safari (the literal wording of #29's
+  Done-when) - that part needs a live deployment and real devices, not
+  something to fake locally.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
