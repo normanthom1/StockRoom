@@ -41,6 +41,8 @@
         <button type="button" class="tap-target text-white/70" @click="remove(item.id)" aria-label="Dismiss">&times;</button>
       </div>
     </template>
+    <button type="button" id="sw-update" hidden
+            class="tap-target pointer-events-auto rounded-lg bg-gray-900 px-4 font-semibold text-white shadow-lg">New version available, tap to reload</button>
   </div>
 
   <div id="ios-install-hint" hidden
@@ -159,7 +161,29 @@
       if (event.target.id === "sheet-content") document.getElementById("sheet").showModal();
     });
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js"));
+      let updating = false;
+      const offerUpdate = (worker) => {
+        const button = document.getElementById("sw-update");
+        button.hidden = false;
+        button.onclick = () => {
+          updating = true;
+          worker.postMessage("skip-waiting");
+        };
+      };
+      // Only reload once the user asked for it; the first install also changes the controller.
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (updating) location.reload();
+      });
+      window.addEventListener("load", async () => {
+        const registration = await navigator.serviceWorker.register("/sw.js");
+        if (registration.waiting && navigator.serviceWorker.controller) offerUpdate(registration.waiting);
+        registration.addEventListener("updatefound", () => {
+          const worker = registration.installing;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) offerUpdate(worker);
+          });
+        });
+      });
     }
     (function () {
       // Safari has no install prompt of its own, so iOS users need telling

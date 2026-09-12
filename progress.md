@@ -293,6 +293,15 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   for real. Lesson for any future Railway work: a green CI run on `main` is
   no guarantee it actually shipped - check the Railway Deployments tab's
   commit SHA against `git log -1 main` if the live site ever looks stale.
+- Issue 30 (done, after the 17-29 batch): `/sw.js` is now `templates/sw.js`
+  rendered by `stockroom.views.service_worker`. Cache name = hash of the
+  precached files' contents + the offline page (`sw_version`), so it changes
+  only when a deploy ships new assets. Navigations and htmx requests are never
+  cached (practice data/prices); only the public shell in `PRECACHE_STATIC` +
+  `/offline/` is. `/offline/` renders WITHOUT the request so it never holds a
+  user's details. Logout POST is intercepted in the SW: wipe all caches, then
+  re-precache the shell. #31 (offline logging) should add any runtime caching
+  of user data in a separately named cache - logout already clears every cache.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
