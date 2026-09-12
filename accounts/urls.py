@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     # Before the include, so it wins over the stock login view.
     path("login/", views.LoginView.as_view(), name="login"),
+    path("demo-login/<str:who>/", views.demo_login, name="demo_login"),
     path("signup/", views.signup, name="signup"),
     path("invite/<str:token>/", views.invite_accept, name="invite_accept"),
     path("team/", views.team, name="team"),

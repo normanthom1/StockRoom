@@ -150,6 +150,7 @@ NO_PRACTICE_DATA: dict[str, str] = {
     "service_worker": "the same JavaScript for everyone",
     "offline": "rendered without the request, so it can't hold anyone's data",
     "login": "public",
+    "demo_login": "public; 404s unless DEMO_MODE, and only reaches the fixed demo practice",
     "logout": "ends your own session",
     "signup": "public; creates a new practice",
     "invite_accept": "public; the signed token names the practice",

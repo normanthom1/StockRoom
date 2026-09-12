@@ -108,3 +108,11 @@ class OrderLine(OrgOwned):
         if self.expected_at is None:
             self.expected_at = self.ordered_at + timedelta(days=self.item.supplier.lead_days)
         super().save(*args, **kwargs)
+
+
+class DemoResetState(models.Model):
+    """Singleton row (pk=1): the NZT date the public demo was last reset.
+    See stockroom.demo.DemoResetMiddleware. Not org-owned - it tracks the
+    platform's demo mode, not any one practice's data."""
+
+    date = models.DateField()

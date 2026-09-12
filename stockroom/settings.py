@@ -58,6 +58,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
+    "stockroom.demo.DemoResetMiddleware",
 ]
 
 # Every script is self-hosted and none is inline (see static/js/app.js), so
@@ -120,8 +121,12 @@ LOGOUT_REDIRECT_URL = "login"
 # Staff log in on their phones once and stay logged in.
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 60  # 60 days
 
-# Off on the public demo, so visitors use the demo practice instead of making their own.
-SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", True)
+# The public portfolio demo: one-click sign-in as a demo user, a nightly
+# reset of "Demo Dental" (see stockroom.demo.DemoResetMiddleware), and
+# sign-up hidden by default (a demo visitor uses the demo practice, not
+# their own) unless explicitly turned back on.
+DEMO_MODE = env_bool("DEMO_MODE", False)
+SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", not DEMO_MODE)
 
 # Deliberately no provider (#13): invites and password resets for a team
 # member go out as mailto: links an admin sends from their own inbox
