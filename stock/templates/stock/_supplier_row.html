@@ -1,0 +1,40 @@
+{% if edit_form %}
+<form id="supplier-row-{{ supplier.pk }}" class="flex flex-col gap-2 border-b border-gray-200 p-2" onsubmit="return false">
+  {% if edit_form.non_field_errors %}<p class="text-sm font-medium text-status-now">{{ edit_form.non_field_errors|join:" " }}</p>{% endif %}
+  {% for field in edit_form %}{% for error in field.errors %}<p class="text-sm font-medium text-status-now">{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}
+  <input type="text" name="name" value="{{ edit_form.name.value|default:'' }}" placeholder="Name">
+  <div class="flex gap-2">
+    <input type="number" name="lead_days" value="{{ edit_form.lead_days.value|default:'' }}" inputmode="numeric" min="1" max="60" placeholder="Lead days" class="w-28">
+    <input type="text" name="phone" value="{{ edit_form.phone.value|default:'' }}" placeholder="Phone" class="min-w-0 flex-1">
+  </div>
+  <input type="email" name="email" value="{{ edit_form.email.value|default:'' }}" placeholder="Email">
+  <div class="flex gap-2">
+    <button type="button" hx-post="{% url 'stock:supplier_update' supplier.pk %}" hx-include="closest form"
+            hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML" hx-disabled-elt="this"
+            class="tap-target flex-1 rounded-lg bg-primary text-sm font-semibold text-white">Save</button>
+    <button type="button" hx-get="{% url 'stock:supplier_row' supplier.pk %}"
+            hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
+            class="tap-target flex-1 rounded-lg border border-gray-300 text-sm font-medium">Cancel</button>
+  </div>
+</form>
+{% else %}
+<div id="supplier-row-{{ supplier.pk }}" class="flex flex-wrap items-center gap-3 border-b border-gray-200 p-2">
+  <button type="button" hx-get="{% url 'stock:supplier_edit' supplier.pk %}"
+          hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
+          class="tap-target min-w-0 flex-1 text-left font-semibold text-gray-900">{{ supplier.name }}</button>
+  <div class="flex items-center gap-1">
+    <button type="button" hx-post="{% url 'stock:supplier_lead_days' supplier.pk %}" hx-vals='{"direction": "down"}'
+            hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
+            class="tap-target rounded-lg border border-gray-300 px-2 font-bold" aria-label="Fewer lead days">&minus;</button>
+    <span class="w-20 text-center text-sm text-gray-700">{{ supplier.lead_days }} days</span>
+    <button type="button" hx-post="{% url 'stock:supplier_lead_days' supplier.pk %}" hx-vals='{"direction": "up"}'
+            hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
+            class="tap-target rounded-lg border border-gray-300 px-2 font-bold" aria-label="More lead days">&plus;</button>
+  </div>
+  {% if supplier.phone %}<a href="tel:{{ supplier.phone_digits }}" class="link text-sm">{{ supplier.phone }}</a>{% endif %}
+  {% if supplier.email %}<a href="mailto:{{ supplier.email }}" class="link text-sm">{{ supplier.email }}</a>{% endif %}
+  <span class="text-xs text-gray-600">{{ supplier.item_count }} item{{ supplier.item_count|pluralize }}</span>
+  <button type="button" hx-post="{% url 'stock:supplier_archive' supplier.pk %}" hx-disabled-elt="this"
+          class="tap-target text-xs font-medium text-gray-500 underline">Archive</button>
+</div>
+{% endif %}

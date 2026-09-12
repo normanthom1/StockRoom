@@ -4,6 +4,13 @@ Kept separate from forecast.py: that module works out the numbers, this one
 turns them into the words shown on screen.
 """
 
+import re
+
+
+def phone_digits(phone: str) -> str:
+    """A phone number stripped down for a tel: link - keeps a leading + only."""
+    return re.sub(r"[^0-9+]", "", phone or "")
+
 # StockRoom.html's UNIT_SINGULAR/pluralUnit, for units already plural by default.
 UNIT_SINGULAR = {
     "boxes": "box",

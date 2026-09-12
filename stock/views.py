@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -14,6 +15,7 @@ from accounts.decorators import admin_required
 
 from .chart import usage_chart_svg
 from .forecast import Status, forecast, outlier_mask, weekly_consumption
+from .forms import SupplierForm
 from .humanize import (
     CONFIDENCE_LABEL,
     build_caveat,
@@ -23,8 +25,9 @@ from .humanize import (
     humanize_range,
     humanize_run_out,
     order_by_text,
+    phone_digits,
 )
-from .models import Item, StockEvent
+from .models import Item, StockEvent, Supplier
 
 CHART_WEEKS = 12
 
@@ -400,9 +403,102 @@ def items(request):
     return render(request, "stock/stock_page.html")
 
 
+def _suppliers_context(org, form=None):
+    supplier_list = (
+        Supplier.objects.for_org(org)
+        .filter(is_active=True)
+        .annotate(item_count=Count("items", filter=Q(items__is_active=True)))
+        .order_by("name")
+    )
+    for supplier in supplier_list:
+        supplier.phone_digits = phone_digits(supplier.phone)
+    return {"suppliers": supplier_list, "form": form or SupplierForm(instance=Supplier(organisation=org))}
+
+
+def _annotate_item_count(supplier):
+    supplier.item_count = supplier.items.filter(is_active=True).count()
+    supplier.phone_digits = phone_digits(supplier.phone)
+    return supplier
+
+
 @admin_required
 def suppliers(request):
-    return _coming_soon(request, "Suppliers")
+    return render(request, "stock/suppliers.html", _suppliers_context(request.user.organisation))
+
+
+@require_POST
+@admin_required
+def supplier_add(request):
+    org = request.user.organisation
+    form = SupplierForm(request.POST, instance=Supplier(organisation=org))
+    if form.is_valid():
+        form.save()
+        messages.success(request, f"Added {form.instance.name}.")
+        return redirect("stock:suppliers")
+    return render(request, "stock/suppliers.html", _suppliers_context(org, form=form))
+
+
+@admin_required
+def supplier_edit(request, pk):
+    supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
+    form = SupplierForm(instance=supplier)
+    return render(request, "stock/_supplier_row.html", {"supplier": supplier, "edit_form": form})
+
+
+@admin_required
+def supplier_row(request, pk):
+    supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
+    return render(request, "stock/_supplier_row.html", {"supplier": _annotate_item_count(supplier)})
+
+
+@require_POST
+@admin_required
+def supplier_update(request, pk):
+    supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
+    form = SupplierForm(request.POST, instance=supplier)
+    if form.is_valid():
+        form.save()
+        return render(request, "stock/_supplier_row.html", {"supplier": _annotate_item_count(supplier)})
+    return render(request, "stock/_supplier_row.html", {"supplier": supplier, "edit_form": form})
+
+
+@require_POST
+@admin_required
+def supplier_lead_days(request, pk):
+    supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
+    delta = 1 if request.POST.get("direction") == "up" else -1
+    supplier.lead_days = max(1, min(60, supplier.lead_days + delta))
+    supplier.save(update_fields=["lead_days"])
+    return render(request, "stock/_supplier_row.html", {"supplier": _annotate_item_count(supplier)})
+
+
+@require_POST
+@admin_required
+def supplier_archive(request, pk):
+    supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
+    active_items = supplier.items.filter(is_active=True).count()
+    if active_items:
+        messages.error(
+            request, f"{supplier.name} still has {active_items} active item(s) - move or archive them first."
+        )
+    else:
+        supplier.is_active = False
+        supplier.save(update_fields=["is_active"])
+        messages.success(
+            request, f"Archived {supplier.name}.", extra_tags=reverse("stock:supplier_unarchive", args=[supplier.pk])
+        )
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("stock:suppliers")
+    return response
+
+
+@require_POST
+@admin_required
+def supplier_unarchive(request, pk):
+    supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
+    supplier.is_active = True
+    supplier.save(update_fields=["is_active"])
+    return _toast_response("Restored.")
 
 
 @admin_required

@@ -15,6 +15,7 @@ class Supplier(OrgOwned):
     phone = models.CharField(max_length=50, blank=True)
     email = models.EmailField(blank=True)
     notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         constraints = [
