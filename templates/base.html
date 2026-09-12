@@ -4,6 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <title>{% block title %}StockRoom{% endblock %}</title>
+
+  <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
+  <meta name="theme-color" content="#5980a6">
+  <link rel="icon" type="image/svg+xml" href="{% static 'icons/icon.svg' %}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'icons/favicon-32.png' %}">
+  <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="StockRoom">
+
   {% tailwind_css %}
   <script src="{% static 'vendor/htmx.min.js' %}"></script>
 </head>
@@ -31,6 +41,12 @@
         <button type="button" class="tap-target text-white/70" @click="remove(item.id)" aria-label="Dismiss">&times;</button>
       </div>
     </template>
+  </div>
+
+  <div id="ios-install-hint" hidden
+       class="fixed inset-x-3 {% if user.is_authenticated %}bottom-20{% else %}bottom-3{% endif %} z-40 mx-auto flex max-w-md items-center gap-3 rounded-lg bg-gray-900 p-3 text-sm text-white shadow-lg">
+    <span class="flex-1">Install StockRoom: tap Share, then "Add to Home Screen".</span>
+    <button type="button" id="ios-install-hint-dismiss" class="tap-target text-white/70" aria-label="Dismiss">&times;</button>
   </div>
 
   {% if user.is_authenticated %}
@@ -142,6 +158,36 @@
     document.body.addEventListener("htmx:afterSwap", (event) => {
       if (event.target.id === "sheet-content") document.getElementById("sheet").showModal();
     });
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js"));
+    }
+    (function () {
+      // Safari has no install prompt of its own, so iOS users need telling
+      // how to add the app to their home screen by hand.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      const isStandalone = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+      let dismissed = false;
+      try {
+        dismissed = localStorage.getItem("stockroom-a2hs-dismissed") === "1";
+      } catch (e) {
+        /* private browsing can throw; just show the hint every time */
+      }
+      const hint = document.getElementById("ios-install-hint");
+      if (isIOS && !isStandalone && !dismissed && hint) {
+        hint.hidden = false;
+      }
+      const dismissBtn = document.getElementById("ios-install-hint-dismiss");
+      if (dismissBtn) {
+        dismissBtn.addEventListener("click", () => {
+          hint.hidden = true;
+          try {
+            localStorage.setItem("stockroom-a2hs-dismissed", "1");
+          } catch (e) {
+            /* nothing to persist to in private browsing - it'll just show again */
+          }
+        });
+      }
+    })();
   </script>
 </body>
 </html>
