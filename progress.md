@@ -18,7 +18,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 26 | Deliveries: receive incoming orders | done |
 | 27 | Spending reports | done |
 | 28 | Activity log and CSV export | done |
-| 29 | PWA manifest, icons, installability | done (verified locally; #8's Railway deploy is still open, see notes) |
+| 29 | PWA manifest, icons, installability | done (verified locally and on the live Railway URL) |
 
 ## Notes for resuming
 - Issue 18 added stub "coming soon" views/URLs for pages later issues own:
@@ -279,6 +279,20 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   Railway URL on Android Chrome and iOS Safari (the literal wording of #29's
   Done-when) - that part needs a live deployment and real devices, not
   something to fake locally.
+- **#8 resolved after the fact** (2026-09-12, by the user): Railway's
+  auto-deploy had silently stopped triggering right after PR #59 merged - 10+
+  subsequent merges through #70 all passed CI but were never actually
+  deployed, leaving the live site stuck on pre-#60 scaffold code for hours. A
+  manual "Redeploy" in the Railway dashboard caught it up to `main`. That then
+  surfaced a real config gap from #8's own checklist: `CSRF_TRUSTED_ORIGINS`
+  wasn't set, so login 403'd; setting it to the Railway domain in the
+  service's env vars fixed it. With #8 done, #29's live-URL installability
+  check was re-verified against production (Playwright CDP against
+  https://stockroom-production-1adf.up.railway.app/accounts/login/: zero
+  installability errors, manifest/icons/sw.js all 200 over HTTPS) and closed
+  for real. Lesson for any future Railway work: a green CI run on `main` is
+  no guarantee it actually shipped - check the Railway Deployments tab's
+  commit SHA against `git log -1 main` if the live site ever looks stale.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
