@@ -293,6 +293,13 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   for real. Lesson for any future Railway work: a green CI run on `main` is
   no guarantee it actually shipped - check the Railway Deployments tab's
   commit SHA against `git log -1 main` if the live site ever looks stale.
+  Actual root cause (found during #30): Railway's GitHub App had lost access
+  to the repo, so no push after #55 ever reached Railway. Fixed by granting
+  the app access on GitHub and reconnecting the repo in the service's
+  Source settings. Also: Railway's "Redeploy" rebuilds the SAME commit as the
+  deployment it's run on; use "Deploy Latest Commit" to pick up new code.
+  The Railway CLI is logged in on this machine: `railway deployment list
+  --json` shows each deploy's `meta.commitHash` and `meta.reason`.
 - Issue 30 (done, after the 17-29 batch): `/sw.js` is now `templates/sw.js`
   rendered by `stockroom.views.service_worker`. Cache name = hash of the
   precached files' contents + the offline page (`sw_version`), so it changes
