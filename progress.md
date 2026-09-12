@@ -404,6 +404,18 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   already looks like it "isn't working" - the wrong process can still serve
   a plausible-looking page (ours did: it even showed the new demo-mode UI,
   just from stale server-side logic underneath).
+  CI then caught a real bug the stale-server confusion had masked locally:
+  `settings.STATIC_URL` is normalised by Django to always start with "/"
+  regardless of how it's written in settings.py (`STATIC_URL = "static/"`
+  here, no leading slash) - the middleware's `f"/{settings.STATIC_URL}"`
+  produced `"//static/"` and never matched, so it ran its DB check on every
+  static asset. Fixed by using `settings.STATIC_URL` directly. The test for
+  this now drives `DemoResetMiddleware` directly with `RequestFactory`
+  rather than going through the real client + WhiteNoise, since WhiteNoise
+  only short-circuits `/static/` once `collectstatic` has run - it hadn't in
+  CI, so the original test (`self.client.get("/static/...")`) passed
+  locally (where staticfiles exists) but failed in CI for an unrelated
+  reason before the real STATIC_URL bug was even found.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
