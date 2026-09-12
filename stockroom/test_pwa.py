@@ -9,10 +9,16 @@ checked the normal way.
 
 import json
 import struct
+import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from django.conf import settings
+from django.templatetags.static import static
 from django.test import TestCase
+
+from accounts.models import Organisation, User
+from stockroom.views import PRECACHE_STATIC, sw_version
 
 MANIFEST_PATH = Path(settings.BASE_DIR) / "static" / "manifest.webmanifest"
 ICONS_DIR = Path(settings.BASE_DIR) / "static" / "icons"
@@ -101,3 +107,68 @@ class ServiceWorkerViewTests(TestCase):
         self.assertIn('addEventListener("install"', content)
         self.assertIn('addEventListener("activate"', content)
         self.assertIn('addEventListener("fetch"', content)
+
+    def test_sw_js_precaches_the_app_shell_and_offline_page(self):
+        content = self.client.get("/sw.js").content.decode()
+        for path in PRECACHE_STATIC:
+            self.assertIn(json.dumps(static(path)), content)
+        self.assertIn('"/offline/"', content)
+        self.assertIn('const LOGOUT_URL = "/accounts/logout/"', content)
+
+    def test_sw_js_embeds_the_offline_fragment(self):
+        content = self.client.get("/sw.js").content.decode()
+        self.assertIn("You're offline. Check your Wi-Fi", content)
+
+    def test_new_worker_waits_for_the_user_instead_of_skipping_waiting_on_install(self):
+        content = self.client.get("/sw.js").content.decode()
+        self.assertNotIn('addEventListener("install", () => self.skipWaiting())', content)
+        self.assertIn('event.data === "skip-waiting"', content)
+
+
+class CacheVersionTests(TestCase):
+    def test_version_is_stable_between_requests(self):
+        self.assertEqual(sw_version("<p>offline</p>"), sw_version("<p>offline</p>"))
+
+    def test_version_changes_when_the_offline_page_changes(self):
+        self.assertNotEqual(sw_version("<p>offline</p>"), sw_version("<p>offline!</p>"))
+
+    def test_version_changes_when_a_precached_file_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            asset = Path(tmp) / "asset"
+            asset.write_bytes(b"v1")
+            with patch("stockroom.views.finders.find", return_value=str(asset)):
+                before = sw_version("<p>offline</p>")
+                asset.write_bytes(b"v2")
+                after = sw_version("<p>offline</p>")
+        self.assertNotEqual(before, after)
+
+    def test_version_ignores_precached_files_that_are_not_built_yet(self):
+        with patch("stockroom.views.finders.find", return_value=None):
+            self.assertTrue(sw_version("<p>offline</p>"))
+
+
+class OfflinePageTests(TestCase):
+    def test_offline_page_does_not_require_login(self):
+        response = self.client.get("/offline/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "You're offline")
+        self.assertContains(response, "Try again")
+
+    def test_offline_page_never_includes_the_logged_in_users_details(self):
+        # The service worker precaches this page while someone is logged in,
+        # so it must not carry their name, practice or navigation.
+        org = Organisation.objects.create(name="Smile Dental")
+        user = User.objects.create_user("sandy@smile.test", "pw", organisation=org, name="Sandy")
+        self.client.force_login(user)
+        content = self.client.get("/offline/").content.decode()
+        self.assertNotIn("Smile Dental", content)
+        self.assertNotIn("sandy@smile.test", content)
+        self.assertNotIn("Log out", content)
+
+
+class UpdateToastTests(TestCase):
+    def test_base_template_has_the_update_toast_and_its_wiring(self):
+        content = self.client.get("/accounts/login/").content.decode()
+        self.assertIn('id="sw-update"', content)
+        self.assertIn("New version available, tap to reload", content)
+        self.assertIn('postMessage("skip-waiting")', content)
