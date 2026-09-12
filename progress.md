@@ -371,6 +371,39 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   different Python install (Windows Store Python, not the project's .venv)
   was still bound to the same test port. Always check the process list for
   more than one interpreter before concluding a restart didn't work.
+- Issue 35 (demo mode): redesigned during planning (see the issue's own
+  comment history) to drop the Railway cron service entirely - no human task
+  left, "Owner: Claude" only. `settings.DEMO_MODE` (env var, default False);
+  `SIGNUP_ENABLED` now defaults to `not DEMO_MODE` (still an explicit env var
+  override either way). One-click login is `accounts.views.demo_login`
+  (`POST /accounts/demo-login/<who>/`, `who` in `{sandy, johanna, owner}` -
+  `DEMO_LOGINS` dict maps to real seed_demo emails), 404s unless DEMO_MODE,
+  does a real `login()` with no password check - deliberately NOT behind
+  #33's login rate limiter, since many visitors clicking the same demo
+  button within 15 minutes would otherwise lock each other out.
+  Nightly reset with no cron: `stock.models.DemoResetState` (new model,
+  singleton row pk=1, just a `date`) + `stockroom.demo.DemoResetMiddleware`
+  (registered unconditionally in MIDDLEWARE, no-ops instantly unless
+  DEMO_MODE). On any request, if `state.date < timezone.localdate()` (NZT,
+  since TIME_ZONE is already Pacific/Auckland), it takes a `cache.add()` lock
+  keyed by the date (only the first request past midnight wins) and runs
+  `call_command("seed_demo", reset=True)` inline before continuing the
+  request - so whichever visitor's request crosses the boundary pays the
+  reset's latency, not a background job. Tested with LocMemCache
+  (`@override_settings(CACHES=...)`, same pattern as #33's rate-limit tests)
+  since the default test CACHES is a DummyCache that can't hold a lock.
+  **Hit the stale-server trap badly this time** - accumulated SIX orphaned
+  `runserver` processes while chasing what looked like a logic bug (the
+  reset not firing), because each new server I started for verification was
+  actually still being answered by an EARLIER leftover process on the same
+  port. Confirmed the actual demo.py logic was correct the whole time via a
+  direct `manage.py shell` call to `_reset_if_stale()`. Lesson beyond what's
+  already in memory feedback_runserver_noreload.md: `Get-NetTCPConnection
+  -LocalPort <port> | Select OwningProcess` before trusting ANY curl/browser
+  result against a just-started dev server, every time, not only when a fix
+  already looks like it "isn't working" - the wrong process can still serve
+  a plausible-looking page (ours did: it even showed the new demo-mode UI,
+  just from stale server-side logic underneath).
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

@@ -28,7 +28,29 @@ class LoginView(auth_views.LoginView):
     authentication_form = EmailLoginForm
 
     def get_context_data(self, **kwargs):
-        return super().get_context_data(signup_enabled=settings.SIGNUP_ENABLED, **kwargs)
+        return super().get_context_data(
+            signup_enabled=settings.SIGNUP_ENABLED, demo_mode=settings.DEMO_MODE, demo_logins=DEMO_LOGINS, **kwargs
+        )
+
+
+# email, display label - the "Demo Dental" org's users from seed_demo.py.
+# Liz isn't offered a one-click button; two assistants add nothing to a demo.
+DEMO_LOGINS = {
+    "sandy": ("sandy@demodental.test", "Sandy (manager)"),
+    "johanna": ("johanna@demodental.test", "Johanna (assistant)"),
+    "owner": ("owner@demodental.test", "Practice Owner"),
+}
+
+
+@login_not_required
+@require_POST
+def demo_login(request, who):
+    if not settings.DEMO_MODE or who not in DEMO_LOGINS:
+        raise Http404
+    email, _ = DEMO_LOGINS[who]
+    user = get_object_or_404(User, email=email, organisation__name="Demo Dental")
+    login(request, user)
+    return redirect(settings.LOGIN_REDIRECT_URL)
 
 
 @login_not_required
