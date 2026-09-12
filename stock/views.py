@@ -33,6 +33,7 @@ from .humanize import (
     pluralize_unit,
 )
 from .models import Item, OrderLine, StockEvent, Supplier
+from .spending import PERIOD_WEEKS, period_bounds, previous_period_bounds
 
 CHART_WEEKS = 12
 
@@ -950,9 +951,79 @@ def supplier_unarchive(request, pk):
     return _toast_response("Restored.")
 
 
+def _spend_total(org, start, end):
+    lines = OrderLine.objects.for_org(org).filter(
+        ordered_at__date__gte=start, ordered_at__date__lt=end, cancelled_at__isnull=True, unit_price__isnull=False
+    )
+    return sum((line.qty * line.unit_price for line in lines), Decimal(0))
+
+
 @admin_required
 def spending(request):
-    return _coming_soon(request, "Spending")
+    org = request.user.organisation
+    period = request.GET.get("period", "week")
+    if period not in PERIOD_WEEKS:
+        period = "week"
+    today = timezone.localtime().date()
+    start, end = period_bounds(period, today)
+
+    lines = list(
+        OrderLine.objects.for_org(org)
+        .filter(ordered_at__date__gte=start, ordered_at__date__lt=end, cancelled_at__isnull=True, unit_price__isnull=False)
+        .select_related("item", "item__supplier")
+    )
+    actual_total = sum((line.qty * line.unit_price for line in lines), Decimal(0))
+
+    supplier_totals, item_totals = {}, {}
+    for line in lines:
+        amount = line.qty * line.unit_price
+        supplier_totals[line.item.supplier.name] = supplier_totals.get(line.item.supplier.name, Decimal(0)) + amount
+        item_totals[line.item.name] = item_totals.get(line.item.name, Decimal(0)) + amount
+
+    by_supplier = sorted(
+        (
+            {"name": name, "total": total, "pct": round(total / actual_total * 100) if actual_total else 0}
+            for name, total in supplier_totals.items()
+        ),
+        key=lambda s: -s["total"],
+    )
+    top_items = sorted(
+        ({"name": name, "total": total} for name, total in item_totals.items()), key=lambda i: -i["total"]
+    )[:5]
+
+    # A meaningful comparison needs 3 full periods of history behind it, or
+    # a new practice's mostly-empty early weeks would just look like savings.
+    prev_bounds = previous_period_bounds(period, start, 3)
+    earliest = OrderLine.objects.for_org(org).order_by("ordered_at").first()
+    has_comparison = bool(earliest) and earliest.ordered_at.date() <= prev_bounds[0][0]
+    average_prev = None
+    if has_comparison:
+        prev_totals = [_spend_total(org, p_start, p_end) for p_start, p_end in prev_bounds]
+        average_prev = sum(prev_totals) / 3
+
+    now = timezone.localtime()
+    estimated_total = 0.0
+    missing_price_count = 0
+    for item in _org_items(org):
+        if item.price is None:
+            missing_price_count += 1
+            continue
+        f = _forecast_for(item, now)
+        estimated_total += f.weekly_usage * float(item.price) * PERIOD_WEEKS[period]
+
+    context = {
+        "period": period,
+        "period_label": {"week": "this week", "month": "this month", "year": "this year"}[period],
+        "actual_total": actual_total,
+        "by_supplier": by_supplier,
+        "top_items": top_items,
+        "has_comparison": has_comparison,
+        "average_prev": average_prev,
+        "spending_more": has_comparison and average_prev is not None and actual_total > average_prev,
+        "estimated_total": round(estimated_total, 2),
+        "missing_price_count": missing_price_count,
+    }
+    return render(request, "stock/spending.html", context)
 
 
 def demo_sheet(request):
