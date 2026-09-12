@@ -416,6 +416,19 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   CI, so the original test (`self.client.get("/static/...")`) passed
   locally (where staticfiles exists) but failed in CI for an unrelated
   reason before the real STATIC_URL bug was even found.
+- Issue 37 (README): first `README.md` for the repo. Screenshots are
+  `docs/screenshots/*.png`, captured at a real phone viewport (390x844,
+  2x device scale) with `seed_demo`'s data via a throwaway Playwright script
+  (not committed - same disposable-script pattern as other issues' browser
+  checks). Re-capture them the same way if the UI changes visibly.
+  **Left as an open step for the human**: the README's live demo section
+  assumes `DEMO_MODE=1` (and `python manage.py seed_demo`) are set on the
+  Railway service, from #35. I didn't flip that myself - deliberately,
+  since it's a production config change with a real effect (public
+  one-click logins to a live site), not something to do silently as a side
+  effect of writing documentation. There's an HTML comment in the README
+  marking this. Also updated `.env.example` with `DEMO_MODE`/`ADMIN_URL`,
+  which #33 and #35 added but never documented there.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
