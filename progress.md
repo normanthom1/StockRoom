@@ -15,7 +15,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 23 | Supplier management | done |
 | 24 | Item management and CSV import | done |
 | 25 | Reorder list and placing orders | done |
-| 26 | Deliveries: receive incoming orders | todo |
+| 26 | Deliveries: receive incoming orders | done |
 | 27 | Spending reports | todo |
 | 28 | Activity log and CSV export | todo |
 | 29 | PWA manifest, icons, installability | todo |
@@ -176,6 +176,53 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   also flags Alpine's `$event` in base.html's toast wiring. Use
   `assertNotRegex(content, r"\$\s?\d")` (same pattern test_isolation.py's
   `PRICE` regex already uses) instead.
+- Issue 26 (deliveries) uses plain (non-htmx) forms, unlike reorder/log-usage -
+  no undo is required for receiving, so a normal POST+redirect+`messages` is
+  simplest. One `<form>` per supplier group wraps every open line; both the
+  per-line "Receive" and the group's "Receive all" are `type="submit"` buttons
+  with distinct `name`/`value` pairs (`receive_line`=order pk /
+  `receive_all`=supplier pk) - `delivery_submit` checks which key is in
+  `request.POST` to tell single vs. bulk apart, no nested forms needed.
+  **Real bug caught only by a browser check, not by unit tests**: the
+  double-submit guard `onsubmit="this.querySelectorAll('button').forEach(b =>
+  b.disabled = true)"` disabled the clicked submit button *before* the
+  browser serializes the form, and a disabled control's name/value pair is
+  dropped from the submission per the HTML spec - so `receive_line` never
+  reached the server and every receive silently no-opped. Fix: defer the
+  disabling with `setTimeout(fn)` (next tick) so serialization has already
+  happened. Django's test client builds POST bodies directly in Python and
+  never exercises the browser's form-serialization step, so this class of bug
+  is invisible to `manage.py test` no matter how thorough the suite is - a
+  real Playwright click-through is the only thing that catches it. Same risk
+  exists in any other form using this pattern; #22/#24's plain admin forms
+  don't have JS submit handlers so they're unaffected, but check this first
+  if a future plain-form feature adds one.
+  Partial receipt: the ORIGINAL OrderLine's `qty` stays as originally ordered;
+  `received_qty`/`received_at`/`received_by` record what actually arrived
+  (closing it), and any shortfall becomes a *new* open OrderLine (same
+  `ordered_at`/`ordered_by`/`expected_at`) so it stays visible as a backorder
+  - don't mutate `qty` down to the received amount, the model's fields are
+  already shaped for this split.
+  `humanize.order_by_text` and the new `humanize.arriving_text` ("Arriving
+  ~Thu") now share a `_day_bucket(date, today)` helper - reuse it for any
+  future "N days from now" copy rather than re-deriving the weekday/date
+  formatting.
+  `_median_lead_days(supplier)` (in views.py) computes the actual
+  ordered-to-received median over the last 10 receipts - suggested, never
+  applied automatically; `supplier_apply_lead_days` is the explicit "Use
+  this" action. Shown on the supplier row only when it would actually change
+  something (`actual_lead_days != lead_days`).
+- **Process hygiene, continued**: `disown` (used to dodge the runserver-hang
+  bug above) removes the process from bash's job table, so a later `jobs -p |
+  xargs kill` finds nothing and kills NOTHING - the old server keeps running
+  and silently keeps answering with stale code after every subsequent restart
+  attempt on the same port, making template fixes look like they "didn't
+  take" no matter how many times you edit and restart. Always verify with
+  the PowerShell one-liner (`Get-CimInstance Win32_Process -Filter
+  "Name='python.exe' or Name='python3.12.exe'" | Where-Object { $_.CommandLine
+  -like '*runserver*' }`) before concluding a fix isn't working, and kill via
+  `Stop-Process -Force` there rather than bash job control once disown is in
+  play. Full detail in memory feedback_runserver_noreload.md.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

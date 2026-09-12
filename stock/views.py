@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from statistics import median
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
@@ -20,6 +21,7 @@ from .forecast import Status, forecast, outlier_mask, weekly_consumption
 from .forms import ItemForm, SupplierForm
 from .humanize import (
     CONFIDENCE_LABEL,
+    arriving_text,
     build_caveat,
     build_sentence,
     format_qty,
@@ -61,9 +63,17 @@ STATUS_COLOR = {
 SOLID_STATUSES = {Status.OUT, Status.ORDER_NOW}
 
 
+def _earliest_expected(item):
+    open_orders = [o for o in item.order_lines.all() if o.is_open]
+    if not open_orders:
+        return None
+    return min(o.expected_at for o in open_orders).date()
+
+
 def _row(item, f, today):
     if f.status == Status.ON_ORDER:
-        days_label = "On order"
+        expected = _earliest_expected(item)
+        days_label = arriving_text(expected, today) if expected else "On order"
     elif f.status == Status.OUT:
         days_label = "Out now"
     elif f.confidence == "low" and f.run_out_range:
@@ -554,8 +564,115 @@ def reorder_undo_batch(request):
     return _toast_response("Undone.")
 
 
+def _open_lines_for_org(org):
+    return (
+        OrderLine.objects.for_org(org)
+        .filter(received_at__isnull=True, cancelled_at__isnull=True)
+        .select_related("item", "item__supplier")
+        .order_by("expected_at")
+    )
+
+
 def deliveries(request):
-    return _coming_soon(request, "Deliveries")
+    org = request.user.organisation
+    now = timezone.localtime()
+    today = now.date()
+
+    by_supplier = {}
+    for line in _open_lines_for_org(org):
+        by_supplier.setdefault(line.item.supplier, []).append(line)
+
+    groups = []
+    for supplier, lines in sorted(by_supplier.items(), key=lambda kv: kv[0].name):
+        groups.append(
+            {
+                "supplier": supplier,
+                "lines": [
+                    {
+                        "order": line,
+                        "expected_text": arriving_text(line.expected_at.date(), today),
+                        "is_late": line.expected_at < now,
+                    }
+                    for line in lines
+                ],
+            }
+        )
+
+    context = {
+        "groups": groups,
+        "open_count": sum(len(g["lines"]) for g in groups),
+        "can_edit_price": request.user.is_org_admin,
+    }
+    return render(request, "stock/deliveries.html", context)
+
+
+def _receive_line(order, received_qty, user, unit_price=None):
+    """Receive part or all of an open order line. Any unreceived remainder
+    splits off into a new open line, so it stays tracked as back-ordered."""
+    remainder = order.qty - received_qty
+    order.received_qty = received_qty
+    order.received_at = timezone.now()
+    order.received_by = user
+    if unit_price is not None:
+        order.unit_price = unit_price
+        order.item.price = unit_price
+        order.item.save(update_fields=["price"])
+    order.save()
+    StockEvent.objects.create(
+        organisation=order.organisation, item=order.item, user=user, kind="received", qty=received_qty
+    )
+    if remainder > 0:
+        OrderLine.objects.create(
+            organisation=order.organisation,
+            item=order.item,
+            qty=remainder,
+            unit_price=order.unit_price,
+            ordered_by=order.ordered_by,
+            ordered_at=order.ordered_at,
+            expected_at=order.expected_at,
+        )
+
+
+@require_POST
+def delivery_submit(request, pk):
+    """One form per supplier: either one line's "Receive" button or the
+    supplier's "Receive all" button was pressed - both roles can use it."""
+    org = request.user.organisation
+    supplier = get_object_or_404(Supplier.objects.for_org(org), pk=pk)
+    open_lines = list(_open_lines_for_org(org).filter(item__supplier=supplier))
+
+    if "receive_line" in request.POST:
+        target_ids = {request.POST["receive_line"]}
+    elif "receive_all" in request.POST:
+        target_ids = {str(line.pk) for line in open_lines}
+    else:
+        return redirect("stock:deliveries")
+
+    received = 0
+    for line in open_lines:
+        if str(line.pk) not in target_ids:
+            continue
+        qty = _parse_nonneg_int(request.POST.get(f"qty_{line.pk}", "").strip())
+        if not qty or qty > line.qty:
+            continue
+
+        unit_price = None
+        if request.user.is_org_admin:
+            raw_price = request.POST.get(f"price_{line.pk}", "").strip()
+            if raw_price:
+                try:
+                    unit_price = Decimal(raw_price)
+                except InvalidOperation:
+                    pass
+
+        _receive_line(line, qty, request.user, unit_price)
+        received += 1
+
+    if received:
+        messages.success(request, f"Received {received} item{'s' if received != 1 else ''} from {supplier.name}.")
+    else:
+        messages.error(request, "Nothing was received - check the quantities.")
+    return redirect("stock:deliveries")
 
 
 def _items_context(org, form=None, query=""):
@@ -714,6 +831,14 @@ def item_import_confirm(request):
     return redirect("stock:items")
 
 
+def _median_lead_days(supplier):
+    """Actual ordered -> received time over the last 10 deliveries, or None
+    with fewer than 1. A suggestion only - it never changes lead_days itself."""
+    lines = OrderLine.objects.filter(item__supplier=supplier, received_at__isnull=False).order_by("-received_at")[:10]
+    diffs = [(line.received_at - line.ordered_at).days for line in lines]
+    return round(median(diffs)) if diffs else None
+
+
 def _suppliers_context(org, form=None):
     supplier_list = (
         Supplier.objects.for_org(org)
@@ -723,12 +848,14 @@ def _suppliers_context(org, form=None):
     )
     for supplier in supplier_list:
         supplier.phone_digits = phone_digits(supplier.phone)
+        supplier.actual_lead_days = _median_lead_days(supplier)
     return {"suppliers": supplier_list, "form": form or SupplierForm(instance=Supplier(organisation=org))}
 
 
 def _annotate_item_count(supplier):
     supplier.item_count = supplier.items.filter(is_active=True).count()
     supplier.phone_digits = phone_digits(supplier.phone)
+    supplier.actual_lead_days = _median_lead_days(supplier)
     return supplier
 
 
@@ -780,6 +907,17 @@ def supplier_lead_days(request, pk):
     delta = 1 if request.POST.get("direction") == "up" else -1
     supplier.lead_days = max(1, min(60, supplier.lead_days + delta))
     supplier.save(update_fields=["lead_days"])
+    return render(request, "stock/_supplier_row.html", {"supplier": _annotate_item_count(supplier)})
+
+
+@require_POST
+@admin_required
+def supplier_apply_lead_days(request, pk):
+    supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
+    actual = _median_lead_days(supplier)
+    if actual:
+        supplier.lead_days = max(1, min(60, actual))
+        supplier.save(update_fields=["lead_days"])
     return render(request, "stock/_supplier_row.html", {"supplier": _annotate_item_count(supplier)})
 
 

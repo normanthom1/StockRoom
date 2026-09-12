@@ -88,18 +88,39 @@ def humanize_range(lo_days: float, hi_days: float) -> str:
     return f"~{round(lo_days / 30)}–{round(hi_days / 30)} months"
 
 
+def _day_bucket(date, today):
+    """(days from today, weekday abbreviation, "day month") - shared by any
+    copy that names a near date without false precision."""
+    delta = (date - today).days
+    return delta, date.strftime("%a"), f"{date.day} {date.strftime('%b')}"
+
+
 def order_by_text(order_by, today):
     """"Overdue since Mon" / "Order by today" / "Order by Fri" / "Order by 22 Aug"."""
     if order_by is None:
         return ""
-    delta = (order_by - today).days
+    delta, weekday, day_month = _day_bucket(order_by, today)
     if delta < 0:
-        return f"Overdue since {order_by.strftime('%a')}"
+        return f"Overdue since {weekday}"
     if delta == 0:
         return "Order by today"
     if delta <= 6:
-        return f"Order by {order_by.strftime('%a')}"
-    return f"Order by {order_by.day} {order_by.strftime('%b')}"
+        return f"Order by {weekday}"
+    return f"Order by {day_month}"
+
+
+def arriving_text(expected, today):
+    """"Overdue, arriving ~Thu" / "Arriving today" / "Arriving ~Thu" / "Arriving ~22 Aug"."""
+    if expected is None:
+        return ""
+    delta, weekday, day_month = _day_bucket(expected, today)
+    if delta < 0:
+        return f"Overdue, arriving ~{weekday}"
+    if delta == 0:
+        return "Arriving today"
+    if delta <= 6:
+        return f"Arriving ~{weekday}"
+    return f"Arriving ~{day_month}"
 
 
 CONFIDENCE_LABEL = {"low": "Low confidence", "high": "Confident"}
