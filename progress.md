@@ -16,7 +16,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 24 | Item management and CSV import | done |
 | 25 | Reorder list and placing orders | done |
 | 26 | Deliveries: receive incoming orders | done |
-| 27 | Spending reports | todo |
+| 27 | Spending reports | done |
 | 28 | Activity log and CSV export | todo |
 | 29 | PWA manifest, icons, installability | todo |
 
@@ -223,6 +223,24 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   -like '*runserver*' }`) before concluding a fix isn't working, and kill via
   `Stop-Process -Force` there rather than bash job control once disown is in
   play. Full detail in memory feedback_runserver_noreload.md.
+- Issue 27 added `stock/spending.py` (`period_bounds`, `previous_period_bounds`)
+  - pure calendar-period date math, deliberately DB-free so it's testable by
+  hand-calculation alone (see `test_spending_periods.py`). "Actual spend" =
+  `OrderLine`s not cancelled, `ordered_at` in the period, `qty * unit_price`
+  (lines with no `unit_price` are excluded from the sum, not treated as 0).
+  The 3-prior-periods comparison is hidden unless the organisation's
+  *earliest* OrderLine predates the start of that 3-period window - a proxy
+  for "enough history exists" rather than checking each bucket has data,
+  which avoids a misleading comparison for a brand-new practice.
+  Lesson from a flaky-then-fixed test: a fixture line added to keep "outside
+  the current period" out of the *actual* total can just as easily land
+  inside the *comparison* window and quietly skew that average too - when a
+  test spans two separate date-filtered aggregations, place stray fixture
+  dates outside BOTH windows (e.g. next period, not "yesterday"), not just
+  the one the test currently in view is checking.
+  "Estimated ongoing spend" reuses `_org_items`/`_forecast_for` (weekly_usage
+  x price x `spending.PERIOD_WEEKS[period]`), counting items with no price
+  set rather than skipping them silently.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
