@@ -1,5 +1,6 @@
 import csv
 import json
+import uuid
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from statistics import median
@@ -12,6 +13,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import admin_required
@@ -268,48 +270,73 @@ def _coming_soon(request, title):
 
 
 def log_usage(request):
-    org = request.user.organisation
+    """The capture grid. Search and the tap sheet run in the browser, so the
+    service worker's cached copy of this page still works with no signal."""
     now = timezone.localtime()
-
     tiles = []
-    for item in _org_items(org):
+    for item in _org_items(request.user.organisation):
         f = _forecast_for(item, now)
+        has_qty = f.on_hand is not None
         tiles.append(
             {
                 "id": item.pk,
                 "name": item.name,
+                "unit": item.unit,
                 "qty": format_qty(f.on_hand, item.unit),
                 "status_color": STATUS_COLOR[f.status],
                 "weekly_usage": f.weekly_usage,
+                "has_qty": has_qty,
+                "after": format_qty(max(0, f.on_hand - 1), item.unit) if has_qty else "",
             }
         )
     tiles.sort(key=lambda t: t["weekly_usage"], reverse=True)
-
-    query = request.GET.get("q", "").strip()
-    if query:
-        tiles = [t for t in tiles if query.lower() in t["name"].lower()]
-
-    context = {"tiles": tiles, "total_count": Item.objects.for_org(org).filter(is_active=True).count(), "query": query}
-    template = "stock/log_usage.html#tiles" if request.headers.get("HX-Request") else "stock/log_usage.html"
-    return render(request, template, context)
+    return render(request, "stock/log_usage.html", {"tiles": tiles})
 
 
-def log_usage_sheet(request, pk):
-    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
-    f = _forecast_for(item, timezone.localtime())
-    has_qty = f.on_hand is not None
-    context = {
-        "item": item,
-        "has_qty": has_qty,
-        "current": format_qty(f.on_hand, item.unit) if has_qty else "",
-        "after": format_qty(max(0, f.on_hand - 1), item.unit) if has_qty else "",
-    }
-    return render(request, "stock/log_usage_sheet.html", context)
+# How far a replayed offline tap's own timestamp is trusted.
+MAX_REPLAY_AGE = timedelta(days=7)
+# ponytail: phone clocks drift a little; anything further ahead than this is a bad clock, not skew.
+CLOCK_SKEW = timedelta(minutes=5)
+
+
+def _replay_time(raw, now):
+    """The time a queued offline tap happened, or None if it can't be trusted."""
+    when = parse_datetime(raw)
+    if when is None or timezone.is_naive(when) or when > now + CLOCK_SKEW or when < now - MAX_REPLAY_AGE:
+        return None
+    return min(when, now)
 
 
 def _log_event(request, item, kind, qty, message_text):
-    event = StockEvent.objects.create(organisation=item.organisation, item=item, user=request.user, kind=kind, qty=qty)
-    messages.success(request, message_text, extra_tags=reverse("stock:log_undo", args=[event.pk]))
+    """Every capture tap sends a client_id minted on the device before its
+    first attempt, so a tap the server saved but whose reply got lost dedupes
+    when the service worker replays it. Replays also carry occurred_at."""
+    if request.POST.get("user_id", str(request.user.pk)) != str(request.user.pk):
+        # Queued by someone else on a shared device: leave it for them to sync.
+        return HttpResponse("Logged by a different user.", status=409)
+    try:
+        client_id = uuid.UUID(request.POST["client_id"]) if request.POST.get("client_id") else None
+    except ValueError:
+        return HttpResponse("Bad client_id.", status=400)
+
+    now = timezone.now()
+    replayed = "occurred_at" in request.POST
+    created_at = _replay_time(request.POST["occurred_at"], now) if replayed else now
+    if created_at is None:
+        return HttpResponse("Tap time is in the future or more than 7 days old.", status=400)
+
+    fields = {"organisation": item.organisation, "item": item, "user": request.user, "kind": kind, "qty": qty,
+              "created_at": created_at}
+    if client_id:
+        event, created = StockEvent.objects.get_or_create(client_id=client_id, defaults=fields)
+    else:
+        event, created = StockEvent.objects.create(**fields), True
+
+    if replayed:
+        # The device shows its own "synced" confirmation; no undo for a tap from hours ago.
+        return HttpResponse(status=200)
+    if created:
+        messages.success(request, message_text, extra_tags=reverse("stock:log_undo", args=[event.pk]))
     response = HttpResponse(status=200)
     response["HX-Redirect"] = reverse("stock:home")
     return response

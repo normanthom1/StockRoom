@@ -36,20 +36,27 @@ class LogUsageTests(TestCase):
         content = self.client.get("/log-usage/").content.decode()
         self.assertLess(content.index("Busy item"), content.index("Gloves"))
 
-    def test_search_filters_the_tile_grid(self):
-        response = self.client.get("/log-usage/?q=glov")
-        self.assertContains(response, "Gloves")
-        self.assertNotContains(response, "New syringes")
+    def test_tiles_carry_what_the_browser_needs_to_search_offline(self):
+        content = self.client.get("/log-usage/").content.decode()
+        self.assertIn('data-search="gloves"', content)
+        self.assertIn('data-search="new syringes"', content)
+        self.assertIn('placeholder="Search all 2 items…"', content)
 
-    def test_sheet_shows_used_one_only_when_on_hand_is_known(self):
-        content = self.client.get(f"/log-usage/{self.counted_item.pk}/sheet/").content.decode()
-        self.assertIn("Used 1 box", content)
-        self.assertIn("10 boxes", content)
-
-        content = self.client.get(f"/log-usage/{self.uncounted_item.pk}/sheet/").content.decode()
-        self.assertNotIn("Used 1", content)
+    def test_tiles_carry_what_the_sheet_shows_so_it_opens_offline(self):
+        content = self.client.get("/log-usage/").content.decode()
+        # Counted: "Used 1" shows 10 boxes -> 9 boxes. Uncounted: no "Used 1" button.
+        self.assertIn('data-qty="10 boxes" data-after="9 boxes" data-has-qty="1"', content)
+        self.assertIn('data-has-qty=""', content)
+        self.assertIn(f'data-used-one="/log-usage/{self.counted_item.pk}/used-one/"', content)
+        self.assertIn(f'data-used-last="/log-usage/{self.counted_item.pk}/used-last/"', content)
+        self.assertIn(f'data-running-low="/log-usage/{self.counted_item.pk}/running-low/"', content)
         self.assertIn("Used the last one", content)
         self.assertIn("Running low", content)
+
+    def test_capture_buttons_send_a_client_id_and_are_marked_for_the_offline_queue(self):
+        content = self.client.get("/log-usage/").content.decode()
+        self.assertIn("hx-headers='{\"X-Capture\": \"1\"}'", content)
+        self.assertIn(f'client_id: crypto.randomUUID(), user_id: "{self.assistant.pk}"', content)
 
     def test_used_one_logs_an_event_and_redirects_home_with_undo(self):
         response = self.client.post(f"/log-usage/{self.counted_item.pk}/used-one/")
@@ -73,8 +80,8 @@ class LogUsageTests(TestCase):
         self.assertIsNone(event.qty)
 
     def test_action_buttons_have_double_submit_protection(self):
-        content = self.client.get(f"/log-usage/{self.counted_item.pk}/sheet/").content.decode()
-        self.assertIn('hx-disabled-elt="this"', content)
+        content = self.client.get("/log-usage/").content.decode()
+        self.assertEqual(content.count('hx-disabled-elt="this"'), 3)
 
 
 class LogUndoTests(TestCase):

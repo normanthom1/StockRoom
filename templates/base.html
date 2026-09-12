@@ -108,6 +108,8 @@
   {% if user.is_authenticated %}
     <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]"
          {% if user.is_org_admin %}x-data="{ more: false }"{% endif %}>
+      <p id="sync-status" hidden role="status"
+         class="border-b-2 border-status-week bg-status-week/10 px-4 py-1 text-center text-sm font-medium text-gray-900"></p>
       <div class="mx-auto flex max-w-md gap-1 px-1">
         {% url 'stock:home' as url_home %}
         {% url 'stock:log_usage' as url_log_usage %}
@@ -142,6 +144,8 @@
       return {
         items: [],
         add(detail) {
+          // A repeat replaces the last one instead of stacking over the tiles being tapped.
+          this.items = this.items.filter((item) => item.message !== detail.message);
           const id = Date.now() + Math.random();
           this.items.push({ id, message: detail.message, undoUrl: detail.undo_url || null });
           setTimeout(() => this.remove(id), 6000);
@@ -157,9 +161,39 @@
         },
       };
     }
+    const toast = (message) => window.dispatchEvent(new CustomEvent("toast", { detail: { message } }));
     document.body.addEventListener("htmx:afterSwap", (event) => {
       if (event.target.id === "sheet-content") document.getElementById("sheet").showModal();
     });
+    document.body.addEventListener("sheet-close", () => document.getElementById("sheet")?.close());
+    // Only reachable without a controlling service worker (it answers every htmx request itself).
+    document.body.addEventListener("htmx:sendError", () => toast("Couldn't reach StockRoom. Check your connection and try again."));
+
+    (function () {
+      const status = document.getElementById("sync-status");
+      if (!status || !("serviceWorker" in navigator)) return;
+      let pending = 0;
+      const taps = (n) => `${n} ${n === 1 ? "tap" : "taps"}`;
+      const render = () => {
+        status.textContent = navigator.onLine
+          ? `${taps(pending)} waiting to sync`
+          : pending ? `Offline · ${taps(pending)} waiting to sync` : "Offline · taps are saved and sync later";
+        status.hidden = navigator.onLine && pending === 0;
+      };
+      const csrf = JSON.parse(document.body.getAttribute("hx-headers"))["X-CSRFToken"];
+      const replay = () => navigator.serviceWorker.ready.then((registration) => registration.active.postMessage({ type: "replay", csrf }));
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type !== "queue") return;
+        pending = event.data.pending;
+        render();
+        if (event.data.synced) toast(`${taps(event.data.synced)} logged offline ${event.data.synced === 1 ? "has" : "have"} synced.`);
+        if (event.data.dropped) toast(`${taps(event.data.dropped)} couldn't be synced: more than 7 days old, or the item was removed.`);
+      });
+      window.addEventListener("online", () => { render(); replay(); });
+      window.addEventListener("offline", render);
+      render();
+      replay();
+    })();
     if ("serviceWorker" in navigator) {
       let updating = false;
       const offerUpdate = (worker) => {

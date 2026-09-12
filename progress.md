@@ -309,6 +309,25 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   user's details. Logout POST is intercepted in the SW: wipe all caches, then
   re-precache the shell. #31 (offline logging) should add any runtime caching
   of user data in a separately named cache - logout already clears every cache.
+- Issue 31 (offline logging): every capture tap mints a `client_id` on the
+  device BEFORE its first send (`hx-vals` on the sheet), so a tap the server
+  saved but whose reply was lost still dedupes on replay. The service worker
+  owns the queue: a capture POST (marked by an `X-Capture` header) that fails,
+  times out (8s) or gets a 403/5xx is stored in IndexedDB with `occurred_at`
+  added. It's replayed on page load, on `online`, and on Background Sync.
+  `_log_event` uses `get_or_create(client_id=...)`, trusts `occurred_at`
+  within 7 days (up to 5 minutes ahead is clamped to now), and returns 409 if
+  the `user_id` isn't the logged-in user. The log-usage sheet and search are
+  now client-side (the sheet view and `log_usage_sheet.html` are gone), so
+  the cached grid works offline. It's cached in `stockroom-data`, fetched
+  into the cache after login, and wiped on login and logout.
+  Gotchas: (1) Chromium UTF-8-encodes non-ASCII in headers a service worker
+  builds, and htmx reads them as Latin-1, so a "·" toast came out as "Â·".
+  `hxTrigger()` in sw.js \u-escapes them. (2) Playwright's `set_offline` only
+  marks the page open at the time as offline; after a reload the page reports
+  `navigator.onLine === true` while requests still fail, so test the
+  `online` event without reloading. (3) `wait_for_function` treats a returned
+  Promise as truthy; poll `page.evaluate` from Python instead.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

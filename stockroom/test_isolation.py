@@ -64,7 +64,6 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("team_set_active", make=make_member, method="post"),
     Case("team_reset_link", make=make_member, method="post"),
     Case("stock:item_detail", make=make_item),
-    Case("stock:log_usage_sheet", make=make_item),
     Case("stock:log_used_one", make=make_item, method="post"),
     Case("stock:log_running_low", make=make_item, method="post"),
     Case("stock:log_used_last", make=make_item, method="post"),
@@ -143,7 +142,6 @@ ASSISTANT_PAGES: list[Case] = [
     Case("stock:reorder_list"),
     Case("stock:deliveries"),
     Case("stock:item_detail", make=make_item),
-    Case("stock:log_usage_sheet", make=make_item),
 ]
 
 PRICE = re.compile(r"\$\s?\d")  # "$8.50", "$ 1,489.20"

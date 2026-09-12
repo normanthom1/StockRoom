@@ -113,7 +113,8 @@ class ServiceWorkerViewTests(TestCase):
         for path in PRECACHE_STATIC:
             self.assertIn(json.dumps(static(path)), content)
         self.assertIn('"/offline/"', content)
-        self.assertIn('const LOGOUT_URL = "/accounts/logout/"', content)
+        self.assertIn('const SESSION_URLS = ["/accounts/login/", "/accounts/logout/"]', content)
+        self.assertIn('const CAPTURE_PAGE_URL = "/log-usage/"', content)
 
     def test_sw_js_embeds_the_offline_fragment(self):
         content = self.client.get("/sw.js").content.decode()
