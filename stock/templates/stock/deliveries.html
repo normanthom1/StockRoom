@@ -11,7 +11,7 @@
 
 {% for group in groups %}
   <form method="post" action="{% url 'stock:delivery_submit' group.supplier.pk %}"
-        onsubmit="const f = this; setTimeout(() => f.querySelectorAll('button').forEach((b) => b.disabled = true))"
+        data-disable-on-submit
         class="mb-6 overflow-hidden rounded-lg border border-gray-200">
     {% csrf_token %}
     <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 p-2">

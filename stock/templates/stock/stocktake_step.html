@@ -7,9 +7,10 @@
   <p class="text-sm font-medium text-gray-600">Item {{ index|add:1 }} of {{ total }}</p>
   <a href="{% url 'stock:home' %}" class="link text-sm">Finish later</a>
 </div>
-<div class="mb-4 h-2 overflow-hidden rounded-full bg-gray-200">
-  <div class="h-full rounded-full bg-primary" style="width:{% widthratio index|add:1 total 100 %}%"></div>
-</div>
+<progress value="{{ index|add:1 }}" max="{{ total }}" aria-label="Stocktake progress"
+          class="mb-4 block h-2 w-full appearance-none overflow-hidden rounded-full bg-gray-200
+                 [&::-webkit-progress-bar]:bg-gray-200 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary
+                 [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-primary"></progress>
 
 <h1 class="mb-3 text-2xl font-bold text-primary-dark">{{ item.name }}</h1>
 

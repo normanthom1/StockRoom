@@ -57,8 +57,7 @@
   </div>
 {% else %}
   <button type="button" hx-post="{% url 'stock:log_running_low' item.pk %}" hx-disabled-elt="this"
-          hx-headers='{"X-Capture": "1"}'
-          hx-vals='js:{client_id: crypto.randomUUID(), user_id: "{{ request.user.pk }}"}'
+          data-capture="{{ request.user.pk }}"
           class="btn-primary">Tell the manager we're low</button>
 {% endif %}
 {% endblock %}

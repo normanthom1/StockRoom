@@ -53,9 +53,9 @@
 {% endif %}
 
 {% if fine_rows %}
-  <section x-data="{ open: false }">
-    <button type="button" class="tap-target flex w-full items-center gap-2 py-2 text-left text-sm font-medium text-gray-600" @click="open = !open">
-      <span x-text="open ? '&#9652;' : '&#9662;'"></span>
+  <section x-data="disclosure">
+    <button type="button" class="tap-target flex w-full items-center gap-2 py-2 text-left text-sm font-medium text-gray-600" @click="toggle">
+      <span x-text="arrow">&#9662;</span>
       {{ fine_rows|length }} other item{{ fine_rows|length|pluralize }} fine &middot; nothing to do
     </button>
     <div x-show="open" x-cloak class="flex flex-col">

@@ -3,13 +3,12 @@ Shared by invite_ready.html and reset_link_ready.html. Needs `link` (the
 plain URL) and `mailto` (a ready-built mailto: href, see accounts.mailto)
 in context.
 {% endcomment %}
-<div x-data="{ copied: false }" class="space-y-3">
-  <input type="text" readonly value="{{ link }}" onclick="this.select()"
+<div x-data="copyLink" class="space-y-3">
+  <input type="text" readonly value="{{ link }}" data-select-all
          class="w-full bg-gray-50 text-sm" aria-label="The link">
 
-  <button type="button" class="btn-primary"
-          @click="navigator.clipboard.writeText('{{ link|escapejs }}'); copied = true; setTimeout(() => copied = false, 2000)">
-    <span x-show="!copied">Copy link</span>
+  <button type="button" class="btn-primary" data-link="{{ link }}" @click="copy">
+    <span x-show="notCopied">Copy link</span>
     <span x-show="copied" x-cloak>Copied</span>
   </button>
 

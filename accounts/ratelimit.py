@@ -1,0 +1,63 @@
+"""Cache-based rate limiting for the views a stranger can hammer: login,
+sign-up and invite acceptance.
+
+ponytail: the default cache is per-process memory. That's one bucket today
+(gunicorn runs a single worker on Railway); with more workers or instances,
+point CACHES at Redis or the database so the counts are shared.
+"""
+
+import hashlib
+from functools import wraps
+
+from django.conf import settings
+from django.core.cache import cache
+from django.shortcuts import render
+
+WINDOW = 15 * 60
+
+
+def client_ip(request):
+    header = settings.CLIENT_IP_HEADER
+    return (header and request.META.get(header)) or request.META.get("REMOTE_ADDR", "")
+
+
+def _over_limit(key, limit, window):
+    """Count one attempt against key. True once it's past limit in this window."""
+    key = "ratelimit:" + hashlib.sha256(key.encode()).hexdigest()
+    cache.add(key, 0, window)  # the window starts at the first attempt
+    try:
+        count = cache.incr(key)
+    except ValueError:  # expired between add() and incr()
+        cache.set(key, 1, window)
+        count = 1
+    return count > limit
+
+
+def rate_limit(scope, *, per_ip, per_field=None, window=WINDOW):
+    """Limit a view's POSTs per client IP, and optionally per submitted value.
+
+    per_field is (field_name, limit): e.g. ("username", 5) caps attempts on one
+    account however many addresses they come from. The IP limit is looser,
+    because a whole practice shares one office connection.
+    """
+
+    def decorator(view):
+        @wraps(view)
+        def wrapped(request, *args, **kwargs):
+            if request.method == "POST":
+                checks = [(f"{scope}:ip:{client_ip(request)}", per_ip)]
+                if per_field and request.POST.get(per_field[0]):
+                    value = request.POST[per_field[0]].strip().lower()
+                    checks.append((f"{scope}:{per_field[0]}:{value}", per_field[1]))
+                # Every key counts the attempt, so work them all out before any().
+                over = [_over_limit(key, limit, window) for key, limit in checks]
+                if any(over):
+                    return render(request, "429.html", {"minutes": window // 60}, status=429)
+            return view(request, *args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+login_rate_limit = rate_limit("login", per_ip=30, per_field=("username", 5))

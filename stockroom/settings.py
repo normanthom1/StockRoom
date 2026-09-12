@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import dj_database_url
+from django.utils.csp import CSP
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -56,7 +57,29 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
 ]
+
+# Every script is self-hosted and none is inline (see static/js/app.js), so
+# nothing needs 'unsafe-inline' or 'unsafe-eval'. Alpine is the CSP build and
+# htmx runs with allowEval off.
+SECURE_CSP = {
+    "default-src": [CSP.SELF],
+    "script-src": [CSP.SELF],
+    "style-src": [CSP.SELF],
+    "img-src": [CSP.SELF],
+    "connect-src": [CSP.SELF],
+    "manifest-src": [CSP.SELF],
+    "worker-src": [CSP.SELF],
+    "object-src": [CSP.NONE],
+    "base-uri": [CSP.NONE],
+    "form-action": [CSP.SELF],
+    "frame-ancestors": [CSP.NONE],
+}
+
+# Not /admin/, so drive-by scanners don't find the login. Set ADMIN_URL on
+# Railway to keep the real one out of this public repo.
+ADMIN_URL = os.environ.get("ADMIN_URL", "platform/")
 
 ROOT_URLCONF = "stockroom.urls"
 
@@ -123,6 +146,10 @@ if "test" in sys.argv:
     # Real password hashing is deliberately slow; tests create a lot of users.
     # https://docs.djangoproject.com/en/stable/topics/testing/overview/#password-hashing
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+    # The cache only holds rate-limit counts, and tests don't reset it, so a
+    # real one would 429 whichever test happened to log in 31st. The rate-limit
+    # tests switch a real cache back on for themselves.
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}}
 
 
 # Internationalization
@@ -167,7 +194,20 @@ TAILWIND_CLI_DIST_CSS = "css/tailwind.css"
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    # Railway's healthcheck calls the container over plain HTTP, with no proxy header.
+    SECURE_REDIRECT_EXEMPT = [r"^healthz$"]
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+# Preloading is a commitment for the whole domain once submitted; decide on it
+# with a custom domain, not on *.up.railway.app.
+SILENCED_SYSTEM_CHECKS = ["security.W021"]
+
+# Railway's edge puts the visitor's address in X-Real-IP; REMOTE_ADDR is the
+# proxy. Locally and in tests there's no proxy, so REMOTE_ADDR is right.
+CLIENT_IP_HEADER = None if DEBUG else "HTTP_X_REAL_IP"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

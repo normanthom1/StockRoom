@@ -7,11 +7,11 @@
 
 {% if tiles %}
   <input type="search" id="tile-search" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
-         placeholder="Search all {{ tiles|length }} items…" class="mb-3" oninput="filterTiles(this.value)">
+         placeholder="Search all {{ tiles|length }} items…" class="mb-3" data-tile-search>
 
   <div id="tile-grid" class="grid grid-cols-2 gap-2">
     {% for tile in tiles %}
-      <button type="button" onclick="openCaptureSheet(this)"
+      <button type="button" data-capture-tile
               data-search="{{ tile.name|lower }}" data-name="{{ tile.name }}" data-unit="{{ tile.unit }}"
               data-qty="{{ tile.qty }}" data-after="{{ tile.after }}" data-has-qty="{{ tile.has_qty|yesno:'1,' }}"
               data-used-one="{% url 'stock:log_used_one' tile.id %}"
@@ -36,11 +36,10 @@
   <div class="flex items-baseline gap-3">
     <h2 data-slot="name" class="flex-1 text-xl font-bold text-primary-dark"></h2>
     <button type="button" class="tap-target rounded-lg border border-gray-300 px-3 text-sm font-medium"
-            onclick="document.getElementById('sheet').close()">Cancel</button>
+            data-close-dialog>Cancel</button>
   </div>
-  {# X-Capture tells the service worker to queue this tap if it can't reach us. #}
-  <div class="mt-3 flex flex-col gap-2" hx-headers='{"X-Capture": "1"}'
-       hx-vals='js:{client_id: crypto.randomUUID(), user_id: "{{ request.user.pk }}"}'>
+  {# data-capture: app.js adds a client_id and marks the tap for the service worker's offline queue. #}
+  <div class="mt-3 flex flex-col gap-2" data-capture="{{ request.user.pk }}">
     <button type="button" data-action="usedOne" hx-disabled-elt="this"
             class="tap-target flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-primary-dark/10 text-primary-dark">
       <span data-slot="used-one" class="text-xl font-bold"></span>
@@ -59,34 +58,4 @@
   </div>
 </template>
 
-<script>
-  function filterTiles(query) {
-    const q = query.trim().toLowerCase();
-    let shown = 0;
-    for (const tile of document.querySelectorAll("#tile-grid [data-search]")) {
-      tile.hidden = !tile.dataset.search.includes(q);
-      if (!tile.hidden) shown++;
-    }
-    document.getElementById("no-match").hidden = shown > 0;
-  }
-
-  function openCaptureSheet(tile) {
-    const item = tile.dataset;
-    const sheet = document.getElementById("capture-sheet").content.cloneNode(true);
-    sheet.querySelector("[data-slot=name]").textContent = item.name;
-    if (item.hasQty) {
-      sheet.querySelector("[data-slot=used-one]").textContent = `Used 1 ${item.unit}`;
-      sheet.querySelector("[data-slot=change]").textContent = `${item.qty} → ${item.after}`;
-    } else {
-      sheet.querySelector("[data-action=usedOne]").remove();
-    }
-    for (const button of sheet.querySelectorAll("[data-action]")) {
-      button.setAttribute("hx-post", item[button.dataset.action]);
-    }
-    const content = document.getElementById("sheet-content");
-    content.replaceChildren(sheet);
-    htmx.process(content);
-    document.getElementById("sheet").showModal();
-  }
-</script>
 {% endblock %}

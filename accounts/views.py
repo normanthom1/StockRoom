@@ -8,6 +8,7 @@ from django.core import signing
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.views.decorators.http import require_POST
@@ -16,11 +17,13 @@ from .decorators import admin_required
 from .forms import AcceptInviteForm, EmailLoginForm, InviteForm, SignupForm
 from .mailto import build_mailto_link
 from .models import Organisation, User
+from .ratelimit import login_rate_limit, rate_limit
 
 INVITE_SALT = "accounts.invite"
 INVITE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
 
+@method_decorator(login_rate_limit, name="dispatch")
 class LoginView(auth_views.LoginView):
     authentication_form = EmailLoginForm
 
@@ -29,6 +32,7 @@ class LoginView(auth_views.LoginView):
 
 
 @login_not_required
+@rate_limit("signup", per_ip=5, window=60 * 60)
 def signup(request):
     if not settings.SIGNUP_ENABLED:
         raise Http404
@@ -81,6 +85,7 @@ def team_invite(request):
 
 
 @login_not_required
+@rate_limit("invite", per_ip=10)
 def invite_accept(request, token):
     if request.user.is_authenticated:
         return redirect(settings.LOGIN_REDIRECT_URL)

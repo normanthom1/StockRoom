@@ -14,7 +14,7 @@ from django.contrib.auth.decorators import login_not_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.test import TestCase, override_settings
-from django.urls import path, reverse
+from django.urls import URLResolver, get_resolver, path, reverse
 
 from accounts.decorators import admin_required
 from accounts.models import Organisation, User
@@ -144,7 +144,42 @@ ASSISTANT_PAGES: list[Case] = [
     Case("stock:item_detail", make=make_item),
 ]
 
+# URLs that show no practice data at all, so none of the checks above apply.
+NO_PRACTICE_DATA: dict[str, str] = {
+    "healthz": "Railway's healthcheck; says 'ok'",
+    "service_worker": "the same JavaScript for everyone",
+    "offline": "rendered without the request, so it can't hold anyone's data",
+    "login": "public",
+    "logout": "ends your own session",
+    "signup": "public; creates a new practice",
+    "invite_accept": "public; the signed token names the practice",
+    "password_change": "your own password",
+    "password_change_done": "your own password",
+    "password_reset": "public",
+    "password_reset_done": "public",
+    "password_reset_confirm": "public; the token names the user",
+    "password_reset_complete": "public",
+}
+
 PRICE = re.compile(r"\$\s?\d")  # "$8.50", "$ 1,489.20"
+
+
+def url_names(patterns=None, namespace=""):
+    """Every URL name in the project, namespaced. Django's admin is left out:
+    it's superusers-only as a whole (test_django_admin_is_superusers_only)."""
+    for pattern in get_resolver().url_patterns if patterns is None else patterns:
+        if isinstance(pattern, URLResolver):
+            if pattern.namespace == "admin":
+                continue
+            inner = f"{namespace}{pattern.namespace}:" if pattern.namespace else namespace
+            yield from url_names(pattern.url_patterns, inner)
+        else:
+            yield f"{namespace}{pattern.name}" if pattern.name else f"<unnamed: {pattern.pattern}>"
+
+
+def unregistered_urls():
+    registered = {case.url_name for case in ORG_OBJECT_URLS + ADMIN_ONLY_URLS + ASSISTANT_PAGES} | set(NO_PRACTICE_DATA)
+    return sorted(set(url_names()) - registered)
 
 
 class IsolationChecks:
@@ -200,6 +235,13 @@ class IsolationSuite(IsolationChecks, TwoPractices):
         for case in ASSISTANT_PAGES:
             with self.subTest(case.url_name):
                 self.assert_assistant_sees_no_prices(case)
+
+    def test_every_url_is_registered_with_the_isolation_checks(self):
+        self.assertEqual(unregistered_urls(), [], "Register these in ORG_OBJECT_URLS, ADMIN_ONLY_URLS, "
+                         "ASSISTANT_PAGES or NO_PRACTICE_DATA (see docs/org-scoped-views.md)")
+
+    def test_no_practice_data_list_has_no_stale_names(self):
+        self.assertLessEqual(set(NO_PRACTICE_DATA), set(url_names()))
 
 
 # Throwaway views that exist only to prove the checks catch real mistakes.
@@ -259,6 +301,10 @@ class ChecksCatchMistakes(IsolationChecks, TwoPractices):
         with self.assertRaises(AssertionError):
             self.assert_assistant_sees_no_prices(Case("priced"))
 
+    def test_an_unregistered_url_is_caught(self):
+        # This module's throwaway views aren't registered anywhere.
+        self.assertIn("leaky", unregistered_urls())
+
     def test_login_is_required_by_default(self):
         response = self.client.get(reverse("manager"))
         self.assertEqual(response.status_code, 302)
@@ -273,13 +319,18 @@ class ScopingPrimitives(TwoPractices):
         self.assertEqual(set(User.objects.for_org(self.org_a)), {self.admin_a, self.assistant_a})
 
     def test_django_admin_is_superusers_only(self):
+        url = reverse("admin:index")
         self.client.force_login(self.admin_a)
-        self.assertEqual(self.client.get("/admin/").status_code, 302)
+        self.assertEqual(self.client.get(url).status_code, 302)
         staff = User.objects.create_user("staff@a.test", "pw", organisation=self.org_a, is_staff=True)
         self.client.force_login(staff)
-        self.assertEqual(self.client.get("/admin/").status_code, 302)
+        self.assertEqual(self.client.get(url).status_code, 302)
         self.client.force_login(self.platform)
-        self.assertEqual(self.client.get("/admin/").status_code, 200)
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_django_admin_is_not_at_the_default_url(self):
+        self.assertNotEqual(reverse("admin:index"), "/admin/")
+        self.assertEqual(self.client.get("/admin/").status_code, 404)
 
     def test_healthz_stays_public_for_railway(self):
         self.assertEqual(self.client.get("/healthz").status_code, 200)

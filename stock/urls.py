@@ -50,7 +50,4 @@ urlpatterns = [
     path("export/items.csv", views.export_items, name="export_items"),
     path("export/stock-events.csv", views.export_stock_events, name="export_stock_events"),
     path("export/order-lines.csv", views.export_order_lines, name="export_order_lines"),
-    path("demo/sheet/", views.demo_sheet, name="demo_sheet"),
-    path("demo/toast/", views.demo_toast, name="demo_toast"),
-    path("demo/undo/", views.demo_undo, name="demo_undo"),
 ]

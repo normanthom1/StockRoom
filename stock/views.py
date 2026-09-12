@@ -1056,24 +1056,10 @@ def spending(request):
     return render(request, "stock/spending.html", context)
 
 
-def demo_sheet(request):
-    return render(request, "stock/demo_sheet.html")
-
-
 def _toast_response(message, undo_url=None):
     response = HttpResponse(status=204)
     response["HX-Trigger"] = json.dumps({"toast": {"message": message, "undo_url": undo_url}})
     return response
-
-
-@require_POST
-def demo_toast(request):
-    return _toast_response("Logged: running low on gloves", reverse("stock:demo_undo"))
-
-
-@require_POST
-def demo_undo(request):
-    return _toast_response("Undone.")
 
 
 def _activity_entries(org, item_id, user_id):

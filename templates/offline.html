@@ -7,7 +7,7 @@
   {% partialdef message inline %}
     <p class="py-4 text-gray-700">You're offline. Check your Wi-Fi or mobile data, then try again.</p>
   {% endpartialdef %}
-  <button type="button" onclick="location.reload()"
+  <button type="button" data-reload
           class="tap-target mt-2 w-full rounded-lg bg-primary px-4 text-lg font-semibold text-white">Try again</button>
   <p class="mt-6 text-gray-700">You can still log what you've used. It's saved on this device and syncs when you're back online.</p>
   <a href="{% url 'stock:log_usage' %}"

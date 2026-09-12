@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block title %}Too many tries · StockRoom{% endblock %}
+
+{% block content %}
+  <h1 class="text-2xl font-bold text-primary-dark">Too many tries</h1>
+  <p class="py-4 text-gray-700">
+    To keep accounts safe, StockRoom has paused this for a while. Wait {{ minutes }} minutes, then try again.
+  </p>
+  <a href="{% url 'password_reset' %}" class="link">Forgotten your password?</a>
+{% endblock %}

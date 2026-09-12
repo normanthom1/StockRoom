@@ -36,4 +36,5 @@ The helpers live in `accounts.models` (`OrgOwned`, `for_org()`) and `accounts.de
   - `ORG_OBJECT_URLS`: another practice's user gets 404. `Case("stock:item_detail", make=make_item)`, add `method="post"` for actions.
   - `ADMIN_ONLY_URLS`: an assistant gets 403.
   - `ASSISTANT_PAGES`: renders for an assistant with no `$` amount.
+  - `NO_PRACTICE_DATA`: only for URLs with no practice data at all, with a one-line reason. An unregistered URL fails the suite.
 - Add one test for the view's own behaviour.

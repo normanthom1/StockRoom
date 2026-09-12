@@ -15,30 +15,32 @@
   <meta name="apple-mobile-web-app-title" content="StockRoom">
 
   {% tailwind_css %}
+  {# Under the CSP: no eval (so no hx-on or js: values), and no injected <style>. #}
+  <meta name="htmx-config" content='{"allowEval": false, "includeIndicatorStyles": false}'>
   <script src="{% static 'vendor/htmx.min.js' %}"></script>
 </head>
 <body class="min-h-screen bg-app-bg text-gray-900"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 
-  <div id="toast-slot" x-data="toastHub()" @toast.window="add($event.detail)"
+  <div id="toast-slot" x-data="toastHub" @toast.window="add"
        class="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center gap-2 p-3"
        aria-live="polite">
     {% for message in messages %}
-      <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 6000)"
+      <div x-data="flash" x-show="show"
            class="tap-target pointer-events-auto flex items-center gap-3 rounded-lg bg-gray-900 px-4 text-white shadow-lg">
         <span>{{ message }}</span>
         {% if message.extra_tags %}
           <button type="button" hx-post="{{ message.extra_tags }}" hx-swap="none" hx-disabled-elt="this"
-                  class="tap-target font-semibold text-white underline" @click="show = false">Undo</button>
+                  class="tap-target font-semibold text-white underline" @click="hide">Undo</button>
         {% endif %}
-        <button type="button" class="tap-target text-white/70" @click="show = false" aria-label="Dismiss">&times;</button>
+        <button type="button" class="tap-target text-white/70" @click="hide" aria-label="Dismiss">&times;</button>
       </div>
     {% endfor %}
     <template x-for="item in items" :key="item.id">
       <div class="tap-target pointer-events-auto flex items-center gap-3 rounded-lg bg-gray-900 px-4 text-white shadow-lg">
         <span x-text="item.message"></span>
-        <button type="button" x-show="item.undoUrl" class="tap-target font-semibold text-white underline" @click="undo(item)">Undo</button>
-        <button type="button" class="tap-target text-white/70" @click="remove(item.id)" aria-label="Dismiss">&times;</button>
+        <button type="button" x-show="item.undoUrl" class="tap-target font-semibold text-white underline" @click="undo">Undo</button>
+        <button type="button" class="tap-target text-white/70" @click="dismiss" aria-label="Dismiss">&times;</button>
       </div>
     </template>
     <button type="button" id="sw-update" hidden
@@ -55,7 +57,7 @@
     <header class="sticky top-0 z-30 border-b border-gray-200 bg-white">
       <div class="mx-auto flex max-w-md items-center gap-3 px-4 py-1">
         <button type="button" class="tap-target shrink-0 rounded-full border-2 border-primary text-sm font-bold text-primary-dark"
-                onclick="document.getElementById('about').showModal()" aria-label="About StockRoom">i</button>
+                data-open-dialog="about" aria-label="About StockRoom">i</button>
         <div class="min-w-0 flex-1">
           <p class="truncate font-semibold text-primary-dark">{{ user.organisation|default:"StockRoom" }}</p>
           <p class="truncate text-sm text-gray-600">{{ user.name|default:user.email }} &middot; {{ user.get_role_display }}</p>
@@ -68,13 +70,12 @@
       </div>
     </header>
 
-    <dialog id="about" class="w-[min(90vw,32rem)] rounded-lg p-0 backdrop:bg-gray-900/50"
-            onclick="if (event.target === this) this.close()">
+    <dialog id="about" data-backdrop-close class="m-auto w-[min(90vw,32rem)] rounded-lg p-0 backdrop:bg-gray-900/50">
       <div class="max-h-[85vh] overflow-y-auto p-5">
         <div class="mb-3 flex items-center justify-between">
           <h2 class="text-lg font-bold text-primary-dark">About StockRoom</h2>
           <button type="button" class="tap-target rounded-lg border border-gray-300 px-3 text-sm font-medium"
-                  onclick="document.getElementById('about').close()">Close</button>
+                  data-close-dialog>Close</button>
         </div>
         <div class="space-y-4 text-sm leading-relaxed text-gray-800">
           <p>StockRoom is the practice's shared stock list. Instead of a monthly stocktake, it's kept up to date by whoever's actually using the supplies, so the picture of what's on the shelf is always current.</p>
@@ -94,9 +95,8 @@
       </div>
     </dialog>
 
-    <dialog id="sheet" class="w-[min(90vw,32rem)] rounded-t-2xl rounded-b-none p-0 backdrop:bg-gray-900/50 sm:rounded-b-2xl"
-            style="position:fixed;top:auto;bottom:0;left:0;right:0;margin:0 auto"
-            onclick="if (event.target === this) this.close()">
+    <dialog id="sheet" data-backdrop-close
+            class="sheet w-[min(90vw,32rem)] rounded-t-2xl rounded-b-none p-0 backdrop:bg-gray-900/50 sm:rounded-b-2xl">
       <div id="sheet-content" class="max-h-[80vh] overflow-y-auto p-4"></div>
     </dialog>
   {% endif %}
@@ -107,7 +107,7 @@
 
   {% if user.is_authenticated %}
     <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]"
-         {% if user.is_org_admin %}x-data="{ more: false }"{% endif %}>
+         {% if user.is_org_admin %}x-data="moreMenu"{% endif %}>
       <p id="sync-status" hidden role="status"
          class="border-b-2 border-status-week bg-status-week/10 px-4 py-1 text-center text-sm font-medium text-gray-900"></p>
       <div class="mx-auto flex max-w-md gap-1 px-1">
@@ -121,11 +121,11 @@
         <a href="{{ url_deliveries }}" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium {% if request.path == url_deliveries %}text-primary-dark{% else %}text-gray-500{% endif %}">Deliveries</a>
         {% if user.is_org_admin %}
           <div class="relative flex min-w-0 flex-1">
-            <button type="button" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium text-gray-500"
-                    @click="more = !more" @click.outside="more = false" :class="more && 'text-primary-dark'">
+            <button type="button" class="tap-target flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-2 text-center text-xs leading-tight font-medium"
+                    @click="toggle" @click.outside="close" :class="buttonColour">
               More
             </button>
-            <div x-show="more" x-cloak class="absolute bottom-full right-0 mb-2 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+            <div x-show="open" x-cloak class="absolute bottom-full right-0 mb-2 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
               <a href="{% url 'stock:items' %}" class="tap-target flex items-center px-4 text-sm text-gray-800">Stock</a>
               <a href="{% url 'stock:suppliers' %}" class="tap-target flex items-center px-4 text-sm text-gray-800">Suppliers</a>
               <a href="{% url 'stock:spending' %}" class="tap-target flex items-center px-4 text-sm text-gray-800">Spending</a>
@@ -138,114 +138,8 @@
     </nav>
   {% endif %}
 
-  <script src="{% static 'vendor/alpine.min.js' %}" defer></script>
-  <script>
-    function toastHub() {
-      return {
-        items: [],
-        add(detail) {
-          // A repeat replaces the last one instead of stacking over the tiles being tapped.
-          this.items = this.items.filter((item) => item.message !== detail.message);
-          const id = Date.now() + Math.random();
-          this.items.push({ id, message: detail.message, undoUrl: detail.undo_url || null });
-          setTimeout(() => this.remove(id), 6000);
-        },
-        remove(id) {
-          this.items = this.items.filter((item) => item.id !== id);
-        },
-        async undo(item) {
-          // htmx.ajax (not a plain fetch) so the response's own HX-Trigger
-          // toast - e.g. confirming the undo - fires normally.
-          await htmx.ajax("POST", item.undoUrl, { swap: "none" });
-          this.remove(item.id);
-        },
-      };
-    }
-    const toast = (message) => window.dispatchEvent(new CustomEvent("toast", { detail: { message } }));
-    document.body.addEventListener("htmx:afterSwap", (event) => {
-      if (event.target.id === "sheet-content") document.getElementById("sheet").showModal();
-    });
-    document.body.addEventListener("sheet-close", () => document.getElementById("sheet")?.close());
-    // Only reachable without a controlling service worker (it answers every htmx request itself).
-    document.body.addEventListener("htmx:sendError", () => toast("Couldn't reach StockRoom. Check your connection and try again."));
-
-    (function () {
-      const status = document.getElementById("sync-status");
-      if (!status || !("serviceWorker" in navigator)) return;
-      let pending = 0;
-      const taps = (n) => `${n} ${n === 1 ? "tap" : "taps"}`;
-      const render = () => {
-        status.textContent = navigator.onLine
-          ? `${taps(pending)} waiting to sync`
-          : pending ? `Offline · ${taps(pending)} waiting to sync` : "Offline · taps are saved and sync later";
-        status.hidden = navigator.onLine && pending === 0;
-      };
-      const csrf = JSON.parse(document.body.getAttribute("hx-headers"))["X-CSRFToken"];
-      const replay = () => navigator.serviceWorker.ready.then((registration) => registration.active.postMessage({ type: "replay", csrf }));
-      navigator.serviceWorker.addEventListener("message", (event) => {
-        if (event.data?.type !== "queue") return;
-        pending = event.data.pending;
-        render();
-        if (event.data.synced) toast(`${taps(event.data.synced)} logged offline ${event.data.synced === 1 ? "has" : "have"} synced.`);
-        if (event.data.dropped) toast(`${taps(event.data.dropped)} couldn't be synced: more than 7 days old, or the item was removed.`);
-      });
-      window.addEventListener("online", () => { render(); replay(); });
-      window.addEventListener("offline", render);
-      render();
-      replay();
-    })();
-    if ("serviceWorker" in navigator) {
-      let updating = false;
-      const offerUpdate = (worker) => {
-        const button = document.getElementById("sw-update");
-        button.hidden = false;
-        button.onclick = () => {
-          updating = true;
-          worker.postMessage("skip-waiting");
-        };
-      };
-      // Only reload once the user asked for it; the first install also changes the controller.
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (updating) location.reload();
-      });
-      window.addEventListener("load", async () => {
-        const registration = await navigator.serviceWorker.register("/sw.js");
-        if (registration.waiting && navigator.serviceWorker.controller) offerUpdate(registration.waiting);
-        registration.addEventListener("updatefound", () => {
-          const worker = registration.installing;
-          worker.addEventListener("statechange", () => {
-            if (worker.state === "installed" && navigator.serviceWorker.controller) offerUpdate(worker);
-          });
-        });
-      });
-    }
-    (function () {
-      // Safari has no install prompt of its own, so iOS users need telling
-      // how to add the app to their home screen by hand.
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-      const isStandalone = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
-      let dismissed = false;
-      try {
-        dismissed = localStorage.getItem("stockroom-a2hs-dismissed") === "1";
-      } catch (e) {
-        /* private browsing can throw; just show the hint every time */
-      }
-      const hint = document.getElementById("ios-install-hint");
-      if (isIOS && !isStandalone && !dismissed && hint) {
-        hint.hidden = false;
-      }
-      const dismissBtn = document.getElementById("ios-install-hint-dismiss");
-      if (dismissBtn) {
-        dismissBtn.addEventListener("click", () => {
-          hint.hidden = true;
-          try {
-            localStorage.setItem("stockroom-a2hs-dismissed", "1");
-          } catch (e) {
-            /* nothing to persist to in private browsing - it'll just show again */
-          }
-        });
-      }
-    })();
-  </script>
+  {# app.js first: it registers the Alpine components on alpine:init. #}
+  <script src="{% static 'js/app.js' %}" defer></script>
+  <script src="{% static 'vendor/alpine-csp.min.js' %}" defer></script>
 </body>
 </html>
