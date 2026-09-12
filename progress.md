@@ -429,6 +429,17 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   effect of writing documentation. There's an HTML comment in the README
   marking this. Also updated `.env.example` with `DEMO_MODE`/`ADMIN_URL`,
   which #33 and #35 added but never documented there.
+- **Issue 38 (daily reorder digest email): deliberately not implemented.**
+  It's genuinely blocked, not just unstarted - the issue's own text says a
+  cron-triggered digest has nobody logged in to click a `mailto:` link, so
+  it needs a real email-sending provider, which #13 explicitly decided
+  against project-wide ("#38 stays blocked until this is revisited"). Asked
+  the user rather than guessing (adding a paid email provider is a real
+  infra/cost decision, not just code); they chose to leave it dropped for
+  now, matching the issue's own "optional, do it only when it's needed"
+  framing. Left open on GitHub with a comment explaining why, rather than
+  closed - it's not done, just intentionally skipped. Revisit only if #13's
+  no-provider decision is deliberately reopened.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.
