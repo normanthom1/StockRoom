@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Deliveries · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-4 text-2xl font-bold text-primary-dark">Deliveries &middot; {{ open_count }}</h1>
+
+{% if not groups %}
+  <p class="text-sm text-gray-600">Nothing on order right now.</p>
+{% endif %}
+
+{% for group in groups %}
+  <form method="post" action="{% url 'stock:delivery_submit' group.supplier.pk %}"
+        onsubmit="const f = this; setTimeout(() => f.querySelectorAll('button').forEach((b) => b.disabled = true))"
+        class="mb-6 overflow-hidden rounded-lg border border-gray-200">
+    {% csrf_token %}
+    <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 p-2">
+      <span class="flex-1 font-bold text-primary-dark">{{ group.supplier.name }}</span>
+      <button type="submit" name="receive_all" value="{{ group.supplier.pk }}"
+              class="tap-target w-full rounded-lg bg-primary px-3 text-sm font-semibold text-white sm:w-auto">
+        Receive all
+      </button>
+    </div>
+    {% for line in group.lines %}
+      <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 p-2 last:border-b-0">
+        <div class="min-w-0 flex-1">
+          <span class="flex items-baseline gap-2">
+            <span class="font-semibold text-gray-900">{{ line.order.item.name }}</span>
+            {% if line.is_late %}<span class="rounded bg-status-out px-1.5 py-0.5 text-xs font-semibold text-white">Late</span>{% endif %}
+          </span>
+          <p class="text-xs text-gray-600">Ordered {{ line.order.qty }} {{ line.order.item.unit }}s &middot; {{ line.expected_text }}</p>
+        </div>
+        <input type="number" inputmode="numeric" min="1" max="{{ line.order.qty }}" name="qty_{{ line.order.pk }}"
+               value="{{ line.order.qty }}" class="w-16" aria-label="Received quantity for {{ line.order.item.name }}">
+        {% if can_edit_price %}
+          <input type="number" inputmode="decimal" step="0.01" min="0" name="price_{{ line.order.pk }}"
+                 placeholder="{{ line.order.item.price|default_if_none:'price' }}" class="w-20" aria-label="Unit price for {{ line.order.item.name }}">
+        {% endif %}
+        <button type="submit" name="receive_line" value="{{ line.order.pk }}"
+                class="tap-target rounded-lg border border-primary px-3 text-sm font-semibold text-primary-dark">
+          Receive
+        </button>
+      </div>
+    {% endfor %}
+  </form>
+{% endfor %}
+{% endblock %}

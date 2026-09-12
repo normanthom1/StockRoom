@@ -18,23 +18,33 @@
   </div>
 </form>
 {% else %}
-<div id="supplier-row-{{ supplier.pk }}" class="flex flex-wrap items-center gap-3 border-b border-gray-200 p-2">
-  <button type="button" hx-get="{% url 'stock:supplier_edit' supplier.pk %}"
-          hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
-          class="tap-target min-w-0 flex-1 text-left font-semibold text-gray-900">{{ supplier.name }}</button>
-  <div class="flex items-center gap-1">
-    <button type="button" hx-post="{% url 'stock:supplier_lead_days' supplier.pk %}" hx-vals='{"direction": "down"}'
+<div id="supplier-row-{{ supplier.pk }}" class="border-b border-gray-200 p-2">
+  <div class="flex flex-wrap items-center gap-3">
+    <button type="button" hx-get="{% url 'stock:supplier_edit' supplier.pk %}"
             hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
-            class="tap-target rounded-lg border border-gray-300 px-2 font-bold" aria-label="Fewer lead days">&minus;</button>
-    <span class="w-20 text-center text-sm text-gray-700">{{ supplier.lead_days }} days</span>
-    <button type="button" hx-post="{% url 'stock:supplier_lead_days' supplier.pk %}" hx-vals='{"direction": "up"}'
-            hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
-            class="tap-target rounded-lg border border-gray-300 px-2 font-bold" aria-label="More lead days">&plus;</button>
+            class="tap-target min-w-0 flex-1 text-left font-semibold text-gray-900">{{ supplier.name }}</button>
+    <div class="flex items-center gap-1">
+      <button type="button" hx-post="{% url 'stock:supplier_lead_days' supplier.pk %}" hx-vals='{"direction": "down"}'
+              hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
+              class="tap-target rounded-lg border border-gray-300 px-2 font-bold" aria-label="Fewer lead days">&minus;</button>
+      <span class="w-20 text-center text-sm text-gray-700">{{ supplier.lead_days }} days</span>
+      <button type="button" hx-post="{% url 'stock:supplier_lead_days' supplier.pk %}" hx-vals='{"direction": "up"}'
+              hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
+              class="tap-target rounded-lg border border-gray-300 px-2 font-bold" aria-label="More lead days">&plus;</button>
+    </div>
+    {% if supplier.phone %}<a href="tel:{{ supplier.phone_digits }}" class="link text-sm">{{ supplier.phone }}</a>{% endif %}
+    {% if supplier.email %}<a href="mailto:{{ supplier.email }}" class="link text-sm">{{ supplier.email }}</a>{% endif %}
+    <span class="text-xs text-gray-600">{{ supplier.item_count }} item{{ supplier.item_count|pluralize }}</span>
+    <button type="button" hx-post="{% url 'stock:supplier_archive' supplier.pk %}" hx-disabled-elt="this"
+            class="tap-target text-xs font-medium text-gray-500 underline">Archive</button>
   </div>
-  {% if supplier.phone %}<a href="tel:{{ supplier.phone_digits }}" class="link text-sm">{{ supplier.phone }}</a>{% endif %}
-  {% if supplier.email %}<a href="mailto:{{ supplier.email }}" class="link text-sm">{{ supplier.email }}</a>{% endif %}
-  <span class="text-xs text-gray-600">{{ supplier.item_count }} item{{ supplier.item_count|pluralize }}</span>
-  <button type="button" hx-post="{% url 'stock:supplier_archive' supplier.pk %}" hx-disabled-elt="this"
-          class="tap-target text-xs font-medium text-gray-500 underline">Archive</button>
+  {% if supplier.actual_lead_days and supplier.actual_lead_days != supplier.lead_days %}
+    <div class="mt-1 flex items-center gap-2 text-xs text-gray-600">
+      <span>Actual lead time: ~{{ supplier.actual_lead_days }} days</span>
+      <button type="button" hx-post="{% url 'stock:supplier_apply_lead_days' supplier.pk %}"
+              hx-target="#supplier-row-{{ supplier.pk }}" hx-swap="outerHTML"
+              class="tap-target font-semibold text-primary-dark underline">Use this</button>
+    </div>
+  {% endif %}
 </div>
 {% endif %}
