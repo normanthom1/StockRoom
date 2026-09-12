@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Import preview · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-3 text-2xl font-bold text-primary-dark">Import preview</h1>
+<p class="mb-4 text-sm text-gray-600">{{ valid_count }} item{{ valid_count|pluralize }} ready to import{% if error_count %}, {{ error_count }} row{{ error_count|pluralize }} with a problem below - fix your CSV and try again for those{% endif %}.</p>
+
+<div class="mb-6 overflow-hidden rounded-lg border border-gray-200">
+  {% for row in rows %}
+    <div class="flex flex-col gap-1 border-b border-gray-200 p-2 last:border-b-0 {% if not row.is_valid %}bg-red-50{% endif %}">
+      <span class="flex items-baseline gap-2">
+        <span class="text-xs text-gray-500">Row {{ row.line_number }}</span>
+        <span class="font-semibold text-gray-900">{{ row.name|default:"(no name)" }}</span>
+      </span>
+      {% if row.is_valid %}
+        <span class="text-sm text-gray-600">{{ row.unit }} &middot; {{ row.supplier_name }}{% if row.price is not None %} &middot; ${{ row.price }}{% endif %}{% if row.count is not None %} &middot; {{ row.count }} on hand{% endif %}</span>
+      {% else %}
+        <span class="text-sm font-medium text-status-now">{{ row.errors|join:" " }}</span>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+{% if valid_count %}
+  <form method="post" action="{% url 'stock:item_import_confirm' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn-primary">Import {{ valid_count }} item{{ valid_count|pluralize }}</button>
+  </form>
+{% else %}
+  <a href="{% url 'stock:item_import' %}" class="link">Choose a different file</a>
+{% endif %}
+{% endblock %}

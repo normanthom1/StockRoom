@@ -13,7 +13,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 21 | Item detail: forecast + usage chart | done |
 | 22 | Stocktake: record shelf counts | done |
 | 23 | Supplier management | done |
-| 24 | Item management and CSV import | todo |
+| 24 | Item management and CSV import | done |
 | 25 | Reorder list and placing orders | todo |
 | 26 | Deliveries: receive incoming orders | todo |
 | 27 | Spending reports | todo |
@@ -128,6 +128,30 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   the resource pressure - cleaned up via PowerShell
   `Get-CimInstance Win32_Process | Where CommandLine -like '*runserver*' |
   Stop-Process -Force`. See memory feedback_runserver_noreload.md.
+  Also: if `runserver ... &` followed by more commands in the SAME Bash call
+  ever hangs with no output (even after `--noreload`), add `disown` right
+  after backgrounding it and split the follow-up curl/check into a separate
+  Bash tool call - a single compound call seems to sometimes wait on the
+  background job's job-table entry.
+- Issue 24 replaced `stock/templates/stock/stock_page.html` (deleted) with
+  the real `stock/templates/stock/items.html` - full admin item list with
+  search (same `hx-get`+debounce pattern as #20's log-usage tiles), an
+  ItemForm add form, click-to-edit rows (`_item_row.html`, same
+  `#item-row-<pk>`/outerHTML pattern as #23's supplier rows - remember to
+  stack multi-field edit rows vertically, not `flex flex-wrap` on one line),
+  and archive/unarchive reusing the same HX-Redirect + Undo pattern. The
+  "Start a full stocktake" button from #22 and a new "Import a CSV" button
+  both live at the top of this same page.
+  `ItemForm` (new, in `stock/forms.py`) scopes its `supplier` ModelChoiceField
+  to `Supplier.objects.for_org(...)` in `__init__` - tested explicitly
+  (posting another org's supplier pk must fail, not silently succeed).
+  New `stock/csv_import.py` (`parse_csv`) is pure and framework-free (stdlib
+  `csv` module, ladder rung 3) - parses to `ImportRow` dataclasses with
+  per-row `errors`; nothing touches the DB until `item_import_confirm`.
+  The parsed *valid* rows are stashed in `request.session["pending_import"]`
+  between the preview and confirm POSTs (plain JSON-safe dicts, not the
+  dataclasses/Decimals directly) - same "stash across a preview/confirm
+  round trip" shape as #22's stocktake session state.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

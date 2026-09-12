@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Stock · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-3 text-2xl font-bold text-primary-dark">Stock</h1>
+
+<div class="mb-4 flex gap-2">
+  <a href="{% url 'stock:stocktake_step' %}" class="tap-target flex flex-1 items-center justify-center rounded-lg bg-gray-100 px-3 text-center text-sm font-semibold text-primary-dark">Start a full stocktake</a>
+  <a href="{% url 'stock:item_import' %}" class="tap-target flex flex-1 items-center justify-center rounded-lg bg-gray-100 px-3 text-center text-sm font-semibold text-primary-dark">Import a CSV</a>
+</div>
+
+<input type="search" name="q" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
+       value="{{ query }}" placeholder="Search all {{ total_count }} items…" class="mb-3"
+       hx-get="{% url 'stock:items' %}" hx-trigger="input changed delay:200ms" hx-target="#item-list" hx-swap="innerHTML">
+
+<div id="item-list" class="mb-6 overflow-hidden rounded-lg border border-gray-200">
+  {% partialdef item_rows inline %}
+  {% for item in item_list %}
+    {% include "stock/_item_row.html" %}
+  {% empty %}
+    <p class="p-3 text-sm text-gray-600">{% if query %}No items match "{{ query }}".{% else %}No items yet.{% endif %}</p>
+  {% endfor %}
+  {% endpartialdef %}
+</div>
+
+<h2 class="mb-2 text-lg font-bold text-primary-dark">Add an item</h2>
+<form method="post" action="{% url 'stock:item_add' %}" class="space-y-4">
+  {% csrf_token %}
+  {{ form }}
+  <button type="submit" class="btn-primary">Add item</button>
+</form>
+{% endblock %}
