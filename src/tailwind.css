@@ -5,15 +5,18 @@
  * See .claude/skills/ui-design/SKILL.md for the rules behind these.
  */
 @theme {
-  --color-primary: #5980a6;
-  /* primary is ~4:1 on white: fine for large bold text and fills, too light
-     for body text. Use primary-dark (~9:1, also from the prototype) for links. */
+  /* Darkened slightly from the prototype's #5980a6 so white text on a
+     primary fill clears WCAG AA (4.5:1) at normal text sizes, not just
+     large bold text. Use primary-dark (~9:1) for links and body-size text. */
+  --color-primary: #54789c;
   --color-primary-dark: #2c455d;
   --color-app-bg: #faf9f5;
 
   --color-status-out: #7a1d18;
   --color-status-now: #b3261e;
-  --color-status-week: #b3701a;
+  /* Darkened slightly from the prototype's #b3701a: at #b3701a the status
+     chip text (text-xs, so it needs 4.5:1) came in just under, at 4.0:1. */
+  --color-status-week: #a66818;
   --color-status-ok: #2f7d4f;
 }
 

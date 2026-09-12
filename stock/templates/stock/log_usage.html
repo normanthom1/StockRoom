@@ -6,7 +6,7 @@
 <h1 class="mb-3 text-2xl font-bold text-primary-dark">Tap what you used</h1>
 
 {% if tiles %}
-  <input type="search" id="tile-search" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
+  <input type="search" id="tile-search" aria-label="Search items" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
          placeholder="Search all {{ tiles|length }} items…" class="mb-3" data-tile-search>
 
   <div id="tile-grid" class="grid grid-cols-2 gap-2">
