@@ -14,7 +14,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 22 | Stocktake: record shelf counts | done |
 | 23 | Supplier management | done |
 | 24 | Item management and CSV import | done |
-| 25 | Reorder list and placing orders | todo |
+| 25 | Reorder list and placing orders | done |
 | 26 | Deliveries: receive incoming orders | todo |
 | 27 | Spending reports | todo |
 | 28 | Activity log and CSV export | todo |
@@ -152,6 +152,30 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   between the preview and confirm POSTs (plain JSON-safe dicts, not the
   dataclasses/Decimals directly) - same "stash across a preview/confirm
   round trip" shape as #22's stocktake session state.
+- Issue 25 added the reorder list: `_wanted_items(org, now)` (status in
+  {OUT, ORDER_NOW, ORDER_THIS_WEEK} or `pinned_to_reorder_at` set) grouped by
+  supplier. Placing an order is just `OrderLine.objects.create(...)` - no new
+  Item field needed, since `forecast()` already reports `ON_ORDER` the moment
+  the item has an open order line (`item.order_lines` non-empty & `is_open`).
+  Mailto body reuses `accounts.mailto.build_mailto_link`, signed with
+  `admin.name` and `org.name` (not the prototype's literal "STOCKROOM").
+  Per-line "Mark ordered" and the supplier's "Mark all ordered" bulk button
+  share one screen's inputs without nested `<form>`s: each qty `<input
+  name="qty_<item_id>" data-supplier="<supplier_id>">`, the line button
+  `hx-include="[name='qty_<id>']"`, the bulk button
+  `hx-include="[data-supplier='<id>']"` - htmx includes whatever the selector
+  matches regardless of form nesting.
+  Undo reuses the `HX-Redirect` + `messages.extra_tags` pattern, but a bulk
+  "mark all ordered" needs to undo *several* OrderLines from one toast: its
+  undo URL is `reverse("stock:reorder_undo_batch") + "?ids=1,2,3"` (a query
+  string on a POST works fine - Django puts query params in `request.GET`
+  regardless of method). Unlike #20's StockEvent undo, any admin (not just
+  the one who ordered) can undo within the 10-minute window - ordering is a
+  team action, not a personal one.
+  `assertNotIn("$", content)` is too broad a "no price leaked" check - it
+  also flags Alpine's `$event` in base.html's toast wiring. Use
+  `assertNotRegex(content, r"\$\s?\d")` (same pattern test_isolation.py's
+  `PRICE` regex already uses) instead.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

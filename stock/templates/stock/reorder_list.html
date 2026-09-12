@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Reorder list · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-4 text-2xl font-bold text-primary-dark">Reorder list &middot; {{ wanted_count }}</h1>
+
+{% if not groups %}
+  <p class="text-sm text-gray-600">Nothing needs ordering right now.</p>
+{% endif %}
+
+{% for group in groups %}
+  <section class="mb-6 overflow-hidden rounded-lg border border-gray-200">
+    <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 p-2">
+      <span class="flex-1 font-bold text-primary-dark">{{ group.supplier.name }}</span>
+      {% if group.supplier.phone %}<a href="tel:{{ group.phone_digits }}" class="link text-sm">Call &middot; {{ group.supplier.phone }}</a>{% endif %}
+      {% if group.mailto %}<a href="{{ group.mailto }}" class="link text-sm">Email</a>{% endif %}
+      <button type="button" hx-post="{% url 'stock:reorder_mark_supplier_ordered' group.supplier.pk %}"
+              hx-include="[data-supplier='{{ group.supplier.pk }}']" hx-disabled-elt="this"
+              class="tap-target w-full rounded-lg bg-primary px-3 text-sm font-semibold text-white sm:w-auto">
+        Mark all ordered
+      </button>
+    </div>
+    {% for line in group.lines %}
+      <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 p-2 last:border-b-0">
+        <div class="min-w-0 flex-1">
+          <span class="flex items-baseline gap-2">
+            <span class="font-semibold text-gray-900">{{ line.item.name }}</span>
+            <span class="rounded px-1.5 py-0.5 text-xs font-semibold
+              {% if line.solid %}
+                text-white {% if line.status_color == 'out' %}bg-status-out{% else %}bg-status-now{% endif %}
+              {% elif line.status_color == 'week' %}border border-status-week text-status-week
+              {% else %}border border-status-ok text-status-ok{% endif %}">{{ line.status_label }}</span>
+          </span>
+          <p class="text-xs text-gray-600">{{ line.sub }}{% if line.order_by_text %} &middot; {{ line.order_by_text }}{% endif %}</p>
+        </div>
+        <input type="number" inputmode="numeric" min="1" name="qty_{{ line.item.pk }}" data-supplier="{{ group.supplier.pk }}"
+               value="{{ line.suggested_qty }}" class="w-20" aria-label="Order quantity for {{ line.item.name }}">
+        <button type="button" hx-post="{% url 'stock:reorder_mark_ordered' line.item.pk %}"
+                hx-include="[name='qty_{{ line.item.pk }}']" hx-disabled-elt="this"
+                class="tap-target rounded-lg border border-primary px-3 text-sm font-semibold text-primary-dark">
+          Mark ordered
+        </button>
+      </div>
+    {% endfor %}
+  </section>
+{% endfor %}
+{% endblock %}
