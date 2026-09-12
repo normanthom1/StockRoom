@@ -23,7 +23,9 @@ class DemoResetMiddleware:
         # WhiteNoise normally answers /static/ before this ever runs, but
         # only once `collectstatic` has actually populated STATIC_ROOT (it
         # hasn't in CI) - check explicitly rather than relying on that.
-        if settings.DEMO_MODE and not request.path.startswith(f"/{settings.STATIC_URL}"):
+        # Django normalises STATIC_URL to always start with "/", regardless
+        # of how it's written in settings.py ("static/" here).
+        if settings.DEMO_MODE and not request.path.startswith(settings.STATIC_URL):
             _reset_if_stale()
         return self.get_response(request)
 

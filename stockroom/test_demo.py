@@ -6,13 +6,14 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Organisation, User
 from accounts.views import DEMO_LOGINS
 from stock.models import DemoResetState
+from stockroom.demo import DemoResetMiddleware
 
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
@@ -119,7 +120,11 @@ class DemoResetMiddlewareTests(TestCase):
         self.assertFalse(DemoResetState.objects.exists())
 
     @override_settings(DEMO_MODE=True)
-    def test_static_files_do_not_trigger_a_check(self):
-        # WhiteNoise serves /static/ before this middleware runs at all.
-        self.client.get("/static/vendor/htmx.min.js")
+    def test_static_paths_are_skipped_explicitly(self):
+        # In production WhiteNoise answers /static/ before this middleware
+        # ever runs - but only once `collectstatic` has populated
+        # STATIC_ROOT, which hasn't happened in this test environment. Drive
+        # the middleware directly so the check doesn't depend on that.
+        middleware = DemoResetMiddleware(get_response=lambda request: None)
+        middleware(RequestFactory().get("/static/vendor/htmx.min.js"))
         self.assertFalse(DemoResetState.objects.exists())
