@@ -73,6 +73,11 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:supplier_lead_days", make=make_supplier, method="post"),
     Case("stock:supplier_archive", make=make_supplier, method="post"),
     Case("stock:supplier_unarchive", make=make_supplier, method="post"),
+    Case("stock:item_view_row", make=make_item),
+    Case("stock:item_edit_row", make=make_item),
+    Case("stock:item_update_row", make=make_item, method="post"),
+    Case("stock:item_archive", make=make_item, method="post"),
+    Case("stock:item_unarchive", make=make_item, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -99,6 +104,15 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:supplier_lead_days", make=make_supplier, method="post"),
     Case("stock:supplier_archive", make=make_supplier, method="post"),
     Case("stock:supplier_unarchive", make=make_supplier, method="post"),
+    Case("stock:item_add", method="post"),
+    Case("stock:item_view_row", make=make_item),
+    Case("stock:item_edit_row", make=make_item),
+    Case("stock:item_update_row", make=make_item, method="post"),
+    Case("stock:item_archive", make=make_item, method="post"),
+    Case("stock:item_unarchive", make=make_item, method="post"),
+    Case("stock:item_import"),
+    Case("stock:item_import_preview", method="post"),
+    Case("stock:item_import_confirm", method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.

@@ -14,8 +14,9 @@ from django.views.decorators.http import require_POST
 from accounts.decorators import admin_required
 
 from .chart import usage_chart_svg
+from .csv_import import parse_csv
 from .forecast import Status, forecast, outlier_mask, weekly_consumption
-from .forms import SupplierForm
+from .forms import ItemForm, SupplierForm
 from .humanize import (
     CONFIDENCE_LABEL,
     build_caveat,
@@ -397,10 +398,160 @@ def deliveries(request):
     return _coming_soon(request, "Deliveries")
 
 
+def _items_context(org, form=None, query=""):
+    item_list = Item.objects.for_org(org).filter(is_active=True).select_related("supplier").order_by("name")
+    if query:
+        item_list = item_list.filter(name__icontains=query)
+    return {
+        "item_list": item_list,
+        "form": form or ItemForm(instance=Item(organisation=org)),
+        "query": query,
+        "total_count": Item.objects.for_org(org).filter(is_active=True).count(),
+    }
+
+
 @admin_required
 def items(request):
-    # Full item management lands in #24; for now this just gets a stocktake going.
-    return render(request, "stock/stock_page.html")
+    org = request.user.organisation
+    query = request.GET.get("q", "").strip()
+    context = _items_context(org, query=query)
+    template = "stock/items.html#item_rows" if request.headers.get("HX-Request") else "stock/items.html"
+    return render(request, template, context)
+
+
+@require_POST
+@admin_required
+def item_add(request):
+    org = request.user.organisation
+    form = ItemForm(request.POST, instance=Item(organisation=org))
+    if form.is_valid():
+        starting_count = form.cleaned_data.get("starting_count")
+        item = form.save()
+        if starting_count is not None:
+            StockEvent.objects.create(organisation=org, item=item, user=request.user, kind="count", qty=starting_count)
+        messages.success(request, f"Added {item.name}.")
+        return redirect("stock:items")
+    return render(request, "stock/items.html", _items_context(org, form=form))
+
+
+@admin_required
+def item_view_row(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation).select_related("supplier"), pk=pk)
+    return render(request, "stock/_item_row.html", {"item": item})
+
+
+@admin_required
+def item_edit_row(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    form = ItemForm(instance=item)
+    return render(request, "stock/_item_row.html", {"item": item, "edit_form": form})
+
+
+@require_POST
+@admin_required
+def item_update_row(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    form = ItemForm(request.POST, instance=item)
+    if form.is_valid():
+        form.save()
+        item = Item.objects.select_related("supplier").get(pk=item.pk)
+        return render(request, "stock/_item_row.html", {"item": item})
+    return render(request, "stock/_item_row.html", {"item": item, "edit_form": form})
+
+
+@require_POST
+@admin_required
+def item_archive(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    item.is_active = False
+    item.save(update_fields=["is_active"])
+    messages.success(request, f"Archived {item.name}.", extra_tags=reverse("stock:item_unarchive", args=[item.pk]))
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("stock:items")
+    return response
+
+
+@require_POST
+@admin_required
+def item_unarchive(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    item.is_active = True
+    item.save(update_fields=["is_active"])
+    return _toast_response("Restored.")
+
+
+@admin_required
+def item_import(request):
+    return render(request, "stock/item_import.html")
+
+
+@require_POST
+@admin_required
+def item_import_preview(request):
+    org = request.user.organisation
+    csv_file = request.FILES.get("csv_file")
+    if not csv_file:
+        messages.error(request, "Choose a CSV file first.")
+        return redirect("stock:item_import")
+
+    try:
+        text = csv_file.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        messages.error(request, "That file doesn't look like a CSV.")
+        return redirect("stock:item_import")
+
+    active_supplier_names = {
+        n.lower() for n in Supplier.objects.for_org(org).filter(is_active=True).values_list("name", flat=True)
+    }
+    rows, file_errors = parse_csv(text, active_supplier_names)
+    if file_errors:
+        messages.error(request, " ".join(file_errors))
+        return redirect("stock:item_import")
+
+    valid_rows = [r for r in rows if r.is_valid]
+    request.session["pending_import"] = [
+        {
+            "name": r.name,
+            "unit": r.unit,
+            "supplier_name": r.supplier_name,
+            "price": str(r.price) if r.price is not None else None,
+            "order_size": r.order_size,
+            "count": r.count,
+        }
+        for r in valid_rows
+    ]
+    context = {"rows": rows, "valid_count": len(valid_rows), "error_count": len(rows) - len(valid_rows)}
+    return render(request, "stock/item_import_preview.html", context)
+
+
+@require_POST
+@admin_required
+def item_import_confirm(request):
+    org = request.user.organisation
+    pending = request.session.pop("pending_import", None)
+    if not pending:
+        messages.error(request, "Nothing to import - upload a CSV first.")
+        return redirect("stock:item_import")
+
+    created = 0
+    for row in pending:
+        supplier = Supplier.objects.for_org(org).filter(name__iexact=row["supplier_name"]).first()
+        if not supplier:
+            continue
+        item = Item.objects.create(
+            organisation=org,
+            name=row["name"],
+            unit=row["unit"],
+            supplier=supplier,
+            price=Decimal(row["price"]) if row["price"] else None,
+            order_size=row["order_size"],
+        )
+        if row["count"] is not None:
+            StockEvent.objects.create(organisation=org, item=item, user=request.user, kind="count", qty=row["count"])
+        created += 1
+
+    messages.success(request, f"Imported {created} item{'s' if created != 1 else ''}.")
+    return redirect("stock:items")
 
 
 def _suppliers_context(org, form=None):
