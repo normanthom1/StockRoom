@@ -18,7 +18,7 @@ from django.urls import path, reverse
 
 from accounts.decorators import admin_required
 from accounts.models import Organisation, User
-from stock.models import Item, StockEvent, Supplier
+from stock.models import Item, OrderLine, StockEvent, Supplier
 
 
 class Case(NamedTuple):
@@ -51,6 +51,13 @@ def make_supplier(org):
     return Supplier.objects.create(organisation=org, name=f"Supplier {Supplier.objects.count()}")
 
 
+def make_order_line(org):
+    """An open order line in org, for Cases that need some existing order's pk."""
+    item = make_item(org)
+    user = User.objects.create_user(f"orderuser-{User.objects.count()}@{org.slug}.test", "pw", organisation=org)
+    return OrderLine.objects.create(organisation=org, item=item, qty=1, ordered_by=user)
+
+
 # Objects a practice owns. Another practice's user gets a 404 for each.
 ORG_OBJECT_URLS: list[Case] = [
     Case("team_role", make=make_member, method="post"),
@@ -78,6 +85,9 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:item_update_row", make=make_item, method="post"),
     Case("stock:item_archive", make=make_item, method="post"),
     Case("stock:item_unarchive", make=make_item, method="post"),
+    Case("stock:reorder_mark_ordered", make=make_item, method="post"),
+    Case("stock:reorder_mark_supplier_ordered", make=make_supplier, method="post"),
+    Case("stock:reorder_undo", make=make_order_line, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -113,6 +123,10 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:item_import"),
     Case("stock:item_import_preview", method="post"),
     Case("stock:item_import_confirm", method="post"),
+    Case("stock:reorder_mark_ordered", make=make_item, method="post"),
+    Case("stock:reorder_mark_supplier_ordered", make=make_supplier, method="post"),
+    Case("stock:reorder_undo", make=make_order_line, method="post"),
+    Case("stock:reorder_undo_batch", method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.

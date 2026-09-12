@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Reorder list · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-2 text-2xl font-bold text-primary-dark">Reorder list</h1>
+<p class="mb-4 text-sm text-gray-600">{{ wanted_count }} waiting for the manager to order.</p>
+
+{% if not by_supplier %}
+  <p class="text-sm text-gray-600">Nothing needs ordering right now.</p>
+{% endif %}
+
+{% for supplier_name, item_names in by_supplier %}
+  <section class="mb-4 overflow-hidden rounded-lg border border-gray-200">
+    <p class="border-b border-gray-200 bg-gray-50 p-2 font-bold text-primary-dark">{{ supplier_name }}</p>
+    {% for name in item_names %}
+      <p class="border-b border-gray-100 p-2 text-sm text-gray-900 last:border-b-0">{{ name }}</p>
+    {% endfor %}
+  </section>
+{% endfor %}
+{% endblock %}

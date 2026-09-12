@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import admin_required
+from accounts.mailto import build_mailto_link
 
 from .chart import usage_chart_svg
 from .csv_import import parse_csv
@@ -27,8 +28,9 @@ from .humanize import (
     humanize_run_out,
     order_by_text,
     phone_digits,
+    pluralize_unit,
 )
-from .models import Item, StockEvent, Supplier
+from .models import Item, OrderLine, StockEvent, Supplier
 
 CHART_WEEKS = 12
 
@@ -390,8 +392,166 @@ def stocktake_save(request):
     return redirect("stock:stocktake_step")
 
 
+WANTED_STATUSES = {Status.OUT, Status.ORDER_NOW, Status.ORDER_THIS_WEEK}
+
+
+def _wanted_items(org, now):
+    """(item, forecast) pairs that belong on the reorder list: urgent, or pinned there by hand."""
+    wanted = []
+    for item in _org_items(org):
+        f = _forecast_for(item, now)
+        if f.status in WANTED_STATUSES or item.pinned_to_reorder_at:
+            wanted.append((item, f))
+    return wanted
+
+
+def _order_email(org, admin, supplier, lines, today):
+    body_lines = [
+        f"- {line['item'].name} (currently {format_qty(line['on_hand'], line['item'].unit)}, "
+        f"order {line['suggested_qty']} {pluralize_unit(line['item'].unit, line['suggested_qty'])}, "
+        f"{order_by_text(line['order_by'], today) or 'when you can'})"
+        for line in lines
+    ]
+    body = (
+        "Kia ora,\n\nCould you please send through:\n\n"
+        + "\n".join(body_lines)
+        + f"\n\nThanks,\n{admin.name or admin.email}\n{org.name}"
+    )
+    return build_mailto_link(supplier.email, f"Stock order for {supplier.name}", body)
+
+
+def _reorder_groups(org, admin, now):
+    today = now.date()
+    by_supplier = {}
+    for item, f in _wanted_items(org, now):
+        by_supplier.setdefault(item.supplier, []).append((item, f))
+
+    groups = []
+    for supplier, entries in sorted(by_supplier.items(), key=lambda kv: kv[0].name):
+        lines = [
+            {
+                "item": item,
+                "on_hand": f.on_hand,
+                "sub": f"{format_qty(f.on_hand, item.unit)} · {format_rate(f.weekly_usage, item.unit)}",
+                "status_label": f.status.label,
+                "status_color": STATUS_COLOR[f.status],
+                "solid": f.status in SOLID_STATUSES,
+                "order_by": f.order_by,
+                "order_by_text": order_by_text(f.order_by, today),
+                "suggested_qty": item.order_size or f.order_qty,
+            }
+            for item, f in sorted(entries, key=lambda e: e[0].name)
+        ]
+        groups.append(
+            {
+                "supplier": supplier,
+                "phone_digits": phone_digits(supplier.phone),
+                "mailto": _order_email(org, admin, supplier, lines, today) if supplier.email else "",
+                "lines": lines,
+            }
+        )
+    return groups
+
+
 def reorder_list(request):
-    return _coming_soon(request, "Reorder list")
+    org = request.user.organisation
+    now = timezone.localtime()
+
+    if request.user.is_org_admin:
+        groups = _reorder_groups(org, request.user, now)
+        context = {"groups": groups, "wanted_count": sum(len(g["lines"]) for g in groups)}
+        return render(request, "stock/reorder_list.html", context)
+
+    wanted = _wanted_items(org, now)
+    by_supplier = {}
+    for item, f in wanted:
+        by_supplier.setdefault(item.supplier.name, []).append(item.name)
+    context = {"by_supplier": sorted(by_supplier.items()), "wanted_count": len(wanted)}
+    return render(request, "stock/reorder_list_assistant.html", context)
+
+
+def _default_qty(item, f):
+    return item.order_size or f.order_qty
+
+
+@require_POST
+@admin_required
+def reorder_mark_ordered(request, pk):
+    org = request.user.organisation
+    item = get_object_or_404(Item.objects.for_org(org), pk=pk)
+    f = _forecast_for(item, timezone.localtime())
+    qty = _parse_nonneg_int(request.POST.get(f"qty_{item.pk}", "").strip()) or _default_qty(item, f)
+
+    order = OrderLine.objects.create(
+        organisation=org, item=item, qty=qty, unit_price=item.price, ordered_by=request.user
+    )
+    item.pinned_to_reorder_at = None
+    item.save(update_fields=["pinned_to_reorder_at"])
+
+    messages.success(
+        request,
+        f"Ordered {format_qty(qty, item.unit)} of {item.name} from {item.supplier.name}.",
+        extra_tags=reverse("stock:reorder_undo", args=[order.pk]),
+    )
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("stock:reorder_list")
+    return response
+
+
+@require_POST
+@admin_required
+def reorder_mark_supplier_ordered(request, pk):
+    org = request.user.organisation
+    supplier = get_object_or_404(Supplier.objects.for_org(org), pk=pk)
+    now = timezone.localtime()
+    items = [(item, f) for item, f in _wanted_items(org, now) if item.supplier_id == supplier.pk]
+    if not items:
+        return redirect("stock:reorder_list")
+
+    order_ids = []
+    for item, f in items:
+        qty = _parse_nonneg_int(request.POST.get(f"qty_{item.pk}", "").strip()) or _default_qty(item, f)
+        order = OrderLine.objects.create(
+            organisation=org, item=item, qty=qty, unit_price=item.price, ordered_by=request.user
+        )
+        order_ids.append(order.pk)
+        item.pinned_to_reorder_at = None
+        item.save(update_fields=["pinned_to_reorder_at"])
+
+    undo_url = reverse("stock:reorder_undo_batch") + "?ids=" + ",".join(str(i) for i in order_ids)
+    messages.success(
+        request, f"Ordered {len(items)} item{'s' if len(items) != 1 else ''} from {supplier.name}.", extra_tags=undo_url
+    )
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("stock:reorder_list")
+    return response
+
+
+def _cancel_if_undoable(order):
+    if order.cancelled_at is None and order.received_at is None and timezone.now() - order.ordered_at <= UNDO_WINDOW:
+        order.cancelled_at = timezone.now()
+        order.save(update_fields=["cancelled_at"])
+        return True
+    return False
+
+
+@require_POST
+@admin_required
+def reorder_undo(request, pk):
+    order = get_object_or_404(OrderLine.objects.for_org(request.user.organisation), pk=pk)
+    if not _cancel_if_undoable(order):
+        raise PermissionDenied
+    return _toast_response("Undone.")
+
+
+@require_POST
+@admin_required
+def reorder_undo_batch(request):
+    ids = [i for i in request.GET.get("ids", "").split(",") if i.isdigit()]
+    orders = OrderLine.objects.for_org(request.user.organisation).filter(pk__in=ids)
+    for order in orders:
+        _cancel_if_undoable(order)
+    return _toast_response("Undone.")
 
 
 def deliveries(request):
