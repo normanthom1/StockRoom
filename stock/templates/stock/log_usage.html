@@ -17,6 +17,7 @@
               data-used-one="{% url 'stock:log_used_one' tile.id %}"
               data-used-last="{% url 'stock:log_used_last' tile.id %}"
               data-running-low="{% url 'stock:log_running_low' tile.id %}"
+              data-count-sheet="{% url 'stock:item_count_sheet' tile.id %}"
               class="tap-target flex h-28 flex-col items-start justify-between gap-1 rounded-lg bg-gray-100 p-3 text-left
                 border-l-4 {% if tile.status_color == 'out' %}border-status-out
                 {% elif tile.status_color == 'now' %}border-status-now
@@ -56,6 +57,11 @@
       <span class="text-sm text-gray-600">Tell the manager we're low</span>
     </button>
   </div>
+  <button type="button" data-action="countSheet" data-method="get"
+          hx-target="#sheet-content" hx-swap="innerHTML"
+          class="tap-target mt-2 w-full rounded-lg border border-gray-300 text-sm font-medium text-gray-900">
+    Set exact count
+  </button>
 </template>
 
 {% endblock %}

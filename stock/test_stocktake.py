@@ -53,6 +53,29 @@ class ItemCountSheetTests(TestCase):
         content = self.client.get("/").content.decode()
         self.assertNotIn("count-sheet", content)
 
+    def test_an_assistant_can_open_the_count_sheet(self):
+        self.client.force_login(self.assistant)
+        content = self.client.get(f"/item/{self.item.pk}/count-sheet/").content.decode()
+        self.assertIn('value="10"', content)
+
+    def test_an_assistant_does_not_see_the_order_size_field(self):
+        self.client.force_login(self.assistant)
+        content = self.client.get(f"/item/{self.item.pk}/count-sheet/").content.decode()
+        self.assertNotIn("Standard order size", content)
+
+    def test_an_assistant_can_set_a_count(self):
+        self.client.force_login(self.assistant)
+        response = self.client.post(f"/item/{self.item.pk}/count/", {"qty": "3"})
+        self.assertEqual(response["HX-Redirect"], "/")
+        event = StockEvent.objects.get(item=self.item, kind="count", qty=3)
+        self.assertEqual(event.user, self.assistant)
+
+    def test_an_assistant_cannot_set_the_order_size_even_by_forcing_the_field(self):
+        self.client.force_login(self.assistant)
+        self.client.post(f"/item/{self.item.pk}/count/", {"qty": "3", "order_size": "24"})
+        self.item.refresh_from_db()
+        self.assertIsNone(self.item.order_size)
+
 
 class StocktakeTests(TestCase):
     @classmethod

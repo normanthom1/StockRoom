@@ -142,7 +142,7 @@ function openCaptureSheet(tile) {
     sheet.querySelector("[data-action=usedOne]").remove();
   }
   for (const button of sheet.querySelectorAll("[data-action]")) {
-    button.setAttribute("hx-post", item[button.dataset.action]);
+    button.setAttribute(`hx-${button.dataset.method || "post"}`, item[button.dataset.action]);
   }
   const content = document.getElementById("sheet-content");
   content.replaceChildren(sheet);

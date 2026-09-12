@@ -101,11 +101,9 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:items"),
     Case("stock:suppliers"),
     Case("stock:spending"),
-    Case("stock:item_count_sheet", make=make_item),
     Case("stock:item_set_price", make=make_item, method="post"),
     Case("stock:item_set_order_size", make=make_item, method="post"),
     Case("stock:item_toggle_reorder", make=make_item, method="post"),
-    Case("stock:item_count_save", make=make_item, method="post"),
     Case("stock:stocktake_step"),
     Case("stock:stocktake_save", method="post"),
     Case("stock:supplier_add", method="post"),
@@ -142,6 +140,7 @@ ASSISTANT_PAGES: list[Case] = [
     Case("stock:reorder_list"),
     Case("stock:deliveries"),
     Case("stock:item_detail", make=make_item),
+    Case("stock:item_count_sheet", make=make_item),
 ]
 
 # URLs that show no practice data at all, so none of the checks above apply.

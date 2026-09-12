@@ -145,3 +145,9 @@ class ItemDetailViewTests(TestCase):
         content = self.client.get(f"/item/{self.gloves.pk}/").content.decode()
         self.assertNotIn("Save", content)
         self.assertIn("Tell the manager we're low", content)
+
+    def test_assistant_item_detail_offers_setting_the_exact_count(self):
+        self.client.force_login(self.assistant)
+        content = self.client.get(f"/item/{self.gloves.pk}/").content.decode()
+        self.assertIn("Set exact count", content)
+        self.assertIn(f'hx-get="/item/{self.gloves.pk}/count-sheet/"', content)

@@ -12,11 +12,13 @@
     <input id="qty" type="number" inputmode="numeric" min="0" name="qty"
            value="{{ current_qty|default_if_none:'' }}" placeholder="0" autofocus>
   </div>
-  <div>
-    <label for="order_size" class="text-sm font-medium text-gray-900">Standard order size ({{ item.unit }}s), optional</label>
-    <input id="order_size" type="number" inputmode="numeric" min="1" name="order_size"
-           value="{{ item.order_size|default_if_none:'' }}" placeholder="{{ order_size_placeholder }}">
-  </div>
+  {% if user.is_org_admin %}
+    <div>
+      <label for="order_size" class="text-sm font-medium text-gray-900">Standard order size ({{ item.unit }}s), optional</label>
+      <input id="order_size" type="number" inputmode="numeric" min="1" name="order_size"
+             value="{{ item.order_size|default_if_none:'' }}" placeholder="{{ order_size_placeholder }}">
+    </div>
+  {% endif %}
   <button type="button" hx-post="{% url 'stock:item_count_save' item.pk %}" hx-include="closest form"
           hx-target="#sheet-content" hx-swap="innerHTML" hx-disabled-elt="this"
           class="btn-primary">Save count</button>

@@ -181,8 +181,10 @@ def _maybe_update_order_size(item, raw):
         item.save(update_fields=["order_size"])
 
 
-@admin_required
 def item_count_sheet(request, pk):
+    """Setting the exact on-shelf count. Anyone logged in can correct a
+    count (it's still just a StockEvent, attributed to whoever did it);
+    only admins also get to change the standard order size here."""
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
     f = _forecast_for(item, timezone.localtime())
     context = {
@@ -195,7 +197,6 @@ def item_count_sheet(request, pk):
 
 
 @require_POST
-@admin_required
 def item_count_save(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
     qty = _parse_nonneg_int(request.POST.get("qty", "").strip())
@@ -209,7 +210,8 @@ def item_count_save(request, pk):
         }
         return render(request, "stock/item_count_sheet.html", context)
 
-    _maybe_update_order_size(item, request.POST.get("order_size"))
+    if request.user.is_org_admin:
+        _maybe_update_order_size(item, request.POST.get("order_size"))
     return _log_event(
         request, item, "count", qty, f"Counted {item.name}: {format_qty(qty, item.unit)} · the forecast is updated"
     )

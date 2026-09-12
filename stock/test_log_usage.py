@@ -50,7 +50,9 @@ class LogUsageTests(TestCase):
         self.assertIn(f'data-used-one="/log-usage/{self.counted_item.pk}/used-one/"', content)
         self.assertIn(f'data-used-last="/log-usage/{self.counted_item.pk}/used-last/"', content)
         self.assertIn(f'data-running-low="/log-usage/{self.counted_item.pk}/running-low/"', content)
+        self.assertIn(f'data-count-sheet="/item/{self.counted_item.pk}/count-sheet/"', content)
         self.assertIn("Used the last one", content)
+        self.assertIn("Set exact count", content)
         self.assertIn("Running low", content)
 
     def test_capture_buttons_send_a_client_id_and_are_marked_for_the_offline_queue(self):
