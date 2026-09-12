@@ -12,7 +12,7 @@ Tracks work so a fresh session can resume. Update after each issue closes.
 | 20 | Log usage: search, quick taps, undo | done |
 | 21 | Item detail: forecast + usage chart | done |
 | 22 | Stocktake: record shelf counts | done |
-| 23 | Supplier management | todo |
+| 23 | Supplier management | done |
 | 24 | Item management and CSV import | todo |
 | 25 | Reorder list and placing orders | todo |
 | 26 | Deliveries: receive incoming orders | todo |
@@ -103,6 +103,31 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   form/redirect flow, unlike the sheet actions - a full per-step page reload
   is fine for a deliberate walk-the-shelf task and avoids HX-Redirect vs.
   htmx-follows-3xx-transparently footguns.
+- Issue 23 added `Supplier.is_active` (migration 0002_supplier_is_active) -
+  suppliers archive (hide, don't delete) only when they have no active items.
+  Added `stock/forms.py` (`SupplierForm`), the app's first ModelForm. Gotcha:
+  Django's automatic `validate_unique()` does NOT check a `UniqueConstraint`
+  built from an expression (ours is `Lower("name")`) - only plain-field
+  constraints. Without a manual `clean_name()` doing `name__iexact`, a
+  duplicate name reached the DB as a raw IntegrityError instead of a form
+  error. Same trap awaits any future ModelForm on an OrgOwned model with a
+  similar case-insensitive-name constraint (e.g. Item in #24).
+  Click-to-edit rows swap `#supplier-row-<pk>` via `hx-target`/`outerHTML`;
+  archive/unarchive reuse #20's HX-Redirect + `messages` `extra_tags` undo
+  pattern, but archive isn't time-limited (a soft is_active flip is always
+  safely reversible, unlike a StockEvent).
+  Lesson: an edit-mode row with several inputs in one `flex flex-wrap` line
+  does NOT wrap on a narrow screen - flex items shrink before wrapping kicks
+  in, squeezing text inputs unreadably thin. Stack such rows vertically (or
+  give every input an explicit `min-w-*`) instead.
+- **Process hygiene**: always pass `--noreload` to a backgrounded
+  `manage.py runserver` used for a one-off Playwright check. Without it,
+  Django's autoreloader child process survives `jobs -p | xargs kill` (which
+  only kills the parent), leaking one orphaned python.exe per check. This
+  session accumulated 30+ before `manage.py test` itself started hanging from
+  the resource pressure - cleaned up via PowerShell
+  `Get-CimInstance Win32_Process | Where CommandLine -like '*runserver*' |
+  Stop-Process -Force`. See memory feedback_runserver_noreload.md.
 - Each issue: branch `issue-<N>-<slug>` off main, implement, `python manage.py test` +
   `makemigrations --check --dry-run` + `manage.py check` + `ruff check .`, commit,
   PR with `gh pr create --fill`, merge `--squash --delete-branch`, confirm issue closed.

@@ -46,6 +46,11 @@ def make_stock_event(org):
     return StockEvent.objects.create(organisation=org, item=item, user=user, kind="low")
 
 
+def make_supplier(org):
+    """A supplier in org, for Cases that need some existing supplier's pk."""
+    return Supplier.objects.create(organisation=org, name=f"Supplier {Supplier.objects.count()}")
+
+
 # Objects a practice owns. Another practice's user gets a 404 for each.
 ORG_OBJECT_URLS: list[Case] = [
     Case("team_role", make=make_member, method="post"),
@@ -62,6 +67,12 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:item_set_order_size", make=make_item, method="post"),
     Case("stock:item_toggle_reorder", make=make_item, method="post"),
     Case("stock:item_count_save", make=make_item, method="post"),
+    Case("stock:supplier_row", make=make_supplier),
+    Case("stock:supplier_edit", make=make_supplier),
+    Case("stock:supplier_update", make=make_supplier, method="post"),
+    Case("stock:supplier_lead_days", make=make_supplier, method="post"),
+    Case("stock:supplier_archive", make=make_supplier, method="post"),
+    Case("stock:supplier_unarchive", make=make_supplier, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -81,6 +92,13 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:item_count_save", make=make_item, method="post"),
     Case("stock:stocktake_step"),
     Case("stock:stocktake_save", method="post"),
+    Case("stock:supplier_add", method="post"),
+    Case("stock:supplier_row", make=make_supplier),
+    Case("stock:supplier_edit", make=make_supplier),
+    Case("stock:supplier_update", make=make_supplier, method="post"),
+    Case("stock:supplier_lead_days", make=make_supplier, method="post"),
+    Case("stock:supplier_archive", make=make_supplier, method="post"),
+    Case("stock:supplier_unarchive", make=make_supplier, method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.
