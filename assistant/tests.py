@@ -175,6 +175,7 @@ class ImportWithAITests(Practice):
             response = self.client.post("/items/import/ai/", {"text": "gloves L x10 $8.50 Henry\nbib clips"})
         self.assertContains(response, "1 item ready to import")
         self.assertContains(response, "Nitrile gloves, size L")
+        self.assertContains(response, "$8.50")  # Gemini's 8.5, shown as money
         self.assertContains(response, "No supplier named &quot;Nobody Ltd&quot;")
         self.assertFalse(Item.objects.filter(name="Nitrile gloves, size L").exists())
         self.assertIn("Henry Schein", generate.call_args.args[0])  # its suppliers, to match against
