@@ -25,10 +25,11 @@ The helpers live in `accounts.models` (`OrgOwned`, `for_org()`) and `accounts.de
   return render(request, template, ctx)
   ```
 - Swappable parts go in `{% partialdef rows %}` inside the page template, not in separate fragment files.
-- To show a toast, set a header instead of writing toast markup:
+- A toast is a Django message; its Undo button posts to the URL in `extra_tags`:
   ```python
-  response["HX-Trigger"] = json.dumps({"toast": {"message": "Logged: running low on gloves", "undo_url": url}})
+  messages.success(request, "Logged: running low on gloves", extra_tags=reverse("stock:log_undo", args=[event.pk]))
   ```
+  Then reload the page the tap came from (`response["HX-Refresh"] = "true"`) rather than sending people somewhere else, so a run of taps stays one tap each. An undo view does the same through `_toast_response(request, "Undone.")`, so the page stops showing what was undone.
 - If a form is invalid, re-render the form partial with **status 200**. htmx doesn't swap 4xx responses by default.
 - Use `hx-disabled-elt="this"` on buttons that change data, so a double tap doesn't submit twice.
 

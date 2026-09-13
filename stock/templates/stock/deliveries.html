@@ -32,17 +32,20 @@
         <div class="mt-3 flex items-center gap-2.5">
           <input type="number" inputmode="numeric" min="1" max="{{ line.order.qty }}" name="qty_{{ line.order.pk }}"
                  value="{{ line.order.qty }}" class="w-20 text-center" aria-label="Received quantity for {{ line.order.item.name }}">
-          {% if can_edit_price %}
-            <input type="number" inputmode="decimal" step="0.01" min="0" name="price_{{ line.order.pk }}"
-                   placeholder="{{ line.order.item.price|default_if_none:'price' }}" class="w-24 text-center" aria-label="Unit price for {{ line.order.item.name }}">
-          {% else %}
-            <span class="w-20 shrink-0 truncate text-sm text-gray-600">{{ line.order.item.unit|plural:line.order.qty }}</span>
-          {% endif %}
+          <span class="w-20 shrink-0 truncate text-sm text-gray-600">{{ line.order.item.unit|plural:line.order.qty }}</span>
           <button type="submit" name="receive_line" value="{{ line.order.pk }}"
                   class="btn btn-line flex-1 whitespace-nowrap">
             Receive
           </button>
         </div>
+        {% if can_edit_price %}
+          <div class="mt-2 flex items-center gap-2.5">
+            <label for="price-{{ line.order.pk }}" class="mb-0 min-w-0 flex-1 font-normal text-gray-600">New price per {{ line.order.item.unit }}, if it's changed</label>
+            <span class="text-gray-600" aria-hidden="true">$</span>
+            <input id="price-{{ line.order.pk }}" type="number" inputmode="decimal" step="0.01" min="0" name="price_{{ line.order.pk }}"
+                   placeholder="{{ line.order.item.price|default_if_none:'' }}" class="w-24 text-center">
+          </div>
+        {% endif %}
       </div>
     {% endfor %}
   </form>

@@ -36,6 +36,11 @@ class LogUsageTests(TestCase):
         content = self.client.get("/log-usage/").content.decode()
         self.assertLess(content.index("Busy item"), content.index("Gloves"))
 
+    def test_a_tile_says_its_status_in_words_not_just_its_stripe_colour(self):
+        StockEvent.objects.create(organisation=self.org, item=self.counted_item, user=self.assistant, kind="out")
+        content = self.client.get("/log-usage/").content.decode()
+        self.assertIn('<span class="block font-semibold text-status-out">Out of stock</span>', content)
+
     def test_tiles_carry_what_the_browser_needs_to_search_offline(self):
         content = self.client.get("/log-usage/").content.decode()
         self.assertIn('data-search="gloves"', content)
@@ -60,9 +65,11 @@ class LogUsageTests(TestCase):
         # app.js adds the client_id and X-Capture header to anything inside data-capture.
         self.assertIn(f'data-capture="{self.assistant.pk}"', content)
 
-    def test_used_one_logs_an_event_and_redirects_home_with_undo(self):
+    def test_used_one_logs_an_event_and_stays_on_the_page_with_undo(self):
         response = self.client.post(f"/log-usage/{self.counted_item.pk}/used-one/")
-        self.assertEqual(response["HX-Redirect"], "/")
+        # Reloads where the tap came from, so the next item is one tap away.
+        self.assertEqual(response["HX-Refresh"], "true")
+        self.assertNotIn("HX-Redirect", response)
         event = StockEvent.objects.get(item=self.counted_item, kind="used")
         self.assertEqual(event.qty, 1)
         self.assertEqual(event.user, self.assistant)
@@ -102,7 +109,9 @@ class LogUndoTests(TestCase):
         event = self.event(self.assistant)
         self.client.force_login(self.assistant)
         response = self.client.post(f"/log-usage/undo/{event.pk}/")
-        self.assertEqual(response.status_code, 204)
+        # The page behind the toast still shows the tap, so it reloads.
+        self.assertEqual(response["HX-Refresh"], "true")
+        self.assertEqual([str(m) for m in get_messages(response.wsgi_request)], ["Undone."])
         self.assertFalse(StockEvent.objects.filter(pk=event.pk).exists())
 
     def test_undo_refuses_someone_elses_event(self):
@@ -123,5 +132,5 @@ class LogUndoTests(TestCase):
         event = self.event(self.assistant, created_at=timezone.now() - timedelta(minutes=9))
         self.client.force_login(self.assistant)
         response = self.client.post(f"/log-usage/undo/{event.pk}/")
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.status_code, 200)
         self.assertFalse(StockEvent.objects.filter(pk=event.pk).exists())

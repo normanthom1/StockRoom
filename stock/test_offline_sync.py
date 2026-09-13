@@ -47,7 +47,7 @@ class OfflineSyncTests(TestCase):
         self.client.post(self.url, {"client_id": client_id})
         second = self.client.post(self.url, {"client_id": client_id})
         self.assertEqual(StockEvent.objects.count(), 1)
-        self.assertEqual(second["HX-Redirect"], "/")
+        self.assertEqual(second["HX-Refresh"], "true")
         # Still just the first tap's undo toast (unread, so it's carried over); the second added none.
         self.assertEqual(len(list(get_messages(second.wsgi_request))), 1)
 
@@ -85,7 +85,7 @@ class OfflineSyncTests(TestCase):
     def test_replay_gets_a_plain_ok_with_no_redirect_or_undo_toast(self):
         response = self.replay(timezone.now() - timedelta(hours=3))
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn("HX-Redirect", response)
+        self.assertNotIn("HX-Refresh", response)
         self.assertEqual(len(list(get_messages(response.wsgi_request))), 0)
 
     def test_replay_works_for_every_capture_kind(self):

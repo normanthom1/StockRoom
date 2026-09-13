@@ -221,7 +221,7 @@ class ReorderUndoTests(TestCase):
         order = self.order()
         self.client.force_login(self.admin)
         response = self.client.post(f"/reorder/undo/{order.pk}/")
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response["HX-Refresh"], "true")
         order.refresh_from_db()
         self.assertIsNotNone(order.cancelled_at)
 

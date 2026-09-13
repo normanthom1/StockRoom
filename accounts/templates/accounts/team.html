@@ -37,13 +37,13 @@
             {% if member.pin %}
               {# Staff choose a new code as part of changing role. #}
               <a href="{% url 'team_role' member.pk %}?role={% if member.role == 'admin' %}assistant{% else %}admin{% endif %}"
-                 class="btn btn-line w-full text-sm">{% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}</a>
+                 class="btn btn-line w-full text-sm">{% if member.role == 'admin' %}Make assistant{% else %}Make manager{% endif %}</a>
             {% else %}
               <form method="post" action="{% url 'team_role' member.pk %}">
                 {% csrf_token %}
                 <input type="hidden" name="role" value="{% if member.role == 'admin' %}assistant{% else %}admin{% endif %}">
                 <button type="submit" class="btn btn-line w-full text-sm">
-                  {% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}
+                  {% if member.role == 'admin' %}Make assistant{% else %}Make manager{% endif %}
                 </button>
               </form>
             {% endif %}

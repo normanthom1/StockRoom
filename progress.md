@@ -27,10 +27,11 @@ Tracks work so a fresh session can resume. Update after each issue closes.
   the view body when implementing that issue; keep the URL name (base.html's
   nav and test_isolation.py already reference it).
 - Shared UI primitives from #18, reuse rather than re-inventing:
-  - Toast: server code sets `response["HX-Trigger"] = json.dumps({"toast":
-    {"message": ..., "undo_url": ...}})` (see `stock/views.py::_toast_response`).
-    Undo buttons that fire another such response must go through
-    `htmx.ajax(...)`, not a plain `fetch()` - fetch doesn't process HX-Trigger.
+  - Toast: a Django message, with the undo URL in `extra_tags` (see the
+    "redirect then toast" note below). Since the usability pass, capture taps
+    and every undo reload the page they came from (`HX-Refresh`,
+    `stock/views.py::_toast_response`) instead of redirecting home; an
+    `HX-Trigger` toast is now only for the service worker's offline messages.
   - Bottom sheet: `hx-target="#sheet-content" hx-swap="innerHTML"` on any
     `hx-get`/`hx-post` opens it automatically (base.html listens for
     `htmx:afterSwap` on `#sheet-content`). Close with

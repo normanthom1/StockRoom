@@ -77,7 +77,7 @@ class SpendingTests(TestCase):
 
     def test_comparison_is_hidden_without_three_prior_periods_of_history(self):
         content = self.client.get("/spending/").content.decode()
-        self.assertNotIn("previous 3 periods", content)
+        self.assertNotIn("previous 3 weeks", content)
 
     def test_comparison_shown_once_three_prior_periods_exist(self):
         for weeks_ago in (1, 2, 3):
@@ -86,9 +86,18 @@ class SpendingTests(TestCase):
                 ordered_at=_at(self.week_start - timedelta(weeks=weeks_ago)),
             )
         content = self.client.get("/spending/").content.decode()
-        self.assertIn("previous 3 periods", content)
+        self.assertIn("Up on the average of the previous 3 weeks", content)
         # Hand calculation: (10 + 10 + 10) / 3 = 10.00 average.
         self.assertIn("10.00", content)
+
+    def test_the_same_spend_as_before_isnt_called_down(self):
+        for weeks_ago in (1, 2, 3):
+            OrderLine.objects.create(
+                organisation=self.org, item=self.gloves, qty=1, unit_price="225.00", ordered_by=self.admin,
+                ordered_at=_at(self.week_start - timedelta(weeks=weeks_ago)),
+            )
+        content = self.client.get("/spending/").content.decode()
+        self.assertIn("The same as the average of the previous 3 weeks ($225.00)", content)
 
     def test_month_and_year_periods_are_selectable(self):
         for period in ("month", "year"):

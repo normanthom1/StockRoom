@@ -11,11 +11,11 @@ document.addEventListener("alpine:init", () => {
   Alpine.data("toastHub", () => ({
     items: [],
     add(event) {
-      const { message, undo_url: undoUrl = null } = event.detail;
+      const { message } = event.detail;
       // A repeat replaces the last one instead of stacking over the tiles being tapped.
       this.items = this.items.filter((item) => item.message !== message);
       const id = Date.now() + Math.random();
-      this.items.push({ id, message, undoUrl });
+      this.items.push({ id, message });
       setTimeout(() => this.remove(id), 6000);
     },
     remove(id) {
@@ -23,13 +23,6 @@ document.addEventListener("alpine:init", () => {
     },
     dismiss() {
       this.remove(this.item.id);
-    },
-    async undo() {
-      const item = this.item;
-      // htmx.ajax (not a plain fetch) so the response's own HX-Trigger
-      // toast - e.g. confirming the undo - fires normally.
-      await htmx.ajax("POST", item.undoUrl, { swap: "none" });
-      this.remove(item.id);
     },
   }));
 

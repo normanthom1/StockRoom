@@ -14,9 +14,9 @@
 <div class="blueprint mb-6 px-4 py-5 text-center">
   <p class="text-sm text-gray-600">Actual spend, {{ period_label }}</p>
   <p class="font-heading text-[2.75rem] leading-tight font-semibold text-gray-900">${{ actual_total|floatformat:2 }}</p>
-  {% if has_comparison %}
-    <p class="mt-1 text-sm font-medium {% if spending_more %}text-status-now{% else %}text-status-ok{% endif %}">
-      {% if spending_more %}Up{% else %}Down{% endif %} on the average of the previous 3 periods (${{ average_prev|floatformat:2 }})
+  {% if trend %}
+    <p class="mt-1 text-sm font-medium {% if trend == 'up' %}text-status-now{% elif trend == 'down' %}text-status-ok{% else %}text-gray-600{% endif %}">
+      {% if trend == 'up' %}Up on{% elif trend == 'down' %}Down on{% else %}The same as{% endif %} the average of the previous 3 {{ period }}s (${{ average_prev|floatformat:2 }})
     </p>
   {% endif %}
 </div>

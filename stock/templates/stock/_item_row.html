@@ -2,16 +2,31 @@
 <form id="item-row-{{ item.pk }}" class="flex flex-col gap-2.5 border-b border-gray-200 bg-gray-50 px-3 py-3" data-htmx-only>
   {% if edit_form.non_field_errors %}<p class="text-sm font-medium text-status-now">{{ edit_form.non_field_errors|join:" " }}</p>{% endif %}
   {% for field in edit_form %}{% for error in field.errors %}<p class="text-sm font-medium text-status-now">{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}
-  <input type="text" name="name" value="{{ edit_form.name.value|default:'' }}" placeholder="Name" aria-label="Name">
-  <div class="flex gap-2.5">
-    <input type="text" name="unit" value="{{ edit_form.unit.value|default:'' }}" placeholder="Unit" aria-label="Unit" class="w-28">
-    <select name="supplier" aria-label="Supplier" class="min-w-0 flex-1">
-      {% for choice in edit_form.supplier %}{{ choice }}{% endfor %}
-    </select>
+  <div>
+    <label for="name-{{ item.pk }}">Name</label>
+    <input id="name-{{ item.pk }}" type="text" name="name" value="{{ edit_form.name.value|default:'' }}">
   </div>
-  <div class="flex gap-2.5">
-    <input type="number" name="price" value="{{ edit_form.price.value|default:'' }}" inputmode="decimal" step="0.01" min="0" placeholder="Price" aria-label="Price" class="min-w-0 flex-1">
-    <input type="number" name="order_size" value="{{ edit_form.order_size.value|default:'' }}" inputmode="numeric" min="1" placeholder="Order size" aria-label="Order size" class="min-w-0 flex-1">
+  <div class="flex items-end gap-2.5">
+    <div class="w-28">
+      <label for="unit-{{ item.pk }}">Unit</label>
+      <input id="unit-{{ item.pk }}" type="text" name="unit" value="{{ edit_form.unit.value|default:'' }}">
+    </div>
+    <div class="min-w-0 flex-1">
+      <label for="supplier-{{ item.pk }}">Supplier</label>
+      <select id="supplier-{{ item.pk }}" name="supplier">
+        {% for choice in edit_form.supplier %}{{ choice }}{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="flex items-end gap-2.5">
+    <div class="min-w-0 flex-1">
+      <label for="price-{{ item.pk }}">Price ($)</label>
+      <input id="price-{{ item.pk }}" type="number" name="price" value="{{ edit_form.price.value|default:'' }}" inputmode="decimal" step="0.01" min="0">
+    </div>
+    <div class="min-w-0 flex-1">
+      <label for="order-size-{{ item.pk }}">Order size</label>
+      <input id="order-size-{{ item.pk }}" type="number" name="order_size" value="{{ edit_form.order_size.value|default:'' }}" inputmode="numeric" min="1">
+    </div>
   </div>
   <div class="flex gap-2.5">
     <button type="button" hx-post="{% url 'stock:item_update_row' item.pk %}" hx-include="closest form"
@@ -23,14 +38,16 @@
   </div>
 </form>
 {% else %}
-<div id="item-row-{{ item.pk }}" class="flex items-center gap-2 border-b border-gray-200">
-  <button type="button" hx-get="{% url 'stock:item_edit_row' item.pk %}"
-          hx-target="#item-row-{{ item.pk }}" hx-swap="outerHTML"
-          class="flex min-h-14 min-w-0 flex-1 flex-col items-start justify-center gap-0.5 py-2 text-left">
+<div id="item-row-{{ item.pk }}" class="flex items-center gap-1 border-b border-gray-200">
+  {# Tapping an item opens it, as it does on Home; Edit is the quick fix in place. #}
+  <a href="{% url 'stock:item_detail' item.pk %}" class="flex min-h-14 min-w-0 flex-1 flex-col items-start justify-center gap-0.5 py-2">
     <span class="font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ item.name }}</span>
     <span class="text-xs text-gray-600">{{ item.unit }} &middot; {{ item.supplier.name }} &middot; {% if item.price is not None %}${{ item.price }}{% else %}No price{% endif %}</span>
-  </button>
-  <button type="button" hx-post="{% url 'stock:item_archive' item.pk %}" hx-disabled-elt="this"
+  </a>
+  <button type="button" hx-get="{% url 'stock:item_edit_row' item.pk %}"
+          hx-target="#item-row-{{ item.pk }}" hx-swap="outerHTML" aria-label="Edit {{ item.name }}"
+          class="tap-target shrink-0 px-2 text-sm font-medium text-primary-dark underline underline-offset-3">Edit</button>
+  <button type="button" hx-post="{% url 'stock:item_archive' item.pk %}" hx-disabled-elt="this" aria-label="Archive {{ item.name }}"
           class="tap-target shrink-0 pl-2 text-sm font-medium text-gray-600 underline underline-offset-3">Archive</button>
 </div>
 {% endif %}
