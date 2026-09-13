@@ -138,7 +138,7 @@ def team_role(request, pk):
 
     label = member.name or member.email
     if new_role != User.Role.ADMIN and _is_last_active_admin(org, member):
-        messages.error(request, f"{label} is the only admin. Make someone else admin first.")
+        messages.error(request, f"{label} is the only manager. Make someone else a manager first.")
         return redirect("team")
 
     form = None
@@ -172,7 +172,7 @@ def team_set_active(request, pk):
     elif member == request.user:
         messages.error(request, "You can't deactivate yourself.")
     elif _is_last_active_admin(org, member):
-        messages.error(request, f"{label} is the only admin. Make someone else admin before deactivating them.")
+        messages.error(request, f"{label} is the only manager. Make someone else a manager before deactivating them.")
     else:
         member.is_active = False
         member.save(update_fields=["is_active"])

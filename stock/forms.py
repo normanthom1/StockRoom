@@ -30,7 +30,7 @@ class ItemForm(forms.ModelForm):
     starting_count = forms.IntegerField(
         required=False,
         min_value=0,
-        help_text="Optional - how many are on the shelf right now.",
+        help_text="Optional: how many are on the shelf right now.",
         widget=forms.NumberInput(attrs={"inputmode": "numeric"}),
     )
 

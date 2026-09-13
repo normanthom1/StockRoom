@@ -23,9 +23,9 @@ class ItemCountSheetTests(TestCase):
         content = self.client.get(f"/item/{self.item.pk}/count-sheet/").content.decode()
         self.assertIn('value="10"', content)
 
-    def test_saving_a_count_updates_on_hand_and_redirects_home_with_undo(self):
+    def test_saving_a_count_updates_on_hand_and_reloads_the_page_with_undo(self):
         response = self.client.post(f"/item/{self.item.pk}/count/", {"qty": "7"})
-        self.assertEqual(response["HX-Redirect"], "/")
+        self.assertEqual(response["HX-Refresh"], "true")
         event = StockEvent.objects.get(item=self.item, kind="count", qty=7)
         self.assertEqual(event.user, self.admin)
         stored_messages = list(get_messages(response.wsgi_request))
@@ -40,7 +40,7 @@ class ItemCountSheetTests(TestCase):
     def test_invalid_count_re_renders_the_sheet_with_an_error(self):
         response = self.client.post(f"/item/{self.item.pk}/count/", {"qty": "not-a-number"})
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn("HX-Redirect", response)
+        self.assertNotIn("HX-Refresh", response)
         self.assertContains(response, "Enter a whole number")
         self.assertFalse(StockEvent.objects.filter(item=self.item, kind="count", qty__isnull=True).exists())
 
@@ -66,7 +66,7 @@ class ItemCountSheetTests(TestCase):
     def test_an_assistant_can_set_a_count(self):
         self.client.force_login(self.assistant)
         response = self.client.post(f"/item/{self.item.pk}/count/", {"qty": "3"})
-        self.assertEqual(response["HX-Redirect"], "/")
+        self.assertEqual(response["HX-Refresh"], "true")
         event = StockEvent.objects.get(item=self.item, kind="count", qty=3)
         self.assertEqual(event.user, self.assistant)
 

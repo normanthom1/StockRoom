@@ -5,7 +5,7 @@ from accounts.models import Organisation, User
 from stockroom.demo import DEMO_ORG
 
 from .humanize import build_caveat, build_sentence, format_rate_sentence, order_by_text
-from .models import Item, StockEvent, Supplier
+from .models import Item, OrderLine, StockEvent, Supplier
 from .test_forecast import NOW, TODAY, run, weekly_counts
 
 
@@ -140,10 +140,29 @@ class ItemDetailViewTests(TestCase):
         self.composite.refresh_from_db()
         self.assertIsNone(self.composite.pinned_to_reorder_at)
 
+    def test_the_reorder_button_says_what_it_does(self):
+        self.sign_in(self.admin)
+        page = f"/item/{self.gloves.pk}/"
+        # Running low: it's on the list until it's ordered, so there's nothing to toggle.
+        content = self.client.get(page).content.decode()
+        self.assertIn("On the reorder list", content)
+        self.assertIn("Go to the reorder list", content)
+        self.assertNotIn("toggle-reorder", content)
+        # On order: it's off the list, and the page doesn't claim otherwise.
+        OrderLine.objects.create(organisation=self.gloves.organisation, item=self.gloves, qty=10, ordered_by=self.admin)
+        content = self.client.get(page).content.decode()
+        self.assertNotIn("On the reorder list", content)
+        self.assertIn("Add to the reorder list", content)
+        # Added by hand: it can come off again.
+        self.client.post(f"/item/{self.gloves.pk}/toggle-reorder/")
+        content = self.client.get(page).content.decode()
+        self.assertIn("On the reorder list", content)
+        self.assertIn("Take it off the reorder list", content)
+
     def test_assistant_can_tell_the_manager_were_low(self):
         self.sign_in(self.assistant)
         response = self.client.post(f"/log-usage/{self.gloves.pk}/running-low/")
-        self.assertEqual(response["HX-Redirect"], "/")
+        self.assertEqual(response["HX-Refresh"], "true")
         self.assertTrue(StockEvent.objects.filter(item=self.gloves, kind="low").exists())
 
     def test_assistant_item_detail_has_no_admin_price_controls(self):

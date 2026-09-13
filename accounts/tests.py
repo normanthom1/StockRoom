@@ -266,7 +266,7 @@ class TeamTests(TestCase):
 
     def test_cannot_demote_the_last_admin(self):
         response = self.client.post(f"/accounts/team/{self.admin.pk}/role/", {"role": "assistant"}, follow=True)
-        self.assertContains(response, "the only admin")
+        self.assertContains(response, "the only manager")
         self.admin.refresh_from_db()
         self.assertEqual(self.admin.role, User.Role.ADMIN)
 

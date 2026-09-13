@@ -7,6 +7,11 @@
 <h1 class="mb-3">{{ item.name }}</h1>
 
 <div class="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+  {% if wanted or item.pinned_to_reorder_at %}
+    <span class="chip border-primary bg-primary-tint text-primary-dark">On the reorder list</span>
+  {% elif item.reorder_requested_by %}
+    <span class="chip border-primary bg-primary-tint text-primary-dark">{{ item.reorder_requested_by.name }} asked for it</span>
+  {% endif %}
   <span class="chip {% if f.confidence == 'low' %}border-dashed border-status-week text-status-week{% else %}border-status-ok text-status-ok{% endif %}">{{ confidence_label }}</span>
   <span class="text-[0.8125rem] text-gray-600">{{ chart_history_text }}</span>
 </div>
@@ -79,12 +84,19 @@
     <div class="flex flex-col gap-2.5 border-t border-gray-300 pt-4">
       <button type="button" hx-get="{% url 'stock:item_count_sheet' item.pk %}" hx-target="#sheet-content" hx-swap="innerHTML"
               class="btn btn-tonal min-h-14 w-full text-lg">Count now</button>
-      <form method="post" action="{% url 'stock:item_toggle_reorder' item.pk %}">
-        {% csrf_token %}
-        <button type="submit" class="btn-primary">
-          {% if on_reorder_list %}On the reorder list &check;{% else %}Add to the reorder list{% endif %}
-        </button>
-      </form>
+      {% if wanted %}
+        {# Running low puts it on the list until it's ordered; there's nothing to toggle. #}
+        <a href="{% url 'stock:reorder_list' %}" class="btn-primary">Go to the reorder list</a>
+      {% else %}
+        <form method="post" action="{% url 'stock:item_toggle_reorder' item.pk %}">
+          {% csrf_token %}
+          {% if item.pinned_to_reorder_at %}
+            <button type="submit" class="btn btn-line min-h-14 w-full text-lg">Take it off the reorder list</button>
+          {% else %}
+            <button type="submit" class="btn-primary">Add to the reorder list</button>
+          {% endif %}
+        </form>
+      {% endif %}
     </div>
   {% else %}
     <div class="flex flex-col gap-2.5 border-t border-gray-300 pt-4">

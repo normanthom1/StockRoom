@@ -1,5 +1,4 @@
 import csv
-import json
 import uuid
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -162,7 +161,9 @@ def item_detail(request, pk):
         "caveat": build_caveat(f),
         "chart_history_text": _chart_history_text(len(weeks), sum(mask)),
         "chart_svg": usage_chart_svg(weeks, mask),
-        "on_reorder_list": bool(item.pinned_to_reorder_at) or f.status != Status.OK,
+        # On the list because it's running low, so it stays there until it's ordered
+        # (a pin by hand is item.pinned_to_reorder_at). An item on order isn't on it.
+        "wanted": f.status in WANTED_STATUSES,
         "backups": _backups(item),
         # Suppliers the manager could add as another source for this item.
         "addable_suppliers": Supplier.objects.for_org(request.user.organisation).filter(is_active=True)
@@ -361,6 +362,8 @@ def log_usage(request):
                 "unit": item.unit,
                 "qty": format_qty(f.on_hand, item.unit),
                 "status_color": STATUS_COLOR[f.status],
+                # In words as well as the stripe's colour; OK needs neither.
+                "status_label": "" if f.status == Status.OK else f.status.label,
                 "weekly_usage": f.weekly_usage,
                 "has_qty": has_qty,
                 "after": format_qty(max(0, f.on_hand - 1), item.unit) if has_qty else "",
@@ -414,8 +417,10 @@ def _log_event(request, item, kind, qty, message_text):
         return HttpResponse(status=200)
     if created:
         messages.success(request, message_text, extra_tags=reverse("stock:log_undo", args=[event.pk]))
+    # Stay where the tap came from (the grid, an item, home), so the next item is
+    # one tap away, like a tap queued offline. The reload shows the new count.
     response = HttpResponse(status=200)
-    response["HX-Redirect"] = reverse("stock:home")
+    response["HX-Refresh"] = "true"
     return response
 
 
@@ -443,7 +448,7 @@ def log_undo(request, pk):
     if event.user_id != request.user.id or timezone.now() - event.created_at > UNDO_WINDOW:
         raise PermissionDenied
     event.delete()
-    return _toast_response("Undone.")
+    return _toast_response(request, "Undone.")
 
 
 SESSION_KEY = "stocktake"
@@ -463,7 +468,7 @@ def stocktake_step(request):
 
     if state["index"] >= len(state["item_ids"]):
         del request.session[SESSION_KEY]
-        messages.success(request, "Stocktake complete - every item has a fresh count.")
+        messages.success(request, "Stocktake complete. Every item has a fresh count.")
         return redirect("stock:home")
 
     item = get_object_or_404(Item.objects.for_org(org), pk=state["item_ids"][state["index"]])
@@ -722,7 +727,7 @@ def reorder_undo(request, pk):
     order = get_object_or_404(OrderLine.objects.for_org(request.user.organisation), pk=pk)
     if not _cancel_if_undoable(order):
         raise PermissionDenied
-    return _toast_response("Undone.")
+    return _toast_response(request, "Undone.")
 
 
 @require_POST
@@ -732,7 +737,7 @@ def reorder_undo_batch(request):
     orders = OrderLine.objects.for_org(request.user.organisation).filter(pk__in=ids)
     for order in orders:
         _cancel_if_undoable(order)
-    return _toast_response("Undone.")
+    return _toast_response(request, "Undone.")
 
 
 def _open_lines_for_org(org):
@@ -843,7 +848,7 @@ def delivery_submit(request, pk):
     if received:
         messages.success(request, f"Received {received} item{'s' if received != 1 else ''} from {supplier.name}.")
     else:
-        messages.error(request, "Nothing was received - check the quantities.")
+        messages.error(request, "Nothing was received. Check the quantities.")
     return redirect("stock:deliveries")
 
 
@@ -927,7 +932,7 @@ def item_unarchive(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
     item.is_active = True
     item.save(update_fields=["is_active"])
-    return _toast_response("Restored.")
+    return _toast_response(request, "Restored.")
 
 
 @admin_required
@@ -985,7 +990,7 @@ def item_import_confirm(request):
     org = request.user.organisation
     pending = request.session.pop("pending_import", None)
     if not pending:
-        messages.error(request, "Nothing to import - upload a CSV first.")
+        messages.error(request, "Nothing to import. Upload a CSV first.")
         return redirect("stock:item_import")
 
     created = 0
@@ -1203,7 +1208,7 @@ def supplier_unarchive(request, pk):
     supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
     supplier.is_active = True
     supplier.save(update_fields=["is_active"])
-    return _toast_response("Restored.")
+    return _toast_response(request, "Restored.")
 
 
 def _spend_total(org, start, end):
@@ -1251,10 +1256,11 @@ def spending(request):
     prev_bounds = previous_period_bounds(period, start, 3)
     earliest = OrderLine.objects.for_org(org).order_by("ordered_at").first()
     has_comparison = bool(earliest) and earliest.ordered_at.date() <= prev_bounds[0][0]
-    average_prev = None
+    average_prev = trend = None
     if has_comparison:
         prev_totals = [_spend_total(org, p_start, p_end) for p_start, p_end in prev_bounds]
-        average_prev = sum(prev_totals) / 3
+        average_prev = round(sum(prev_totals) / 3, 2)
+        trend = "up" if actual_total > average_prev else "down" if actual_total < average_prev else "same"
 
     now = timezone.localtime()
     estimated_total = 0.0
@@ -1272,18 +1278,19 @@ def spending(request):
         "actual_total": actual_total,
         "by_supplier": by_supplier,
         "top_items": top_items,
-        "has_comparison": has_comparison,
         "average_prev": average_prev,
-        "spending_more": has_comparison and average_prev is not None and actual_total > average_prev,
+        "trend": trend,
         "estimated_total": round(estimated_total, 2),
         "missing_price_count": missing_price_count,
     }
     return render(request, "stock/spending.html", context)
 
 
-def _toast_response(message, undo_url=None):
-    response = HttpResponse(status=204)
-    response["HX-Trigger"] = json.dumps({"toast": {"message": message, "undo_url": undo_url}})
+def _toast_response(request, message):
+    """An undo from a toast: the page behind it is out of date, so reload it and say so."""
+    messages.success(request, message)
+    response = HttpResponse(status=200)
+    response["HX-Refresh"] = "true"
     return response
 
 

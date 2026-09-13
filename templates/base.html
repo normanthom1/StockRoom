@@ -41,7 +41,6 @@
     <template x-for="item in items" :key="item.id">
       <div class="pointer-events-auto flex min-h-14 w-full max-w-md items-center gap-3 bg-gray-900 py-1 pr-1 pl-4 text-white shadow-lg">
         <span class="flex-1" x-text="item.message"></span>
-        <button type="button" x-show="item.undoUrl" class="btn border-white/45 text-white" @click="undo">Undo</button>
         <button type="button" class="tap-target text-xl text-white/70" @click="dismiss" aria-label="Dismiss">&times;</button>
       </div>
     </template>
@@ -151,14 +150,22 @@
         <a href="{{ url_reorder_list }}" class="nav-tab" {% if request.path == url_reorder_list %}aria-current="page"{% endif %}>Reorder list</a>
         <a href="{{ url_deliveries }}" class="nav-tab" {% if request.path == url_deliveries %}aria-current="page"{% endif %}>Deliveries</a>
         {% if user.is_org_admin %}
+          {# The More pages (and the pages under them) light up More, so you can see where you are. #}
+          {% url 'stock:items' as url_items %}
+          {% url 'stock:stocktake_step' as url_stocktake %}
+          {% url 'stock:suppliers' as url_suppliers %}
+          {% url 'stock:spending' as url_spending %}
+          {% url 'stock:activity_log' as url_activity %}
+          {% url 'team' as url_team %}
           <div class="relative flex min-w-0 flex-1" x-data="dropdown" @click.outside="close">
-            <button type="button" class="nav-tab" @click="toggle" :aria-expanded="open" aria-haspopup="true">More</button>
+            <button type="button" class="nav-tab" @click="toggle" :aria-expanded="open" aria-haspopup="true"
+                    {% if url_items in request.path or url_stocktake in request.path or url_suppliers in request.path or url_spending in request.path or url_activity in request.path or url_team in request.path %}data-current{% endif %}>More</button>
             <div x-show="open" x-cloak class="absolute right-0 bottom-full mb-1 w-52 border border-gray-300 bg-app-bg py-1 shadow-lg">
-              <a href="{% url 'stock:items' %}" class="menu-item">Stock</a>
-              <a href="{% url 'stock:suppliers' %}" class="menu-item">Suppliers</a>
-              <a href="{% url 'stock:spending' %}" class="menu-item">Spending</a>
-              <a href="{% url 'stock:activity_log' %}" class="menu-item">Activity</a>
-              <a href="{% url 'team' %}" class="menu-item">Team</a>
+              <a href="{{ url_items }}" class="menu-item" {% if url_items in request.path or url_stocktake in request.path %}aria-current="page"{% endif %}>Stock</a>
+              <a href="{{ url_suppliers }}" class="menu-item" {% if url_suppliers in request.path %}aria-current="page"{% endif %}>Suppliers</a>
+              <a href="{{ url_spending }}" class="menu-item" {% if url_spending in request.path %}aria-current="page"{% endif %}>Spending</a>
+              <a href="{{ url_activity }}" class="menu-item" {% if url_activity in request.path %}aria-current="page"{% endif %}>Activity</a>
+              <a href="{{ url_team }}" class="menu-item" {% if url_team in request.path %}aria-current="page"{% endif %}>Team</a>
             </div>
           </div>
         {% endif %}

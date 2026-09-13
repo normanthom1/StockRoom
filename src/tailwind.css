@@ -211,11 +211,14 @@
   .nav-tab {
     @apply relative flex min-h-14 min-w-0 flex-1 items-center justify-center px-1 text-center font-heading text-[0.9375rem] leading-tight font-semibold text-gray-600;
   }
+  /* data-current: the More tab, while you're on one of the pages in its menu. */
   .nav-tab[aria-current="page"],
+  .nav-tab[data-current],
   .nav-tab[aria-expanded="true"] {
     @apply text-primary-dark;
   }
-  .nav-tab[aria-current="page"]::before {
+  .nav-tab[aria-current="page"]::before,
+  .nav-tab[data-current]::before {
     @apply absolute inset-x-3 top-0 h-[3px] bg-primary content-[''];
   }
   /* A flat <progress> bar. Width comes from value/max, since the CSP
@@ -234,5 +237,8 @@
   }
   .menu-item {
     @apply flex min-h-12 w-full items-center px-4 text-left text-base text-gray-900 hover:bg-gray-900/5;
+  }
+  .menu-item[aria-current="page"] {
+    @apply bg-primary-tint font-semibold text-primary-dark;
   }
 }
