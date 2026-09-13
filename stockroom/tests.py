@@ -1,4 +1,6 @@
-from django.test import TestCase
+import tempfile
+
+from django.test import TestCase, override_settings
 
 
 class HealthzTest(TestCase):
@@ -6,6 +8,19 @@ class HealthzTest(TestCase):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"ok")
+
+    def test_healthz_fails_when_collectstatic_didnt_run(self):
+        # Production's storage, with an empty STATIC_ROOT: what a build that skipped collectstatic ships.
+        storages = {
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+        }
+        with (
+            tempfile.TemporaryDirectory() as empty,
+            override_settings(STATIC_ROOT=empty, STORAGES=storages),
+            self.assertRaisesMessage(ValueError, "Missing staticfiles manifest entry"),
+        ):
+            self.client.get("/healthz")
 
 
 class ReadableConsoleEmailTest(TestCase):
