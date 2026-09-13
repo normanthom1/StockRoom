@@ -99,17 +99,18 @@ document.addEventListener("input", (event) => {
   if (event.target.matches("[data-code-input]")) submitCodeIfComplete(event.target);
 });
 
-// --- Code pad: two digits in, from the keypad or a keyboard, and it submits itself ---
+// --- Code pad: from the keypad or a keyboard. A manager's 4 digits submit
+// themselves; an assistant's 2 need Go, since "12" could be the start of "1234". ---
 
 function typeCode(digit) {
   const input = document.querySelector("[data-code-input]");
-  if (input.value.length >= 2) return;
+  if (input.value.length >= 4) return;
   input.value += digit;
   submitCodeIfComplete(input);
 }
 
 function submitCodeIfComplete(input) {
-  if (/^\d{2}$/.test(input.value)) input.form.requestSubmit();
+  if (/^\d{4}$/.test(input.value)) input.form.requestSubmit();
 }
 
 // --- Shared bottom sheet ---

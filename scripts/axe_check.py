@@ -29,16 +29,16 @@ PAGES = [
     ("/offline/", None),
     ("/accounts/code/", "practice"),
     ("/accounts/team/", "practice"),
-    ("/", "00"),  # Sandy, manager
-    ("/log-usage/", "00"),
-    ("/reorder/", "00"),
-    ("/deliveries/", "00"),
-    ("/items/", "00"),
-    ("/suppliers/", "00"),
-    ("/spending/", "00"),
-    ("/activity/", "00"),
-    ("/stocktake/", "00"),
-    ("/accounts/team/", "00"),
+    ("/", "0000"),  # Sandy, manager
+    ("/log-usage/", "0000"),
+    ("/reorder/", "0000"),
+    ("/deliveries/", "0000"),
+    ("/items/", "0000"),
+    ("/suppliers/", "0000"),
+    ("/spending/", "0000"),
+    ("/activity/", "0000"),
+    ("/stocktake/", "0000"),
+    ("/accounts/team/", "0000"),
     ("/", "11"),  # Johanna, assistant
     ("/log-usage/", "11"),
 ]
@@ -53,10 +53,14 @@ def login(page, base_url, who):
         page.click("form:has(input[name=username]) button[type=submit]")
         page.wait_for_load_state("networkidle")
     if who != "practice":
-        # Through the on-screen keypad, the way staff actually sign in.
-        page.click(f"[data-code-key='{who[0]}']")
+        # Through the on-screen keypad, the way staff actually sign in: a
+        # manager's 4 digits submit themselves, an assistant's 2 need Go.
+        for digit in who[:-1]:
+            page.click(f"[data-code-key='{digit}']")
         with page.expect_navigation():
-            page.click(f"[data-code-key='{who[1]}']")
+            page.click(f"[data-code-key='{who[-1]}']")
+            if len(who) == 2:
+                page.click("button[type=submit]:has-text('Go')")
 
 
 def check_page(axe, page, label, failures):

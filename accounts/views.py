@@ -12,7 +12,7 @@ from django.views.decorators.http import require_POST
 from stockroom.demo import DEMO_EMAIL, DEMO_ORG, DEMO_PASSWORD
 
 from .decorators import admin_required
-from .forms import EmailLoginForm, SignupForm, StaffForm
+from .forms import EmailLoginForm, NewCodeForm, SignupForm, StaffForm
 from .middleware import practice_login_for, switch_to
 from .models import User
 from .ratelimit import (
@@ -126,21 +126,34 @@ def team_add(request):
 
 
 @admin_required
-@require_POST
 def team_role(request, pk):
+    """Staff changing role pick a new code on the way (4 digits for a
+    manager, 2 for an assistant), typed by the person themselves. Someone
+    with their own email login just changes role."""
     org = request.user.organisation
     member = get_object_or_404(_members(org), pk=pk)
-    new_role = request.POST.get("role")
+    new_role = request.POST.get("role") or request.GET.get("role")
     if new_role not in User.Role.values:
         raise Http404
 
     label = member.name or member.email
     if new_role != User.Role.ADMIN and _is_last_active_admin(org, member):
         messages.error(request, f"{label} is the only admin. Make someone else admin first.")
-    else:
-        member.role = new_role
-        member.save(update_fields=["role"])
-        messages.success(request, f"{label} is now {member.get_role_display()}.")
+        return redirect("team")
+
+    form = None
+    if member.pin is not None:
+        form = NewCodeForm(request.POST or None, member=member, role=new_role)
+        if request.method != "POST" or not form.is_valid():
+            return render(request, "accounts/team_role.html", {"member": member, "role": new_role, "form": form})
+        member.pin = form.cleaned_data["pin"]
+    elif request.method != "POST":
+        return redirect("team")
+
+    member.role = new_role
+    member.save(update_fields=["role", "pin"])
+    code_note = " with their new code" if form else ""
+    messages.success(request, f"{label} is now {member.get_role_display()}{code_note}.")
     return redirect("team")
 
 

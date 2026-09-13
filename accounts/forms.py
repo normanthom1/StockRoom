@@ -14,15 +14,31 @@ class EmailLoginForm(AuthenticationForm):
     )
 
 
-def code_field(help_text):
+def code_field(label, help_text, lengths=(2, 4), widget=forms.TextInput):
     return forms.CharField(
-        label="2-digit code",
-        min_length=2,
-        max_length=2,
+        label=label,
+        min_length=min(lengths),
+        max_length=max(lengths),
         validators=[pin_validator],
         help_text=help_text,
-        widget=forms.TextInput(attrs={"inputmode": "numeric", "pattern": "[0-9]{2}", "autocomplete": "off"}),
+        widget=widget(attrs={
+            "inputmode": "numeric",
+            "pattern": "|".join(f"[0-9]{{{n}}}" for n in lengths),
+            "autocomplete": "off",
+        }),
     )
+
+
+def check_code_length(form, field, pin, role):
+    if pin and role and len(pin) != User.CODE_LENGTH[role]:
+        form.add_error(field, "A manager needs a 4-digit code." if role == User.Role.ADMIN
+                       else "An assistant uses a 2-digit code.")
+
+
+def check_code_is_free(organisation, pin, member=None):
+    taken = User.objects.for_org(organisation).filter(pin=pin).exclude(pk=getattr(member, "pk", None)).first()
+    if taken:
+        raise ValidationError(f"{taken.name} already uses {pin}. Pick another code.")
 
 
 class SignupForm(forms.Form):
@@ -43,7 +59,8 @@ class SignupForm(forms.Form):
         widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
     )
     name = forms.CharField(label="Your name", max_length=150, widget=forms.TextInput(attrs={"autocomplete": "name"}))
-    pin = code_field("What you'll tap to sign in on any device, like 07.")
+    pin = code_field("Your 4-digit code", "What you'll tap to sign in on any device. Managers use 4 digits.",
+                     lengths=(4,), widget=forms.PasswordInput)
 
     def clean_email(self):
         email = self.cleaned_data["email"]
@@ -78,8 +95,8 @@ class SignupForm(forms.Form):
 
 class StaffForm(forms.Form):
     name = forms.CharField(label="Name", max_length=150, widget=forms.TextInput(attrs={"autocomplete": "off"}))
-    pin = code_field("What they'll tap to sign in, like 07.")
     role = forms.ChoiceField(label="Role", choices=User.Role.choices, initial=User.Role.ASSISTANT, widget=forms.RadioSelect)
+    pin = code_field("Their code", "2 digits for an assistant, like 07. 4 digits for a manager.")
 
     def __init__(self, *args, organisation, **kwargs):
         self.organisation = organisation
@@ -87,10 +104,39 @@ class StaffForm(forms.Form):
 
     def clean_pin(self):
         pin = self.cleaned_data["pin"]
-        taken = User.objects.for_org(self.organisation).filter(pin=pin).first()
-        if taken:
-            raise ValidationError(f"{taken.name} already uses {pin}. Pick another code.")
+        check_code_is_free(self.organisation, pin)
         return pin
+
+    def clean(self):
+        cleaned = super().clean()
+        check_code_length(self, "pin", cleaned.get("pin"), cleaned.get("role"))
+        return cleaned
 
     def save(self):
         return User.objects.create_staff(self.organisation, **self.cleaned_data)
+
+
+class NewCodeForm(forms.Form):
+    """A new code for someone changing role: managers need 4 digits and
+    assistants 2, so a role change always comes with a new code. The person
+    themselves types it, twice, so only they know it."""
+
+    def __init__(self, *args, member, role, **kwargs):
+        self.member = member
+        self.role = role
+        super().__init__(*args, **kwargs)
+        length = User.CODE_LENGTH[role]
+        self.fields["pin"] = code_field(f"New {length}-digit code", None, lengths=(length,), widget=forms.PasswordInput)
+        self.fields["pin"].widget.attrs["autofocus"] = True
+        self.fields["pin_again"] = code_field("Type it again", None, lengths=(length,), widget=forms.PasswordInput)
+
+    def clean_pin(self):
+        pin = self.cleaned_data["pin"]
+        check_code_is_free(self.member.organisation, pin, self.member)
+        return pin
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("pin") and cleaned.get("pin_again") and cleaned["pin"] != cleaned["pin_again"]:
+            self.add_error("pin_again", "Those don't match. Try again.")
+        return cleaned

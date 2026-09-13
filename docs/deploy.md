@@ -17,7 +17,7 @@
 
 ## Email
 
-There's no email provider, by design (see [#13](https://github.com/normanthom1/StockRoom/issues/13)). Each practice has one practice login (an email and password) that signs its devices in; staff are added on the Team page with a 2-digit code and have no email or password of their own, so there's nothing to invite or reset for them. Supplier orders go out as `mailto:` links from the manager's own mail client. Nothing on Railway needs to send mail (and its Hobby plan blocks outbound SMTP anyway, so a real provider would need an HTTPS API such as Resend rather than SMTP settings; reopen #13 if that's ever needed).
+There's no email provider, by design (see [#13](https://github.com/normanthom1/StockRoom/issues/13)). Each practice has one practice login (an email and password) that signs its devices in; staff are added on the Team page with a code (2 digits for assistants, 4 for managers) and have no email or password of their own, so there's nothing to invite or reset for them. Supplier orders go out as `mailto:` links from the manager's own mail client. Nothing on Railway needs to send mail (and its Hobby plan blocks outbound SMTP anyway, so a real provider would need an HTTPS API such as Resend rather than SMTP settings; reopen #13 if that's ever needed).
 
 The one thing that leaves is the practice login's self-service **"Forgotten your password?"** link, since whoever's locked out isn't logged in to click anything. That link is printed to stdout as plain text, which on Railway means the deploy logs. To fetch one:
 

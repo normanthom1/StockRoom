@@ -9,7 +9,7 @@
 </div>
 <p class="mb-5 text-sm text-gray-600">
   Devices sign in once with the practice login{% if practice_logins %} ({{ practice_logins|join:", " }}){% endif %}.
-  After that, everyone taps their own 2-digit code.
+  After that, everyone taps their own code: 2 digits for assistants, 4 for managers.
 </p>
 
 <section class="mb-8">
@@ -21,7 +21,12 @@
           <p class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">
             {{ member.name|default:member.email }}{% if member == request.user %} <span class="font-sans text-sm font-normal text-gray-600">(you)</span>{% endif %}
           </p>
-          {% if member.pin %}<span class="shrink-0 text-sm text-gray-600">Code <span class="font-heading text-lg font-semibold text-gray-900">{{ member.pin }}</span></span>{% endif %}
+          {% if member.pin %}
+            <span class="shrink-0 text-sm text-gray-600">Code
+              {# A manager's code is theirs alone; an assistant's is shown so it can be looked up. #}
+              {% if member.role == "admin" %}<span class="font-heading text-lg font-semibold text-gray-900" aria-hidden="true">&bull;&bull;&bull;&bull;</span><span class="sr-only">hidden</span>{% else %}<span class="font-heading text-lg font-semibold text-gray-900">{{ member.pin }}</span>{% endif %}
+            </span>
+          {% endif %}
         </div>
         <p class="mb-3 text-sm text-gray-600">
           {% if member.is_active %}{{ member.get_role_display }}{% else %}<span class="text-status-out">Deactivated</span>{% endif %}{% if not member.pin %} &middot; {{ member.email }}{% endif %}
@@ -29,13 +34,19 @@
 
         <div class="grid grid-cols-2 gap-2">
           {% if member.is_active %}
-            <form method="post" action="{% url 'team_role' member.pk %}">
-              {% csrf_token %}
-              <input type="hidden" name="role" value="{% if member.role == 'admin' %}assistant{% else %}admin{% endif %}">
-              <button type="submit" class="btn btn-line w-full text-sm">
-                {% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}
-              </button>
-            </form>
+            {% if member.pin %}
+              {# Staff choose a new code as part of changing role. #}
+              <a href="{% url 'team_role' member.pk %}?role={% if member.role == 'admin' %}assistant{% else %}admin{% endif %}"
+                 class="btn btn-line w-full text-sm">{% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}</a>
+            {% else %}
+              <form method="post" action="{% url 'team_role' member.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="role" value="{% if member.role == 'admin' %}assistant{% else %}admin{% endif %}">
+                <button type="submit" class="btn btn-line w-full text-sm">
+                  {% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}
+                </button>
+              </form>
+            {% endif %}
             {% if member != request.user %}
               <form method="post" action="{% url 'team_set_active' member.pk %}">
                 {% csrf_token %}

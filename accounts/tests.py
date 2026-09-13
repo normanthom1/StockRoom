@@ -66,7 +66,7 @@ class AuthFlowTests(TestCase):
         "email": "reception@kowhai.test",
         "password": "gloves-and-gauze-42",
         "name": "Sandy Ngata",
-        "pin": "07",
+        "pin": "4821",
     }
 
     def test_pages_render(self):
@@ -81,7 +81,7 @@ class AuthFlowTests(TestCase):
         practice = User.objects.get(email="reception@kowhai.test")
         self.assertTrue(practice.is_practice_login)
         self.assertEqual(practice.organisation.name, "Kowhai Dental")
-        manager = User.objects.get(organisation=practice.organisation, pin="07")
+        manager = User.objects.get(organisation=practice.organisation, pin="4821")
         self.assertEqual(manager.name, "Sandy Ngata")
         self.assertTrue(manager.is_org_admin)
         self.assertFalse(manager.has_usable_password())
@@ -100,9 +100,11 @@ class AuthFlowTests(TestCase):
         self.assertContains(response, "This password is too common")
         self.assertFalse(User.objects.filter(email="reception@kowhai.test").exists())
 
-    def test_signup_needs_a_two_digit_code(self):
-        response = self.client.post("/accounts/signup/", {**self.signup_data, "pin": "7a"})
-        self.assertContains(response, "Use two digits")
+    def test_the_first_manager_needs_a_four_digit_code(self):
+        for pin in ["07", "48a1"]:
+            with self.subTest(pin):
+                response = self.client.post("/accounts/signup/", {**self.signup_data, "pin": pin})
+                self.assertEqual(response.status_code, 200)
         self.assertFalse(Organisation.objects.filter(name="Kowhai Dental").exists())
 
     @override_settings(SIGNUP_ENABLED=False)
@@ -180,9 +182,24 @@ class TeamTests(TestCase):
         self.assertIsNone(johanna.email)
         self.assertFalse(johanna.has_usable_password())
 
-    def test_add_staff_as_an_admin(self):
-        self.client.post("/accounts/team/add/", {"name": "Owner", "pin": "55", "role": "admin"})
-        self.assertTrue(User.objects.get(organisation=self.org, pin="55").is_org_admin)
+    def test_add_staff_as_an_admin_with_four_digits(self):
+        self.client.post("/accounts/team/add/", {"name": "Owner", "pin": "5555", "role": "admin"})
+        self.assertTrue(User.objects.get(organisation=self.org, pin="5555").is_org_admin)
+
+    def test_an_admin_cannot_have_a_two_digit_code(self):
+        response = self.client.post("/accounts/team/add/", {"name": "Owner", "pin": "55", "role": "admin"})
+        self.assertContains(response, "A manager needs a 4-digit code")
+        self.assertFalse(User.objects.filter(name="Owner").exists())
+
+    def test_an_assistant_cannot_have_a_four_digit_code(self):
+        response = self.client.post("/accounts/team/add/", {"name": "Someone", "pin": "1234", "role": "assistant"})
+        self.assertContains(response, "An assistant uses a 2-digit code")
+        self.assertFalse(User.objects.filter(name="Someone").exists())
+
+    def test_the_database_enforces_code_length_by_role(self):
+        for role, pin in [(User.Role.ADMIN, "12"), (User.Role.ASSISTANT, "1234")]:
+            with self.subTest(role), self.assertRaises(IntegrityError), transaction.atomic():
+                User.objects.create_staff(self.org, "Wrong", pin, role)
 
     def test_a_code_can_only_be_used_once_per_practice(self):
         response = self.client.post("/accounts/team/add/", {"name": "Someone", "pin": "22", "role": "assistant"})
@@ -197,14 +214,55 @@ class TeamTests(TestCase):
                 self.assertEqual(response.status_code, 200)
         self.assertFalse(User.objects.filter(name="Someone").exists())
 
-    def test_team_page_shows_codes(self):
-        self.assertContains(self.client.get("/accounts/team/"), "22")
+    def test_team_page_shows_assistant_codes_but_not_manager_codes(self):
+        User.objects.create_staff(self.org, "Owner", "5555", User.Role.ADMIN)
+        content = self.client.get("/accounts/team/").content.decode()
+        self.assertIn("22", content)
+        self.assertNotIn("5555", content)
 
-    def test_change_role(self):
-        response = self.client.post(f"/accounts/team/{self.assistant.pk}/role/", {"role": "admin"})
+    def promote(self, **data):
+        return self.client.post(f"/accounts/team/{self.assistant.pk}/role/", {"role": "admin", **data})
+
+    def test_promoting_someone_asks_them_for_a_new_four_digit_code(self):
+        page = self.client.get(f"/accounts/team/{self.assistant.pk}/role/?role=admin")
+        self.assertContains(page, "New 4-digit code")
+        self.assertContains(page, "Liz, choose your new code")
+        self.assistant.refresh_from_db()
+        self.assertEqual(self.assistant.role, User.Role.ASSISTANT)  # nothing changes until they choose one
+
+        response = self.promote(pin="7302", pin_again="7302")
         self.assertRedirects(response, "/accounts/team/")
         self.assistant.refresh_from_db()
         self.assertTrue(self.assistant.is_org_admin)
+        self.assertEqual(self.assistant.pin, "7302")
+
+    def test_promotion_refuses_a_two_digit_code(self):
+        self.assertEqual(self.promote(pin="73", pin_again="73").status_code, 200)
+        self.assistant.refresh_from_db()
+        self.assertEqual((self.assistant.role, self.assistant.pin), (User.Role.ASSISTANT, "22"))
+
+    def test_promotion_needs_the_code_typed_twice_the_same(self):
+        self.assertContains(self.promote(pin="7302", pin_again="7320"), "match")
+        self.assistant.refresh_from_db()
+        self.assertEqual(self.assistant.role, User.Role.ASSISTANT)
+
+    def test_promotion_refuses_a_code_someone_else_has(self):
+        User.objects.create_staff(self.org, "Owner", "5555", User.Role.ADMIN)
+        self.assertContains(self.promote(pin="5555", pin_again="5555"), "Owner already uses 5555")
+
+    def test_making_a_manager_an_assistant_asks_for_a_new_two_digit_code(self):
+        owner = User.objects.create_staff(self.org, "Owner", "5555", User.Role.ADMIN)
+        url = f"/accounts/team/{owner.pk}/role/"
+        self.assertEqual(self.client.post(url, {"role": "assistant", "pin": "5555", "pin_again": "5555"}).status_code, 200)
+        self.client.post(url, {"role": "assistant", "pin": "55", "pin_again": "55"})
+        owner.refresh_from_db()
+        self.assertEqual((owner.role, owner.pin), (User.Role.ASSISTANT, "55"))
+
+    def test_someone_with_an_email_login_changes_role_in_one_tap(self):
+        solo = User.objects.create_user("solo@kowhai.test", "pw", organisation=self.org)
+        self.assertRedirects(self.client.post(f"/accounts/team/{solo.pk}/role/", {"role": "admin"}), "/accounts/team/")
+        solo.refresh_from_db()
+        self.assertTrue(solo.is_org_admin)
 
     def test_cannot_demote_the_last_admin(self):
         response = self.client.post(f"/accounts/team/{self.admin.pk}/role/", {"role": "assistant"}, follow=True)
@@ -241,7 +299,7 @@ class TeamTests(TestCase):
 
 
 class PracticeLoginTests(TestCase):
-    """One email-and-password login per practice, then a 2-digit code per person."""
+    """One email-and-password login per practice, then a code per person."""
 
     @classmethod
     def setUpTestData(cls):
@@ -249,7 +307,7 @@ class PracticeLoginTests(TestCase):
         cls.practice = User.objects.create_user(
             "reception@discover.test", "pw", organisation=cls.org, role=User.Role.ADMIN, is_practice_login=True
         )
-        cls.sandy = User.objects.create_staff(cls.org, "Sandy", "00", User.Role.ADMIN)
+        cls.sandy = User.objects.create_staff(cls.org, "Sandy", "0000", User.Role.ADMIN)
         cls.johanna = User.objects.create_staff(cls.org, "Johanna", "11")
 
     def open_device(self):
@@ -279,7 +337,7 @@ class PracticeLoginTests(TestCase):
         self.open_device()
         self.enter_code("11")
         self.assertEqual(self.client.get("/accounts/code/").status_code, 200)
-        self.enter_code("00")
+        self.enter_code("0000")
         self.assertEqual(self.signed_in_as(), self.sandy.pk)
         self.assertEqual(self.client.get("/items/").status_code, 200)  # Sandy is an admin
 
@@ -322,14 +380,14 @@ class PracticeLoginTests(TestCase):
 
     def test_the_practice_login_can_make_someone_admin(self):
         self.open_device()
-        self.client.post(f"/accounts/team/{self.johanna.pk}/role/", {"role": "admin"})
+        self.client.post(f"/accounts/team/{self.johanna.pk}/role/", {"role": "admin", "pin": "1111", "pin_again": "1111"})
         self.johanna.refresh_from_db()
         self.assertTrue(self.johanna.is_org_admin)
 
     def test_an_admin_can_make_someone_admin(self):
         self.open_device()
-        self.enter_code("00")
-        self.client.post(f"/accounts/team/{self.johanna.pk}/role/", {"role": "admin"})
+        self.enter_code("0000")
+        self.client.post(f"/accounts/team/{self.johanna.pk}/role/", {"role": "admin", "pin": "1111", "pin_again": "1111"})
         self.johanna.refresh_from_db()
         self.assertTrue(self.johanna.is_org_admin)
 
@@ -340,13 +398,13 @@ class PracticeLoginTests(TestCase):
 
     def test_the_practice_login_can_always_demote_the_last_staff_admin(self):
         self.open_device()
-        self.client.post(f"/accounts/team/{self.sandy.pk}/role/", {"role": "assistant"})
+        self.client.post(f"/accounts/team/{self.sandy.pk}/role/", {"role": "assistant", "pin": "33", "pin_again": "33"})
         self.sandy.refresh_from_db()
         self.assertEqual(self.sandy.role, User.Role.ASSISTANT)
 
     def test_the_practice_login_is_not_on_the_team_page_to_lock_out(self):
         self.open_device()
-        self.enter_code("00")
+        self.enter_code("0000")
         for url in [f"/accounts/team/{self.practice.pk}/role/", f"/accounts/team/{self.practice.pk}/active/"]:
             with self.subTest(url):
                 self.assertEqual(self.client.post(url, {"role": "assistant", "active": "0"}).status_code, 404)

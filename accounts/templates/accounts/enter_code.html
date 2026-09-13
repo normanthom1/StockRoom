@@ -4,14 +4,14 @@
 
 {% block content %}
 <h1 class="mb-1 text-center">Who's using StockRoom?</h1>
-<p class="mb-6 text-center text-sm text-gray-600">Tap your 2-digit code.</p>
+<p class="mb-6 text-center text-sm text-gray-600">Assistants: 2 digits, then Go. Managers: your 4 digits.</p>
 
 {% if has_staff %}
   <form method="post" class="mx-auto flex max-w-xs flex-col gap-4">
     {% csrf_token %}
-    <label for="pin" class="sr-only">Your 2-digit code</label>
+    <label for="pin" class="sr-only">Your code</label>
     {# inputmode="none": the keypad below replaces the phone keyboard; a real keyboard still types. #}
-    <input id="pin" name="pin" type="password" inputmode="none" autocomplete="off" maxlength="2" pattern="[0-9]{2}" required autofocus
+    <input id="pin" name="pin" type="password" inputmode="none" autocomplete="off" maxlength="4" pattern="[0-9]{2}|[0-9]{4}" required autofocus
            class="min-h-16 text-center font-heading text-4xl tracking-[0.5em]" data-code-input
            {% if error %}aria-invalid="true" aria-describedby="code-error"{% endif %}>
     {% if error %}<p id="code-error" role="alert" class="text-center text-sm font-medium text-status-now">{{ error }}</p>{% endif %}
@@ -19,9 +19,9 @@
       {% for key in "123456789" %}
         <button type="button" class="btn btn-surface h-20 text-3xl" data-code-key="{{ key }}">{{ key }}</button>
       {% endfor %}
-      <span></span>
-      <button type="button" class="btn btn-surface h-20 text-3xl" data-code-key="0">0</button>
       <button type="button" class="btn btn-line h-20 text-lg" data-code-clear>Clear</button>
+      <button type="button" class="btn btn-surface h-20 text-3xl" data-code-key="0">0</button>
+      <button type="submit" class="btn btn-fill h-20 text-2xl">Go</button>
     </div>
   </form>
 {% else %}

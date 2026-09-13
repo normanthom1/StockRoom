@@ -16,8 +16,9 @@ runs empty.
 
 The login page has a one-click button into the demo practice, Discover
 Dental (or log in with `reception@discoverdental.co.nz` and the password
-`password`). Then tap a staff code: Sandy `00` (practice manager), Johanna
-`11` and Liz `22` (dental assistants), or the Practice Owner `55`. Demo data
+`password`). Then tap a staff code: Johanna `11` or Liz `22` (dental
+assistants, 2 digits then Go), or Sandy `0000` or the Practice Owner `5555`
+(managers, whose codes are 4 digits). Demo data
 resets every night, so feel free to change things.
 
 <!-- Once DEMO_MODE=1 is set on Railway (see Local development), these buttons show up. -->
@@ -58,7 +59,8 @@ below.
 
 **One login per practice, one code per person.** A practice signs each
 device in once with its practice login (an email and password). Whoever picks
-the device up then taps their own 2-digit code, so every tap is credited to
+the device up then taps their own code (2 digits for an assistant, 4 for a
+manager, who can see prices and change the team), so every tap is credited to
 a person without anyone stopping to log in. The session remembers which
 practice login opened it: a code only reaches that practice's staff, and
 changing the practice password signs every device out

@@ -14,7 +14,7 @@ Details: [ui-design](.claude/skills/ui-design/SKILL.md)
 - Django 6, Postgres, HTMX, Alpine.js, and Tailwind (django-tailwind-cli, no Node), on Railway.
 - Pages are server-rendered. HTMX swaps `{% partialdef %}` fragments, and Alpine only holds local UI state. No SPA or API.
 - Every row belongs to an Organisation, and users are `admin` or `assistant`. The organisation always comes from `request.user`.
-- Each practice has one practice login (email and password) that opens a device; staff then sign in with a 2-digit code. Stock work always runs as a staff member (`accounts/middleware.py`).
+- Each practice has one practice login (email and password) that opens a device; staff then sign in with a code: 2 digits for assistants, 4 for admins (a role change always sets a new code). Stock work always runs as a staff member (`accounts/middleware.py`).
 - Stock is an append-only `StockEvent` log. On-hand and forecasts are calculated, never stored.
 - New views follow [org-scoped-view](.claude/skills/org-scoped-view/SKILL.md). Test with `python manage.py test`.
 

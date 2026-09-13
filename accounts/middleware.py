@@ -1,10 +1,10 @@
 """Practice login + staff codes.
 
 A practice signs in on a device once, with its practice login (email and
-password). After that, whoever picks up the device enters their 2-digit code
-and works as themselves. The session remembers which practice login opened
-it, so a code only ever switches between that practice's staff, and changing
-the practice password signs every device out.
+password). After that, whoever picks up the device enters their code (2 digits
+for an assistant, 4 for a manager) and works as themselves. The session
+remembers which practice login opened it, so a code only ever switches between
+that practice's staff, and changing the practice password signs every device out.
 """
 
 from django.conf import settings

@@ -5,7 +5,8 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Lower
+from django.db.models.functions import Length, Lower
+from django.db.models.lookups import Exact
 from django.utils.text import slugify
 
 
@@ -101,18 +102,21 @@ class UserManager(BaseUserManager.from_queryset(OrgQuerySet)):
         return self._create_user(email, password, **extra_fields)
 
 
-pin_validator = RegexValidator(r"^\d{2}$", "Use two digits, like 07.")
+pin_validator = RegexValidator(r"^(\d{2}|\d{4})$", "Use digits only: 2 for an assistant, 4 for a manager.")
 
 
 class User(AbstractUser):
     """Someone who uses StockRoom. A practice signs in on a device with its
     practice login (email and password), then each staff member picks
-    themselves with a 2-digit code. Superusers are platform staff and belong
-    to no practice."""
+    themselves with a code (2 digits for an assistant, 4 for a manager).
+    Superusers are platform staff and belong to no practice."""
 
     class Role(models.TextChoices):
         ADMIN = "admin", "Practice manager or owner"
         ASSISTANT = "assistant", "Dental assistant"
+
+    # Managers see prices and run the team, so their code is harder to guess.
+    CODE_LENGTH = {Role.ADMIN: 4, Role.ASSISTANT: 2}
 
     # Email is the login, and one name field fits how practices refer to people.
     username = None
@@ -121,7 +125,7 @@ class User(AbstractUser):
     name = models.CharField(max_length=150, blank=True)
     # Staff have no email; they sign in with their code instead.
     email = models.EmailField("email address", unique=True, null=True, blank=True)
-    pin = models.CharField("code", max_length=2, null=True, blank=True, validators=[pin_validator])
+    pin = models.CharField("code", max_length=4, null=True, blank=True, validators=[pin_validator])
     # The practice's shared login. It opens a device and manages staff; the
     # stock work itself is always done as a staff member (PracticeLoginMiddleware).
     is_practice_login = models.BooleanField(default=False)
@@ -160,6 +164,13 @@ class User(AbstractUser):
                 condition=Q(email__isnull=False) | Q(pin__isnull=False),
                 name="accounts_user_has_a_way_in",
                 violation_error_message="Everyone needs an email address or a code to sign in with.",
+            ),
+            models.CheckConstraint(
+                condition=Q(pin__isnull=True)
+                | Q(Q(role="admin"), Exact(Length("pin"), 4))
+                | Q(Q(role="assistant"), Exact(Length("pin"), 2)),
+                name="accounts_user_code_length_matches_role",
+                violation_error_message="Managers need a 4-digit code, and assistants a 2-digit one.",
             ),
         ]
 
