@@ -31,9 +31,12 @@ def generate(system, turns, *, schema=None, attachment=None):
     if attachment:
         mime_type, data = attachment
         contents[-1]["parts"].append({"inline_data": {"mime_type": mime_type, "data": base64.b64encode(data).decode()}})
-    body = {"system_instruction": {"parts": [{"text": system}]}, "contents": contents}
+    # Low thinking: lookups and list-reading don't need it, and it took an
+    # invoice import from 5-25s down to 2s. (thinkingLevel is Gemini 3's setting.)
+    config = {"thinkingConfig": {"thinkingLevel": "low"}}
     if schema:
-        body["generationConfig"] = {"responseMimeType": "application/json", "responseSchema": schema}
+        config |= {"responseMimeType": "application/json", "responseSchema": schema}
+    body = {"system_instruction": {"parts": [{"text": system}]}, "contents": contents, "generationConfig": config}
 
     request = urllib.request.Request(
         URL.format(model=settings.AI_MODEL),

@@ -228,6 +228,7 @@ class GeminiClientTests(SimpleTestCase):
         body = json.loads(request.data)
         self.assertEqual(body["system_instruction"], {"parts": [{"text": "Be brief."}]})
         self.assertEqual(body["contents"], [{"role": "user", "parts": [{"text": "Hi"}]}])
+        self.assertEqual(body["generationConfig"], {"thinkingConfig": {"thinkingLevel": "low"}})
 
     def test_structured_answers_and_attachments(self):
         rows, request = self.call({"candidates": [{"content": {"parts": [{"text": '[{"name": "Gloves"}]'}]}}]},
