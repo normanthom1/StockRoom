@@ -3,13 +3,13 @@
 {% block title %}Log usage · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-3 text-2xl font-bold text-primary-dark">Tap what you used</h1>
+<h1 class="mb-4">Tap what you used</h1>
 
 {% if tiles %}
   <input type="search" id="tile-search" aria-label="Search items" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
-         placeholder="Search all {{ tiles|length }} items…" class="mb-3" data-tile-search>
+         placeholder="Search all {{ tiles|length }} items…" class="mb-4 min-h-14 text-lg" data-tile-search>
 
-  <div id="tile-grid" class="grid grid-cols-2 gap-2">
+  <div id="tile-grid" class="grid grid-cols-2 gap-2.5">
     {% for tile in tiles %}
       <button type="button" data-capture-tile
               data-search="{{ tile.name|lower }}" data-name="{{ tile.name }}" data-unit="{{ tile.unit }}"
@@ -18,48 +18,43 @@
               data-used-last="{% url 'stock:log_used_last' tile.id %}"
               data-running-low="{% url 'stock:log_running_low' tile.id %}"
               data-count-sheet="{% url 'stock:item_count_sheet' tile.id %}"
-              class="tap-target flex h-28 flex-col items-start justify-between gap-1 rounded-lg bg-gray-100 p-3 text-left
-                border-l-4 {% if tile.status_color == 'out' %}border-status-out
-                {% elif tile.status_color == 'now' %}border-status-now
-                {% elif tile.status_color == 'week' %}border-status-week
-                {% else %}border-status-ok{% endif %}">
-        <span class="font-semibold leading-tight text-gray-900">{{ tile.name }}</span>
+              class="flex h-28 flex-col items-start justify-between gap-1 border border-l-[5px] border-gray-300 border-l-status-{{ tile.status_color }} bg-gray-100 py-3 pr-3 pl-3 text-left transition-colors hover:bg-gray-200 active:bg-gray-300">
+        <span class="font-heading text-lg leading-tight font-semibold text-gray-900">{{ tile.name }}</span>
         <span class="text-xs text-gray-600">{{ tile.qty }}</span>
       </button>
     {% endfor %}
   </div>
-  <p id="no-match" hidden class="py-10 text-center text-sm text-gray-600">No items match your search.</p>
+  <p id="no-match" hidden class="py-10 text-center text-gray-600">No items match your search.</p>
 {% else %}
-  <p class="py-10 text-center text-sm text-gray-600">No items yet. Your manager adds them on the Stock page.</p>
+  <p class="blueprint p-5 text-center text-gray-600">No items yet. Your manager adds them on the Stock page.</p>
 {% endif %}
 
 <template id="capture-sheet">
-  <div class="flex items-baseline gap-3">
-    <h2 data-slot="name" class="flex-1 text-xl font-bold text-primary-dark"></h2>
-    <button type="button" class="tap-target rounded-lg border border-gray-300 px-3 text-sm font-medium"
-            data-close-dialog>Cancel</button>
+  <div class="flex items-center gap-3">
+    <h2 data-slot="name" class="flex-1"></h2>
+    <button type="button" class="btn btn-line" data-close-dialog>Cancel</button>
   </div>
   {# data-capture: app.js adds a client_id and marks the tap for the service worker's offline queue. #}
-  <div class="mt-3 flex flex-col gap-2" data-capture="{{ request.user.pk }}">
+  <div class="mt-4 flex flex-col gap-2.5" data-capture="{{ request.user.pk }}">
     <button type="button" data-action="usedOne" hx-disabled-elt="this"
-            class="tap-target flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-primary-dark/10 text-primary-dark">
-      <span data-slot="used-one" class="text-xl font-bold"></span>
-      <span data-slot="change" class="text-sm"></span>
+            class="btn btn-tonal h-24 w-full flex-col gap-1">
+      <span data-slot="used-one" class="text-2xl"></span>
+      <span data-slot="change" class="font-sans text-sm font-medium"></span>
     </button>
     <button type="button" data-action="usedLast" hx-disabled-elt="this"
-            class="tap-target flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-primary text-white">
-      <span class="text-xl font-bold">Used the last one</span>
-      <span class="text-sm opacity-90">Shelf is empty now</span>
+            class="btn btn-fill h-26 w-full flex-col gap-1">
+      <span class="text-[1.625rem]">Used the last one</span>
+      <span class="font-sans text-sm font-medium">Shelf is empty now</span>
     </button>
     <button type="button" data-action="runningLow" hx-disabled-elt="this"
-            class="tap-target flex h-24 flex-col items-center justify-center gap-1 rounded-lg bg-gray-200 text-gray-900">
-      <span class="text-xl font-bold">Running low</span>
-      <span class="text-sm text-gray-600">Tell the manager we're low</span>
+            class="btn btn-surface h-26 w-full flex-col gap-1">
+      <span class="text-[1.625rem]">Running low</span>
+      <span class="font-sans text-sm font-medium text-gray-600">Tell the manager we're low</span>
     </button>
   </div>
   <button type="button" data-action="countSheet" data-method="get"
           hx-target="#sheet-content" hx-swap="innerHTML"
-          class="tap-target mt-2 w-full rounded-lg border border-gray-300 text-sm font-medium text-gray-900">
+          class="btn btn-line mt-2.5 w-full">
     Set exact count
   </button>
 </template>

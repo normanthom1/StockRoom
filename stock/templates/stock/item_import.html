@@ -3,13 +3,13 @@
 {% block title %}Import items · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-3 text-2xl font-bold text-primary-dark">Import items from a CSV</h1>
+<h1 class="mb-2">Import items from a CSV</h1>
 <p class="mb-4 text-sm text-gray-600">Columns: name, unit, supplier, price, order_size, count. Only name, unit and supplier are required - supplier must match a supplier already set up here. Nothing is saved until you confirm the preview.</p>
 
-<form method="post" action="{% url 'stock:item_import_preview' %}" enctype="multipart/form-data" class="flex flex-col gap-3">
+<form method="post" action="{% url 'stock:item_import_preview' %}" enctype="multipart/form-data" class="flex flex-col gap-2">
   {% csrf_token %}
-  <label for="csv_file" class="text-sm font-medium text-gray-900">CSV file</label>
+  <label for="csv_file" class="mb-0">CSV file</label>
   <input id="csv_file" type="file" name="csv_file" accept=".csv,text/csv" required>
-  <button type="submit" class="btn-primary">Preview import</button>
+  <button type="submit" class="btn-primary mt-2">Preview import</button>
 </form>
 {% endblock %}

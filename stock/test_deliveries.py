@@ -28,7 +28,7 @@ class DeliveriesTests(TestCase):
         content = self.client.get("/deliveries/").content.decode()
         self.assertIn("Henry Schein", content)
         self.assertIn("Gloves", content)
-        self.assertIn("Ordered 20 boxs", content)
+        self.assertIn("Ordered 20 boxes", content)
 
     def test_a_line_past_its_expected_date_is_flagged_late(self):
         self.order.expected_at = timezone.now() - timedelta(days=1)

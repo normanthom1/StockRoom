@@ -18,19 +18,19 @@
 </div>
 
 {% if demo_mode %}
-  <div class="mt-8 border-t border-gray-200 pt-6">
-    <p class="mb-3 text-center text-sm font-medium text-gray-700">Try it without an account</p>
+  <div class="blueprint mt-10 p-4">
+    <p class="kicker mb-3 text-center">Try it without an account</p>
     <div class="flex flex-col gap-2">
       {% for who, login in demo_logins.items %}
         <form method="post" action="{% url 'demo_login' who %}">
           {% csrf_token %}
-          <button type="submit" class="tap-target w-full rounded-lg border border-primary px-4 font-medium text-primary-dark">
+          <button type="submit" class="btn btn-tonal min-h-14 w-full text-lg">
             Sign in as {{ login.1 }}
           </button>
         </form>
       {% endfor %}
     </div>
-    <p class="mt-3 text-center text-xs text-gray-500">Demo data resets every night.</p>
+    <p class="mt-3 text-center text-xs text-gray-600">Demo data resets every night.</p>
   </div>
 {% endif %}
 {% endblock %}

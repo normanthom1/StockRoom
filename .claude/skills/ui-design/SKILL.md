@@ -27,10 +27,46 @@ Show status as a text chip plus colour, never colour alone. Rows also get a colo
 |---|---|
 | Out of stock | `#7a1d18` |
 | Order now | `#b3261e` |
-| Order this week | `#b3701a` |
+| Order this week | `#8a5514` |
 | OK | `#2f7d4f` |
 
-Primary colour `#5980a6`, background `#faf9f5`. Use the Tailwind theme tokens, not hex values in templates.
+Primary colour `#54789c`, background `#f2f2f3`. Use the Tailwind theme tokens (`status-*`, `status-out-tint`, `primary`, `primary-dark`, `primary-tint`, `app-bg`), not hex values in templates.
+
+## Look
+The prototype's "blueprint" style: Barlow body text, Barlow Condensed (`font-heading`) for headings, buttons, item names and key numbers, square corners, hairline borders. Tokens and components all live in `src/tailwind.css`. Reuse them rather than restyling per page:
+
+| Need | Use |
+|---|---|
+| The one main action | `btn-primary` (64px, full width) |
+| Other buttons | `btn` plus `btn-line` (outline), `btn-fill` (solid primary), `btn-tonal` (pale blue, secondary actions) or `btn-surface` (grey) |
+| Status | `{% include "stock/_status_chip.html" with s=row %}` (needs `status_color`, `solid`, `status_label`), or `chip` for other tags |
+| Section label | `kicker` |
+| Framed panel (key figure, form, supplier card, empty state) | `blueprint` |
+| Percentage bar | `<progress class="bar" value=… max=…>` |
+| Dropdown menu | `x-data="dropdown"` wrapper + `menu-item` links |
+| Bottom nav tab | `nav-tab` with `aria-current="page"` on the active one |
+
+## Laying out a screen
+- **Page header:** a bare `<h1>` (base styles set the font, size and colour), then an optional `text-sm text-gray-600` subtitle. `<main>` already gives 16px side padding; don't add more.
+- **Lists** are rows divided by hairlines (`border-b border-gray-200`, with a `border-gray-300` top rule), not boxed cards. Full-width rows with a status stripe break out of the padding with `-mx-4`.
+- **Rows stack** at 390px: name (and chip) on the first line, `text-[0.8125rem] text-gray-600` details on the second, then inputs and buttons on their own line. Never squeeze a name, chip, input and button side by side; that's what broke the reorder and supplier screens before.
+- **Quantity inputs** are `w-20 text-center`, with the unit beside them in a fixed-width `text-sm text-gray-600` span so the buttons line up row to row.
+- **Groups** (by supplier) get an `<h2>` over a `border-gray-300` rule, with the group's actions in a row of equal buttons underneath.
+- **Empty states** are a centred `blueprint p-5` message.
+- **Grey text** is `gray-500` or darker (these clear 4.5:1 on the page). Inputs keep a white fill and a `gray-500` border so the field edge reads (3:1).
+- **No rounded corners.** The radius tokens are 0; `rounded-full` is only for the "i" button.
+
+## Gotchas
+- **CSP:** no `style="…"` attributes (use classes, or `<progress>` for widths) and no inline scripts. Alpine is the CSP build, so every Alpine attribute must be a plain property or method name from `static/js/app.js` (`open`, `toggle`), never an expression like `!open`.
+- **Status classes built from data** (`bg-status-{{ row.status_color }}`) only exist for the prefixes listed in the `@source inline(...)` line in `src/tailwind.css`. A new prefix (say `ring-`) must be added there, or the class silently does nothing.
+- **Units:** `{% load stock_units %}` then `{{ item.unit|plural }}` or `{{ item.unit|plural:qty }}`. Never write `{{ unit }}s` (it gives "boxs").
+- **Fonts** are self-hosted in `static/fonts/`. A new weight needs its own `@font-face`, and a font in regular use belongs in `PRECACHE_STATIC` (`stockroom/views.py`) so it works offline.
+- **The prototype** `StockRoom.html` is a bundled export and can't be read directly. Its screen markup is a JSON string on the `__bundler/template` line (around line 382): extract it with `json.loads` to see the real layout, spacing and styles.
+
+## Checking your work
+- Run `python manage.py tailwind build` after adding classes, and restart `runserver` after editing templates: with `--noreload` it keeps serving the old ones.
+- With `DEMO_MODE=1`, the login page has one-click manager and assistant sign-ins (`seed_demo` data). Screenshot at 390px wide with Playwright, and look at the pages, not just the tests.
+- Run `python scripts/axe_check.py http://127.0.0.1:<port>` before shipping. It must report every page clean.
 
 ## Copy
 - Plain NZ practice English: "Order by Friday", "Used the last one", "Tell the manager we're low".

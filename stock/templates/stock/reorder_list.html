@@ -1,46 +1,50 @@
 {% extends "base.html" %}
+{% load stock_units %}
 
 {% block title %}Reorder list · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-4 text-2xl font-bold text-primary-dark">Reorder list &middot; {{ wanted_count }}</h1>
+<h1 class="mb-1">Reorder list &middot; {{ wanted_count }}</h1>
+<p class="mb-5 text-sm text-gray-600">Grouped by supplier. Mark each one off as you order it.</p>
 
 {% if not groups %}
-  <p class="text-sm text-gray-600">Nothing needs ordering right now.</p>
+  <p class="blueprint p-5 text-center text-gray-600">Nothing needs ordering right now.</p>
 {% endif %}
 
 {% for group in groups %}
-  <section class="mb-6 overflow-hidden rounded-lg border border-gray-200">
-    <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 p-2">
-      <span class="flex-1 font-bold text-primary-dark">{{ group.supplier.name }}</span>
-      {% if group.supplier.phone %}<a href="tel:{{ group.phone_digits }}" class="link text-sm">Call &middot; {{ group.supplier.phone }}</a>{% endif %}
-      {% if group.mailto %}<a href="{{ group.mailto }}" class="link text-sm">Email</a>{% endif %}
-      <button type="button" hx-post="{% url 'stock:reorder_mark_supplier_ordered' group.supplier.pk %}"
-              hx-include="[data-supplier='{{ group.supplier.pk }}']" hx-disabled-elt="this"
-              class="tap-target w-full rounded-lg bg-primary px-3 text-sm font-semibold text-white sm:w-auto">
-        Mark all ordered
-      </button>
+  <section class="mb-8">
+    <div class="border-b border-gray-300 pb-3">
+      <div class="flex items-baseline gap-3">
+        <h2 class="min-w-0 flex-1">{{ group.supplier.name }}</h2>
+        {% if group.supplier.phone %}<span class="shrink-0 text-sm text-gray-600">{{ group.supplier.phone }}</span>{% endif %}
+      </div>
+      <div class="mt-3 flex gap-2">
+        {% if group.supplier.phone %}<a href="tel:{{ group.phone_digits }}" class="btn btn-line flex-1">Call</a>{% endif %}
+        {% if group.mailto %}<a href="{{ group.mailto }}" class="btn btn-line flex-1">Email</a>{% endif %}
+        <button type="button" hx-post="{% url 'stock:reorder_mark_supplier_ordered' group.supplier.pk %}"
+                hx-include="[data-supplier='{{ group.supplier.pk }}']" hx-disabled-elt="this"
+                class="btn btn-fill flex-[2] whitespace-nowrap">
+          Mark all ordered
+        </button>
+      </div>
     </div>
     {% for line in group.lines %}
-      <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 p-2 last:border-b-0">
-        <div class="min-w-0 flex-1">
-          <span class="flex items-baseline gap-2">
-            <span class="font-semibold text-gray-900">{{ line.item.name }}</span>
-            <span class="rounded px-1.5 py-0.5 text-xs font-semibold
-              {% if line.solid %}
-                text-white {% if line.status_color == 'out' %}bg-status-out{% else %}bg-status-now{% endif %}
-              {% elif line.status_color == 'week' %}border border-status-week text-status-week
-              {% else %}border border-status-ok text-status-ok{% endif %}">{{ line.status_label }}</span>
-          </span>
-          <p class="text-xs text-gray-600">{{ line.sub }}{% if line.order_by_text %} &middot; {{ line.order_by_text }}{% endif %}</p>
+      <div class="border-b border-gray-200 py-3.5">
+        <div class="flex items-start gap-3">
+          <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">{{ line.item.name }}</span>
+          {% include "stock/_status_chip.html" with s=line %}
         </div>
-        <input type="number" inputmode="numeric" min="1" name="qty_{{ line.item.pk }}" data-supplier="{{ group.supplier.pk }}"
-               value="{{ line.suggested_qty }}" class="w-20" aria-label="Order quantity for {{ line.item.name }}">
-        <button type="button" hx-post="{% url 'stock:reorder_mark_ordered' line.item.pk %}"
-                hx-include="[name='qty_{{ line.item.pk }}']" hx-disabled-elt="this"
-                class="tap-target rounded-lg border border-primary px-3 text-sm font-semibold text-primary-dark">
-          Mark ordered
-        </button>
+        <p class="mt-1 text-[0.8125rem] leading-snug text-gray-600">{{ line.sub }}{% if line.order_by_text %} &middot; {{ line.order_by_text }}{% endif %}</p>
+        <div class="mt-3 flex items-center gap-2.5">
+          <input type="number" inputmode="numeric" min="1" name="qty_{{ line.item.pk }}" data-supplier="{{ group.supplier.pk }}"
+                 value="{{ line.suggested_qty }}" class="w-20 text-center" aria-label="Order quantity for {{ line.item.name }}">
+          <span class="w-20 shrink-0 truncate text-sm text-gray-600">{{ line.item.unit|plural:line.suggested_qty }}</span>
+          <button type="button" hx-post="{% url 'stock:reorder_mark_ordered' line.item.pk %}"
+                  hx-include="[name='qty_{{ line.item.pk }}']" hx-disabled-elt="this"
+                  class="btn btn-line flex-1 whitespace-nowrap">
+            Mark ordered
+          </button>
+        </div>
       </div>
     {% endfor %}
   </section>

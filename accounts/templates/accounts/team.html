@@ -3,24 +3,15 @@
 {% block title %}Team · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-4 text-2xl font-bold text-primary">Team</h1>
+<h1 class="mb-4">Team</h1>
 
 <section class="mb-8">
-  <h2 class="mb-2 text-lg font-semibold">Invite someone</h2>
-  <form method="post" action="{% url 'team_invite' %}" class="space-y-4">
-    {% csrf_token %}
-    {{ invite_form }}
-    <button type="submit" class="btn-primary">Create invite link</button>
-  </form>
-</section>
-
-<section>
-  <h2 class="mb-2 text-lg font-semibold">Staff</h2>
-  <ul class="divide-y divide-gray-200">
+  <h2 class="kicker mb-1">Staff</h2>
+  <ul class="border-t border-gray-300">
     {% for member in members %}
-      <li class="py-4">
-        <p class="font-medium">
-          {{ member.name|default:member.email }}{% if member == request.user %} (you){% endif %}
+      <li class="border-b border-gray-200 py-4">
+        <p class="font-heading text-lg leading-tight font-semibold text-gray-900">
+          {{ member.name|default:member.email }}{% if member == request.user %} <span class="font-sans text-sm font-normal text-gray-600">(you)</span>{% endif %}
         </p>
         <p class="mb-3 text-sm text-gray-600">
           {{ member.email }} ·
@@ -28,17 +19,17 @@
         </p>
 
         {% if member.is_active %}
-          <div class="flex flex-wrap gap-2">
+          <div class="grid grid-cols-3 gap-2">
             <form method="post" action="{% url 'team_role' member.pk %}">
               {% csrf_token %}
               <input type="hidden" name="role" value="{% if member.role == 'admin' %}assistant{% else %}admin{% endif %}">
-              <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">
+              <button type="submit" class="btn btn-line w-full text-sm">
                 {% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}
               </button>
             </form>
             <form method="post" action="{% url 'team_reset_link' member.pk %}">
               {% csrf_token %}
-              <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">
+              <button type="submit" class="btn btn-line w-full text-sm">
                 Password reset link
               </button>
             </form>
@@ -46,7 +37,7 @@
               <form method="post" action="{% url 'team_set_active' member.pk %}">
                 {% csrf_token %}
                 <input type="hidden" name="active" value="0">
-                <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-status-now">
+                <button type="submit" class="btn btn-line w-full text-sm text-status-now">
                   Deactivate
                 </button>
               </form>
@@ -56,7 +47,7 @@
           <form method="post" action="{% url 'team_set_active' member.pk %}">
             {% csrf_token %}
             <input type="hidden" name="active" value="1">
-            <button type="submit" class="tap-target rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium">
+            <button type="submit" class="btn btn-line w-full text-sm">
               Reactivate
             </button>
           </form>
@@ -64,5 +55,14 @@
       </li>
     {% endfor %}
   </ul>
+</section>
+
+<section class="blueprint p-4">
+  <h2 class="mb-4">Invite someone</h2>
+  <form method="post" action="{% url 'team_invite' %}" class="space-y-4">
+    {% csrf_token %}
+    {{ invite_form }}
+    <button type="submit" class="btn-primary">Create invite link</button>
+  </form>
 </section>
 {% endblock %}

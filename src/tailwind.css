@@ -1,29 +1,70 @@
 @import "tailwindcss";
 
 /*
- * Design tokens ported from the StockRoom prototype (StockRoom.html).
+ * Design tokens ported from the StockRoom prototype (StockRoom.html): Barlow
+ * type, a cool grey ground, square hairline-framed "blueprint" components.
  * See .claude/skills/ui-design/SKILL.md for the rules behind these.
  */
+
+@font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url("../fonts/barlow-400-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url("../fonts/barlow-400-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1EFF, U+20A0-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Barlow"; font-weight: 500; font-display: swap; src: url("../fonts/barlow-500-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Barlow"; font-weight: 500; font-display: swap; src: url("../fonts/barlow-500-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1EFF, U+20A0-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Barlow"; font-weight: 600 700; font-display: swap; src: url("../fonts/barlow-700-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Barlow"; font-weight: 600 700; font-display: swap; src: url("../fonts/barlow-700-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1EFF, U+20A0-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 400; font-display: swap; src: url("../fonts/barlow-condensed-400-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 400; font-display: swap; src: url("../fonts/barlow-condensed-400-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1EFF, U+20A0-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 500 700; font-display: swap; src: url("../fonts/barlow-condensed-600-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 500 700; font-display: swap; src: url("../fonts/barlow-condensed-600-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1EFF, U+20A0-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
 @theme {
+  --font-sans: "Barlow", system-ui, sans-serif;
+  --font-heading: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+
   /* Darkened slightly from the prototype's #5980a6 so white text on a
      primary fill clears WCAG AA (4.5:1) at normal text sizes, not just
      large bold text. Use primary-dark (~9:1) for links and body-size text. */
   --color-primary: #54789c;
   --color-primary-dark: #2c455d;
-  --color-app-bg: #faf9f5;
+  --color-primary-tint: #e3ebf3;
+  --color-app-bg: #f2f2f3;
+
+  /* The prototype's neutral ramp in place of Tailwind's blue-greys, so every
+     existing gray-* utility picks up the same cool, ink-tinted greys.
+     500 and up clear 4.5:1 on app-bg, so they're safe for text. */
+  --color-gray-50: #f7f7f8;
+  --color-gray-100: #e9e9ea;
+  --color-gray-200: #dddddf;
+  --color-gray-300: #c9c9cb;
+  --color-gray-400: #98989b;
+  --color-gray-500: #6d6d70;
+  --color-gray-600: #5d5d60;
+  --color-gray-700: #424244;
+  --color-gray-800: #2b2b2d;
+  --color-gray-900: #1d1f20;
 
   --color-status-out: #7a1d18;
+  --color-status-out-tint: #fbeceb;
   --color-status-now: #b3261e;
-  /* Darkened slightly from the prototype's #b3701a: at #b3701a the status
-     chip text (text-xs, so it needs 4.5:1) came in just under, at 4.0:1. */
-  --color-status-week: #a66818;
+  /* The prototype's amber text ink rather than its #b3701a stripe colour:
+     week-status text is small, so it needs 4.5:1 on app-bg (this is ~5.5:1). */
+  --color-status-week: #8a5514;
   --color-status-ok: #2f7d4f;
+
+  /* Square corners throughout, like the prototype's blueprint frames.
+     rounded-full (the info button) is unaffected. */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
 }
 
 /* Status colour classes are picked by name from Python (Item forecast ->
    "out"/"now"/"week"/"ok"), so Tailwind's static scanner never sees them
    written out in a template. Force-generate them here instead. */
-@source inline("{bg,text,border}-status-{out,now,week,ok}");
+@source inline("{bg,text,border,border-l}-status-{out,now,week,ok}");
 
 /* Staff work with gloves on: every tap target is at least 48px. */
 @utility tap-target {
@@ -39,13 +80,33 @@
 /* Django renders forms as label, help text, errors, input. These make every
    {{ form }} usable with gloves: 48px fields, 16px text so iOS doesn't zoom. */
 @layer base {
-  label {
-    @apply mb-1 block font-medium text-gray-900;
+  html {
+    -webkit-tap-highlight-color: transparent;
   }
-  input:where([type="text"], [type="email"], [type="password"], [type="number"], [type="search"], [type="tel"], [type="url"]),
+  body {
+    @apply font-sans leading-normal;
+  }
+  h1, h2, h3 {
+    @apply font-heading font-semibold tracking-[-0.01em] text-balance text-gray-900;
+    line-height: 1.1;
+  }
+  h1 {
+    @apply text-[1.75rem];
+  }
+  h2 {
+    @apply text-[1.375rem];
+  }
+  label {
+    @apply mb-1 block text-sm font-medium text-gray-700;
+  }
+  /* The input's border needs 3:1 against the page to read as a field. */
+  input:where([type="text"], [type="email"], [type="password"], [type="number"], [type="search"], [type="tel"], [type="url"], [type="file"]),
   select,
   textarea {
-    @apply block min-h-12 w-full rounded-lg border border-gray-300 bg-white px-3 text-base;
+    @apply block min-h-12 w-full border border-gray-500 bg-white px-3 text-base text-gray-900;
+  }
+  input[type="file"] {
+    @apply py-2.5;
   }
   input:focus-visible,
   select:focus-visible,
@@ -53,6 +114,9 @@
   button:focus-visible,
   a:focus-visible {
     @apply outline-3 outline-offset-2 outline-primary-dark;
+  }
+  dialog {
+    @apply bg-app-bg text-gray-900;
   }
 }
 
@@ -69,12 +133,89 @@
   .errorlist {
     @apply mb-1 text-sm font-medium text-status-now;
   }
-  /* The one main action on a screen: full width, 64px, large bold text
+
+  /* Buttons: condensed headings type, square, hairline-framed. */
+  .btn {
+    @apply inline-flex min-h-12 items-center justify-center gap-2 border px-4 text-center font-heading text-base leading-tight font-semibold transition-colors duration-150 disabled:opacity-50;
+  }
+  .btn-line {
+    @apply border-gray-300 text-gray-900 hover:bg-gray-900/5 active:bg-gray-900/10;
+  }
+  .btn-fill {
+    @apply border-primary bg-primary text-white hover:bg-primary-dark;
+  }
+  .btn-tonal {
+    @apply border-primary-tint bg-primary-tint text-primary-dark hover:border-primary/40 active:bg-primary/20;
+  }
+  .btn-surface {
+    @apply border-gray-300 bg-gray-100 text-gray-900 hover:bg-gray-200;
+  }
+  /* The one main action on a screen: full width, 64px, large text
      (white on primary only meets WCAG AA at large text sizes). */
   .btn-primary {
-    @apply flex min-h-16 w-full items-center justify-center rounded-lg bg-primary px-4 text-xl font-bold text-white;
+    @apply flex min-h-16 w-full items-center justify-center border border-primary bg-primary px-4 text-center font-heading text-[1.375rem] leading-tight font-semibold text-white transition-colors duration-150 hover:bg-primary-dark disabled:opacity-50;
   }
   .link {
-    @apply inline-flex min-h-12 items-center font-medium text-primary-dark underline underline-offset-2;
+    @apply inline-flex min-h-12 items-center font-medium text-primary-dark underline underline-offset-3;
+  }
+
+  /* Status chip: always text plus colour. */
+  .chip {
+    @apply inline-flex h-7 shrink-0 items-center border px-2.5 text-[0.8125rem] leading-none font-medium whitespace-nowrap;
+  }
+  /* Small uppercase section label, the prototype's kicker. */
+  .kicker {
+    @apply text-xs font-semibold tracking-[0.08em] text-gray-600 uppercase;
+  }
+
+  /* Hairline frame with the prototype's registration marks at each corner,
+     drawn as gradient strokes so the markup stays a single element. */
+  .blueprint {
+    @apply relative border border-gray-300;
+  }
+  .blueprint::before {
+    --mark: color-mix(in srgb, var(--color-gray-900) 55%, transparent);
+    content: "";
+    position: absolute;
+    inset: -6px;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--mark), var(--mark)) left 5px top 0 / 1px 11px no-repeat,
+      linear-gradient(var(--mark), var(--mark)) left 0 top 5px / 11px 1px no-repeat,
+      linear-gradient(var(--mark), var(--mark)) right 5px top 0 / 1px 11px no-repeat,
+      linear-gradient(var(--mark), var(--mark)) right 0 top 5px / 11px 1px no-repeat,
+      linear-gradient(var(--mark), var(--mark)) left 5px bottom 0 / 1px 11px no-repeat,
+      linear-gradient(var(--mark), var(--mark)) left 0 bottom 5px / 11px 1px no-repeat,
+      linear-gradient(var(--mark), var(--mark)) right 5px bottom 0 / 1px 11px no-repeat,
+      linear-gradient(var(--mark), var(--mark)) right 0 bottom 5px / 11px 1px no-repeat;
+  }
+
+  /* Bottom navigation tab; aria-current="page" marks the active one. */
+  .nav-tab {
+    @apply relative flex min-h-14 min-w-0 flex-1 items-center justify-center px-1 text-center font-heading text-[0.9375rem] leading-tight font-semibold text-gray-600;
+  }
+  .nav-tab[aria-current="page"],
+  .nav-tab[aria-expanded="true"] {
+    @apply text-primary-dark;
+  }
+  .nav-tab[aria-current="page"]::before {
+    @apply absolute inset-x-3 top-0 h-[3px] bg-primary content-[''];
+  }
+  /* A flat <progress> bar. Width comes from value/max, since the CSP
+     blocks inline style="width: …". */
+  .bar {
+    @apply block h-2.5 w-full appearance-none border-0 bg-gray-200;
+  }
+  .bar::-webkit-progress-bar {
+    @apply bg-gray-200;
+  }
+  .bar::-webkit-progress-value {
+    @apply bg-primary;
+  }
+  .bar::-moz-progress-bar {
+    @apply bg-primary;
+  }
+  .menu-item {
+    @apply flex min-h-12 w-full items-center px-4 text-left text-base text-gray-900 hover:bg-gray-900/5;
   }
 }

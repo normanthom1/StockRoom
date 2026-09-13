@@ -44,16 +44,13 @@ document.addEventListener("alpine:init", () => {
     },
   }));
 
-  Alpine.data("moreMenu", () => ({
+  Alpine.data("dropdown", () => ({
     open: false,
     toggle() {
       this.open = !this.open;
     },
     close() {
       this.open = false;
-    },
-    get buttonColour() {
-      return this.open ? "text-primary-dark" : "text-gray-500";
     },
   }));
 

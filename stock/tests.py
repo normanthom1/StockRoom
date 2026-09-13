@@ -101,7 +101,7 @@ class AppShellTests(TestCase):
         content = response.content.decode()
         for label in ["Home", "Log usage", "Reorder list", "Deliveries"]:
             self.assertContains(response, label)
-        self.assertNotIn("moreMenu", content)
+        self.assertNotIn(">More<", content)
         self.assertNotIn("/items/", content)
         self.assertNotIn("/suppliers/", content)
         self.assertNotIn("/spending/", content)

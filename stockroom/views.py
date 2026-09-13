@@ -21,6 +21,11 @@ def healthz(request):
 
 PRECACHE_STATIC = [
     "css/tailwind.css",
+    "fonts/barlow-400-latin.woff2",
+    "fonts/barlow-500-latin.woff2",
+    "fonts/barlow-700-latin.woff2",
+    "fonts/barlow-condensed-400-latin.woff2",
+    "fonts/barlow-condensed-600-latin.woff2",
     "vendor/htmx.min.js",
     "vendor/alpine-csp.min.js",
     "js/app.js",

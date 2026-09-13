@@ -42,7 +42,7 @@ def login(page, base_url, email):
     page.goto(f"{base_url}/accounts/login/")
     page.fill("input[name=username]", email)
     page.fill("input[name=password]", "DemoPass123")
-    page.click("button[type=submit]")
+    page.click("form:has(input[name=username]) button[type=submit]")
     page.wait_for_load_state("networkidle")
 
 
