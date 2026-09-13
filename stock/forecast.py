@@ -134,9 +134,13 @@ def weekly_consumption(events, now: datetime, window_weeks: int = WINDOW_WEEKS) 
             spans.append((a.created_at, b.created_at, max(0, _stocktake_qty(a) + received - _stocktake_qty(b))))
 
     weeks = [0.0] * n
+    oldest = now - n * WEEK  # at or before `start` unless the history is longer than the window
     for e in events:
-        if e.kind != "used" or (stocktakes and stocktakes[0].created_at < e.created_at < stocktakes[-1].created_at):
+        if e.kind != "used" or e.created_at < oldest:
             continue
+        if stocktakes and stocktakes[0].created_at < e.created_at < stocktakes[-1].created_at:
+            continue
+        # min(): a tap exactly at `oldest` would otherwise land one week past the end.
         weeks[min(n - 1, int((now - e.created_at) / WEEK))] += e.qty
 
     for i in range(n):

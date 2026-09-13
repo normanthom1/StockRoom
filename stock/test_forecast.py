@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 from django.test import SimpleTestCase
 
-from .forecast import Status, forecast, round_order_qty
+from .forecast import Status, forecast, round_order_qty, weekly_consumption
 from .models import OrderLine, StockEvent
 
 NOW = datetime(2026, 9, 12, 12, tzinfo=ZoneInfo("Pacific/Auckland"))
@@ -70,6 +70,12 @@ class ForecastTests(SimpleTestCase):
         f = run([ev("count", 50, days_ago=14), ev("used", 3, days_ago=10), ev("used", 4, days_ago=2)])
         self.assertAlmostEqual(f.weekly_usage, 3.5)
         self.assertEqual(f.on_hand, 43)
+
+    def test_taps_older_than_the_window_are_left_out(self):
+        # Ten weeks of one tap a week and never a count: only the last 8 weeks count.
+        taps = [ev("used", 1, days_ago=7 * weeks_ago + 3) for weeks_ago in range(9, -1, -1)]
+        self.assertEqual(weekly_consumption(taps, NOW), [1.0] * 8)
+        self.assertAlmostEqual(run(taps[1:]).weekly_usage, 1)
 
     def test_out_of_stock(self):
         f = run([ev("count", 20, days_ago=10), ev("out", days_ago=1)])

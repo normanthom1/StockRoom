@@ -142,4 +142,7 @@ a plain average with a couple of weeks shown), and there isn't yet enough
 data for a statistical model to reliably beat that simple average. Croston
 and Holt-Winters forecasting is deliberately deferred (see the project's
 issue tracker) until real usage data from a pilot practice exists to
-validate whether it actually helps.
+validate whether it actually helps. `python manage.py backtest_forecast`
+measures that: it replays a practice's history and scores the forecast
+against what was actually used. A new model has to beat the moving-average
+baseline recorded in [docs/forecast-backtest.md](docs/forecast-backtest.md).
