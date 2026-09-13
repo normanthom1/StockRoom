@@ -95,7 +95,7 @@ document.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("input", (event) => {
-  if (event.target.matches("[data-tile-search]")) filterTiles(event.target.value);
+  if (event.target.matches("[data-search-input]")) filterList(event.target.value);
   if (event.target.matches("[data-code-input]")) submitCodeIfComplete(event.target);
 });
 
@@ -122,18 +122,21 @@ document.addEventListener("sheet-close", () => document.getElementById("sheet")?
 // Only reachable without a controlling service worker (it answers every htmx request itself).
 document.addEventListener("htmx:sendError", () => toast("Couldn't reach StockRoom. Check your connection and try again."));
 
-// --- Log usage: the capture grid works with no signal, so search and the
-// tap sheet run here rather than on the server. ---
+// --- Search-as-you-type over a page's [data-search] rows (the capture grid,
+// the reorder list's "add" list). In the browser so it works with no signal. ---
 
-function filterTiles(query) {
+function filterList(query) {
   const q = query.trim().toLowerCase();
   let shown = 0;
-  for (const tile of document.querySelectorAll("[data-capture-tile]")) {
-    tile.hidden = !tile.dataset.search.includes(q);
-    if (!tile.hidden) shown++;
+  for (const row of document.querySelectorAll("[data-search]")) {
+    row.hidden = !row.dataset.search.includes(q);
+    if (!row.hidden) shown++;
   }
   document.getElementById("no-match").hidden = shown > 0;
 }
+
+// --- Log usage: the capture grid works with no signal, so the tap sheet
+// runs here rather than on the server. ---
 
 function openCaptureSheet(tile) {
   const item = tile.dataset;

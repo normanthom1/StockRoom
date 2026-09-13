@@ -41,6 +41,11 @@ class Item(OrgOwned):
     order_size = models.PositiveIntegerField(null=True, blank=True)
     # Set by "add to reorder list", cleared when the item is ordered.
     pinned_to_reorder_at = models.DateTimeField(null=True, blank=True)
+    # An assistant asking for it to go on the reorder list; a manager adds it
+    # or turns it down. Cleared when the item is ordered.
+    reorder_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     barcode = models.CharField(max_length=64, blank=True)
     is_active = models.BooleanField(default=True)
 

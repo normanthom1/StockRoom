@@ -1,0 +1,29 @@
+{# Items not on the reorder list yet. A manager adds one; an assistant asks for it. #}
+{% if addable %}
+  <section x-data="disclosure" class="-mx-4">
+    <button type="button" class="tap-target flex min-h-14 w-full items-center gap-2 px-4 py-3 text-left font-heading text-lg font-semibold text-primary-dark" @click="toggle">
+      <span x-text="arrow" aria-hidden="true">&#9662;</span>
+      {% if user.is_org_admin %}Add something to the list{% else %}Ask for something to be added{% endif %}
+    </button>
+    <div x-show="open" x-cloak class="border-t border-gray-200 px-4 pt-3">
+      <input type="search" aria-label="Search items" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
+             placeholder="Search {{ addable|length }} item{{ addable|length|pluralize }}…" class="mb-1 min-h-14 text-lg" data-search-input>
+      {% for item in addable %}
+        <form method="post" action="{% url 'stock:reorder_add' item.pk %}" data-search="{{ item.name|lower }}" data-disable-on-submit
+              class="flex items-center gap-3 border-b border-gray-200 py-2">
+          {% csrf_token %}
+          <span class="min-w-0 flex-1">
+            <span class="block font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ item.name }}</span>
+            <span class="text-xs text-gray-600">{{ item.supplier.name }}</span>
+          </span>
+          {% if user.is_org_admin %}
+            <button type="submit" class="btn btn-line w-20 shrink-0" aria-label="Add {{ item.name }}">Add</button>
+          {% else %}
+            <button type="submit" class="btn btn-line w-20 shrink-0" aria-label="Ask for {{ item.name }}">Ask</button>
+          {% endif %}
+        </form>
+      {% endfor %}
+      <p id="no-match" hidden class="py-6 text-center text-gray-600">No items match your search.</p>
+    </div>
+  </section>
+{% endif %}
