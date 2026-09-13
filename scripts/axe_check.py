@@ -41,6 +41,7 @@ PAGES = [
     ("/accounts/team/", "0000"),
     ("/", "11"),  # Johanna, assistant
     ("/log-usage/", "11"),
+    ("/reorder/", "11"),
 ]
 SERIOUS = {"serious", "critical"}
 

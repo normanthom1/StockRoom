@@ -49,7 +49,7 @@ def _org_items(org):
     return (
         Item.objects.for_org(org)
         .filter(is_active=True)
-        .select_related("supplier")
+        .select_related("supplier", "reorder_requested_by")
         .prefetch_related("events", "order_lines")
     )
 
@@ -438,14 +438,18 @@ def stocktake_save(request):
 WANTED_STATUSES = {Status.OUT, Status.ORDER_NOW, Status.ORDER_THIS_WEEK}
 
 
-def _wanted_items(org, now):
-    """(item, forecast) pairs that belong on the reorder list: urgent, or pinned there by hand."""
-    wanted = []
+def _split_items(org, now):
+    """(item, forecast) pairs, split into those on the reorder list (urgent, or
+    pinned there by hand) and the rest."""
+    wanted, rest = [], []
     for item in _org_items(org):
         f = _forecast_for(item, now)
-        if f.status in WANTED_STATUSES or item.pinned_to_reorder_at:
-            wanted.append((item, f))
-    return wanted
+        (wanted if f.status in WANTED_STATUSES or item.pinned_to_reorder_at else rest).append((item, f))
+    return wanted, rest
+
+
+def _wanted_items(org, now):
+    return _split_items(org, now)[0]
 
 
 def _order_email(org, admin, supplier, lines, today):
@@ -463,10 +467,9 @@ def _order_email(org, admin, supplier, lines, today):
     return build_mailto_link(supplier.email, f"Stock order for {supplier.name}", body)
 
 
-def _reorder_groups(org, admin, now):
-    today = now.date()
+def _reorder_groups(org, admin, wanted, today):
     by_supplier = {}
-    for item, f in _wanted_items(org, now):
+    for item, f in wanted:
         by_supplier.setdefault(item.supplier, []).append((item, f))
 
     groups = []
@@ -499,22 +502,83 @@ def _reorder_groups(org, admin, now):
 def reorder_list(request):
     org = request.user.organisation
     now = timezone.localtime()
+    wanted, rest = _split_items(org, now)
+    rest.sort(key=lambda e: e[0].name)
+    context = {
+        "wanted_count": len(wanted),
+        # Asked for by an assistant, waiting for a manager to add or turn down.
+        "asked_for": [
+            {"item": item, "sub": f"{format_qty(f.on_hand, item.unit)} · {format_rate(f.weekly_usage, item.unit)}"}
+            for item, f in rest
+            if item.reorder_requested_by
+        ],
+        "addable": [item for item, f in rest if not item.reorder_requested_by],
+    }
 
     if request.user.is_org_admin:
-        groups = _reorder_groups(org, request.user, now)
-        context = {"groups": groups, "wanted_count": sum(len(g["lines"]) for g in groups)}
+        context["groups"] = _reorder_groups(org, request.user, wanted, now.date())
         return render(request, "stock/reorder_list.html", context)
 
-    wanted = _wanted_items(org, now)
     by_supplier = {}
     for item, f in wanted:
         by_supplier.setdefault(item.supplier.name, []).append(item.name)
-    context = {"by_supplier": sorted(by_supplier.items()), "wanted_count": len(wanted)}
+    context["by_supplier"] = sorted(by_supplier.items())
     return render(request, "stock/reorder_list_assistant.html", context)
+
+
+@require_POST
+def reorder_add(request, pk):
+    """A manager's tap puts the item straight on the list. An assistant's asks
+    a manager to, from the top of the manager's reorder list."""
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    undo_url = reverse("stock:reorder_add_undo", args=[item.pk])
+    if request.user.is_org_admin:
+        item.pinned_to_reorder_at = timezone.now()
+        item.save(update_fields=["pinned_to_reorder_at"])
+        messages.success(request, f"Added {item.name} to the reorder list.", extra_tags=undo_url)
+    else:
+        item.reorder_requested_by = request.user
+        item.save(update_fields=["reorder_requested_by"])
+        messages.success(request, f"Asked the manager to add {item.name}.", extra_tags=undo_url)
+    return redirect("stock:reorder_list")
+
+
+@require_POST
+def reorder_add_undo(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    if request.user.is_org_admin:
+        # A request the manager just said yes to goes back to waiting.
+        item.pinned_to_reorder_at = None
+    elif item.reorder_requested_by_id == request.user.pk:
+        item.reorder_requested_by = None
+    else:
+        raise PermissionDenied
+    item.save(update_fields=["pinned_to_reorder_at", "reorder_requested_by"])
+    messages.success(request, "Undone.")
+    response = HttpResponse(status=200)
+    response["HX-Redirect"] = reverse("stock:reorder_list")
+    return response
+
+
+@require_POST
+@admin_required
+def reorder_decline(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    item.reorder_requested_by = None
+    item.save(update_fields=["reorder_requested_by"])
+    messages.success(request, f"{item.name} is off the asked-for list. You can still add it below.")
+    return redirect("stock:reorder_list")
 
 
 def _default_qty(item, f):
     return item.order_size or f.order_qty
+
+
+def _off_the_list(item):
+    """Ordered: any pin or assistant's request has been dealt with."""
+    item.pinned_to_reorder_at = None
+    item.reorder_requested_by = None
+    item.save(update_fields=["pinned_to_reorder_at", "reorder_requested_by"])
 
 
 @require_POST
@@ -528,8 +592,7 @@ def reorder_mark_ordered(request, pk):
     order = OrderLine.objects.create(
         organisation=org, item=item, qty=qty, unit_price=item.price, ordered_by=request.user
     )
-    item.pinned_to_reorder_at = None
-    item.save(update_fields=["pinned_to_reorder_at"])
+    _off_the_list(item)
 
     messages.success(
         request,
@@ -558,8 +621,7 @@ def reorder_mark_supplier_ordered(request, pk):
             organisation=org, item=item, qty=qty, unit_price=item.price, ordered_by=request.user
         )
         order_ids.append(order.pk)
-        item.pinned_to_reorder_at = None
-        item.save(update_fields=["pinned_to_reorder_at"])
+        _off_the_list(item)
 
     undo_url = reverse("stock:reorder_undo_batch") + "?ids=" + ",".join(str(i) for i in order_ids)
     messages.success(

@@ -7,8 +7,31 @@
 <h1 class="mb-1">Reorder list &middot; {{ wanted_count }}</h1>
 <p class="mb-5 text-sm text-gray-600">Grouped by supplier. Mark each one off as you order it.</p>
 
+{% if asked_for %}
+  <section class="mb-8 border border-primary bg-primary-tint p-4">
+    <h2 class="mb-1">The team asked for {{ asked_for|length }}</h2>
+    <p class="text-sm text-gray-700">Add {{ asked_for|length|pluralize:"it,them" }} to the list, or say it's not needed.</p>
+    {% for entry in asked_for %}
+      <div class="mt-3 border-t border-primary/30 pt-3">
+        <p class="font-heading text-lg leading-tight font-semibold text-gray-900">{{ entry.item.name }}</p>
+        <p class="mt-1 text-[0.8125rem] leading-snug text-gray-700">{{ entry.item.reorder_requested_by.name }} asked &middot; {{ entry.sub }} &middot; {{ entry.item.supplier.name }}</p>
+        <div class="mt-3 flex gap-2">
+          <form method="post" action="{% url 'stock:reorder_decline' entry.item.pk %}" class="flex-1" data-disable-on-submit>
+            {% csrf_token %}
+            <button type="submit" class="btn btn-surface w-full" aria-label="{{ entry.item.name }} not needed">Not needed</button>
+          </form>
+          <form method="post" action="{% url 'stock:reorder_add' entry.item.pk %}" class="flex-[2]" data-disable-on-submit>
+            {% csrf_token %}
+            <button type="submit" class="btn btn-fill w-full" aria-label="Add {{ entry.item.name }} to the list">Add to list</button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+  </section>
+{% endif %}
+
 {% if not groups %}
-  <p class="blueprint p-5 text-center text-gray-600">Nothing needs ordering right now.</p>
+  <p class="blueprint mb-8 p-5 text-center text-gray-600">Nothing needs ordering right now.</p>
 {% endif %}
 
 {% for group in groups %}
@@ -34,7 +57,7 @@
           <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">{{ line.item.name }}</span>
           {% include "stock/_status_chip.html" with s=line %}
         </div>
-        <p class="mt-1 text-[0.8125rem] leading-snug text-gray-600">{{ line.sub }}{% if line.order_by_text %} &middot; {{ line.order_by_text }}{% endif %}</p>
+        <p class="mt-1 text-[0.8125rem] leading-snug text-gray-600">{{ line.sub }}{% if line.order_by_text %} &middot; {{ line.order_by_text }}{% endif %}{% if line.item.reorder_requested_by %} &middot; {{ line.item.reorder_requested_by.name }} asked for it{% endif %}</p>
         <div class="mt-3 flex items-center gap-2.5">
           <input type="number" inputmode="numeric" min="1" name="qty_{{ line.item.pk }}" data-supplier="{{ group.supplier.pk }}"
                  value="{{ line.suggested_qty }}" class="w-20 text-center" aria-label="Order quantity for {{ line.item.name }}">
@@ -49,4 +72,6 @@
     {% endfor %}
   </section>
 {% endfor %}
+
+{% include "stock/_reorder_add.html" %}
 {% endblock %}

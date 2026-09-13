@@ -6,9 +6,10 @@ supplies, and it tells the practice manager what to order before the shelf
 runs empty.
 
 - **Dental assistants** log what they've used in a tap or two, mid-procedure,
-  wearing gloves.
+  wearing gloves, and can ask for anything else to go on the reorder list.
 - **Practice managers and owners** work from one reorder list grouped by
-  supplier, call or email them, and tick items off once they've ordered.
+  supplier, add to it or say yes to what the team asked for, call or email
+  suppliers, and tick items off once they've ordered.
 
 ## Live demo
 

@@ -93,6 +93,9 @@ ITEMS = [
 # the wrong bucket.
 DAYS_OFFSET = {"order_now": 1, "this_week": 6, "ok": 25, "spike": 25, "short_history": 6}
 
+# An assistant's request waiting on the manager's reorder list: (item, who asked).
+ASKED_FOR = ("Gauze squares, 5x5cm", "Johanna")
+
 
 @click.command()
 @click.option("--reset", is_flag=True, help="Delete and recreate the demo organisation.")
@@ -137,6 +140,11 @@ def command(reset):
                 price=Decimal(price),
             )
             _seed_item_history(rng, org, item, rate, shape, admins, assistants, now)
+
+        item_name, asker = ASKED_FOR
+        Item.objects.filter(organisation=org, name=item_name).update(
+            reorder_requested_by=next(u for u in staff if u.name == asker)
+        )
 
     codes = ", ".join(f"{name} {pin}" for name, pin, _ in STAFF)
     click.echo(f'Seeded "{org.name}" with {len(ITEMS)} items. Practice login: {DEMO_EMAIL} / {DEMO_PASSWORD}. Codes: {codes}')

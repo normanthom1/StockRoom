@@ -43,7 +43,7 @@ class ReorderListTests(TestCase):
         self.assertIn("Dentsply", content)
         self.assertIn("Gloves", content)
         self.assertIn("Lignocaine", content)
-        self.assertNotIn("Masks", content)
+        self.assertNotIn("Order quantity for Masks", content)
 
     def test_pinning_an_ok_item_adds_it_to_the_list(self):
         self.masks.pinned_to_reorder_at = timezone.now()
@@ -108,6 +108,101 @@ class ReorderListTests(TestCase):
         self.client.post(f"/reorder/supplier/{self.dentsply.pk}/ordered/")
         self.assertTrue(OrderLine.objects.filter(item=self.gloves, cancelled_at__isnull=True).exists())
         self.assertTrue(OrderLine.objects.filter(item=self.ligno, cancelled_at__isnull=True).exists())
+
+
+class ReorderAddTests(TestCase):
+    """Adding to the list from the list: managers add, assistants ask."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organisation.objects.create(name="Test Dental")
+        cls.admin = User.objects.create_user("sandy@example.com", "pw", name="Sandy", organisation=cls.org, role=User.Role.ADMIN)
+        cls.assistant = User.objects.create_user("jo@example.com", "pw", name="Johanna", organisation=cls.org)
+        cls.other_assistant = User.objects.create_user("liz@example.com", "pw", name="Liz", organisation=cls.org)
+        supplier = Supplier.objects.create(organisation=cls.org, name="Henry Schein")
+        cls.masks = Item.objects.create(organisation=cls.org, name="Masks", unit="box", supplier=supplier)
+        StockEvent.objects.create(organisation=cls.org, item=cls.masks, user=cls.admin, kind="count", qty=500)
+
+    def ask(self):
+        self.client.force_login(self.assistant)
+        return self.client.post(f"/reorder/item/{self.masks.pk}/add/")
+
+    def test_an_item_not_on_the_list_is_offered_to_add(self):
+        self.client.force_login(self.admin)
+        content = self.client.get("/reorder/").content.decode()
+        self.assertIn("Add something to the list", content)
+        self.assertIn(f"/reorder/item/{self.masks.pk}/add/", content)
+
+    def test_a_manager_adds_an_item_straight_to_the_list(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(f"/reorder/item/{self.masks.pk}/add/")
+        self.assertRedirects(response, "/reorder/")
+        self.masks.refresh_from_db()
+        self.assertIsNotNone(self.masks.pinned_to_reorder_at)
+        self.assertIn("Order quantity for Masks", self.client.get("/reorder/").content.decode())
+
+    def test_an_assistant_asks_instead_of_adding(self):
+        self.client.force_login(self.assistant)
+        self.assertIn("Ask for something to be added", self.client.get("/reorder/").content.decode())
+        self.ask()
+        self.masks.refresh_from_db()
+        self.assertIsNone(self.masks.pinned_to_reorder_at)
+        self.assertEqual(self.masks.reorder_requested_by, self.assistant)
+        self.assertIn("Johanna asked", self.client.get("/reorder/").content.decode())
+
+    def test_the_manager_sees_the_request_and_can_add_it(self):
+        self.ask()
+        self.client.force_login(self.admin)
+        content = self.client.get("/reorder/").content.decode()
+        self.assertIn("The team asked for 1", content)
+        self.assertIn("Johanna asked", content)
+        self.client.post(f"/reorder/item/{self.masks.pk}/add/")
+        self.masks.refresh_from_db()
+        self.assertIsNotNone(self.masks.pinned_to_reorder_at)
+        content = self.client.get("/reorder/").content.decode()
+        self.assertNotIn("The team asked for", content)
+        self.assertIn("Johanna asked for it", content)
+
+    def test_the_manager_can_turn_a_request_down(self):
+        self.ask()
+        self.client.force_login(self.admin)
+        self.client.post(f"/reorder/item/{self.masks.pk}/decline/")
+        self.masks.refresh_from_db()
+        self.assertIsNone(self.masks.reorder_requested_by)
+        self.assertIsNone(self.masks.pinned_to_reorder_at)
+
+    def test_only_a_manager_can_turn_a_request_down(self):
+        self.ask()
+        self.client.force_login(self.other_assistant)
+        self.assertEqual(self.client.post(f"/reorder/item/{self.masks.pk}/decline/").status_code, 403)
+
+    def test_ordering_clears_the_request(self):
+        self.ask()
+        self.client.force_login(self.admin)
+        self.client.post(f"/reorder/item/{self.masks.pk}/add/")
+        self.client.post(f"/reorder/item/{self.masks.pk}/ordered/")
+        self.masks.refresh_from_db()
+        self.assertIsNone(self.masks.reorder_requested_by)
+        self.assertIsNone(self.masks.pinned_to_reorder_at)
+
+    def test_undoing_a_managers_add_puts_a_request_back_to_waiting(self):
+        self.ask()
+        self.client.force_login(self.admin)
+        self.client.post(f"/reorder/item/{self.masks.pk}/add/")
+        response = self.client.post(f"/reorder/item/{self.masks.pk}/add/undo/")
+        self.assertEqual(response["HX-Redirect"], "/reorder/")
+        self.masks.refresh_from_db()
+        self.assertIsNone(self.masks.pinned_to_reorder_at)
+        self.assertEqual(self.masks.reorder_requested_by, self.assistant)
+
+    def test_an_assistant_can_undo_only_their_own_request(self):
+        self.ask()
+        self.client.force_login(self.other_assistant)
+        self.assertEqual(self.client.post(f"/reorder/item/{self.masks.pk}/add/undo/").status_code, 403)
+        self.client.force_login(self.assistant)
+        self.client.post(f"/reorder/item/{self.masks.pk}/add/undo/")
+        self.masks.refresh_from_db()
+        self.assertIsNone(self.masks.reorder_requested_by)
 
 
 class ReorderUndoTests(TestCase):

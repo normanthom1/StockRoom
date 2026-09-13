@@ -7,7 +7,7 @@
 
 {% if tiles %}
   <input type="search" id="tile-search" aria-label="Search items" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
-         placeholder="Search all {{ tiles|length }} items…" class="mb-4 min-h-14 text-lg" data-tile-search>
+         placeholder="Search all {{ tiles|length }} items…" class="mb-4 min-h-14 text-lg" data-search-input>
 
   <div id="tile-grid" class="grid grid-cols-2 gap-2.5">
     {% for tile in tiles %}
