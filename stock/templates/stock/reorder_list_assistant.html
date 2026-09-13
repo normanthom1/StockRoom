@@ -3,18 +3,18 @@
 {% block title %}Reorder list · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-2 text-2xl font-bold text-primary-dark">Reorder list</h1>
-<p class="mb-4 text-sm text-gray-600">{{ wanted_count }} waiting for the manager to order.</p>
+<h1 class="mb-1">Reorder list</h1>
+<p class="mb-5 text-sm text-primary-dark">{{ wanted_count }} waiting for the manager to order. Anything you flag lands here.</p>
 
 {% if not by_supplier %}
-  <p class="text-sm text-gray-600">Nothing needs ordering right now.</p>
+  <p class="blueprint p-5 text-center text-gray-600">Nothing needs ordering right now.</p>
 {% endif %}
 
 {% for supplier_name, item_names in by_supplier %}
-  <section class="mb-4 overflow-hidden rounded-lg border border-gray-200">
-    <p class="border-b border-gray-200 bg-gray-50 p-2 font-bold text-primary-dark">{{ supplier_name }}</p>
+  <section class="mb-8">
+    <h2 class="border-b border-gray-300 pb-2">{{ supplier_name }}</h2>
     {% for name in item_names %}
-      <p class="border-b border-gray-100 p-2 text-sm text-gray-900 last:border-b-0">{{ name }}</p>
+      <p class="flex min-h-14 items-center border-b border-gray-200 py-2 font-heading text-lg leading-tight font-semibold text-gray-900">{{ name }}</p>
     {% endfor %}
   </section>
 {% endfor %}

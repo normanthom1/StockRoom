@@ -3,13 +3,13 @@
 {% block title %}Offline · StockRoom{% endblock %}
 
 {% block content %}
-  <h1 class="text-2xl font-bold text-primary-dark">No connection</h1>
+  <h1>No connection</h1>
   {% partialdef message inline %}
     <p class="py-4 text-gray-700">You're offline. Check your Wi-Fi or mobile data, then try again.</p>
   {% endpartialdef %}
   <button type="button" data-reload
-          class="tap-target mt-2 w-full rounded-lg bg-primary px-4 text-lg font-semibold text-white">Try again</button>
+          class="btn-primary mt-2">Try again</button>
   <p class="mt-6 text-gray-700">You can still log what you've used. It's saved on this device and syncs when you're back online.</p>
   <a href="{% url 'stock:log_usage' %}"
-     class="tap-target mt-2 flex w-full items-center justify-center rounded-lg border-2 border-primary px-4 text-lg font-semibold text-primary-dark">Log usage</a>
+     class="btn btn-tonal mt-2 min-h-14 w-full text-lg">Log usage</a>
 {% endblock %}

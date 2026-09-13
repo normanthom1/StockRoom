@@ -1,30 +1,28 @@
 {% extends "base.html" %}
+{% load stock_units %}
 
 {% block title %}Stocktake · StockRoom{% endblock %}
 
 {% block content %}
-<div class="mb-3 flex items-center justify-between">
-  <p class="text-sm font-medium text-gray-600">Item {{ index|add:1 }} of {{ total }}</p>
+<div class="mb-2 flex items-center justify-between">
+  <p class="kicker">Item {{ index|add:1 }} of {{ total }}</p>
   <a href="{% url 'stock:home' %}" class="link text-sm">Finish later</a>
 </div>
-<progress value="{{ index|add:1 }}" max="{{ total }}" aria-label="Stocktake progress"
-          class="mb-4 block h-2 w-full appearance-none overflow-hidden rounded-full bg-gray-200
-                 [&::-webkit-progress-bar]:bg-gray-200 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary
-                 [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-primary"></progress>
+<progress value="{{ index|add:1 }}" max="{{ total }}" aria-label="Stocktake progress" class="bar mb-6"></progress>
 
-<h1 class="mb-3 text-2xl font-bold text-primary-dark">{{ item.name }}</h1>
+<h1 class="mb-4">{{ item.name }}</h1>
 
-{% if error %}<p class="mb-2 text-sm font-medium text-status-now">{{ error }}</p>{% endif %}
+{% if error %}<p class="mb-3 text-sm font-medium text-status-now">{{ error }}</p>{% endif %}
 
-<form method="post" action="{% url 'stock:stocktake_save' %}" class="flex flex-col gap-3">
+<form method="post" action="{% url 'stock:stocktake_save' %}" class="flex flex-col gap-4">
   {% csrf_token %}
   <div>
-    <label for="qty" class="text-sm font-medium text-gray-900">On the shelf now ({{ item.unit }}s)</label>
+    <label for="qty">On the shelf now ({{ item.unit|plural }})</label>
     <input id="qty" type="number" inputmode="numeric" min="0" name="qty"
-           value="{{ current_qty|default_if_none:'' }}" placeholder="0" autofocus>
+           value="{{ current_qty|default_if_none:'' }}" placeholder="0" autofocus class="min-h-16 text-[1.75rem]">
   </div>
   <div>
-    <label for="order_size" class="text-sm font-medium text-gray-900">Standard order size ({{ item.unit }}s), optional</label>
+    <label for="order_size">Standard order size ({{ item.unit|plural }}), optional</label>
     <input id="order_size" type="number" inputmode="numeric" min="1" name="order_size"
            value="{{ item.order_size|default_if_none:'' }}" placeholder="{{ order_size_placeholder }}">
   </div>

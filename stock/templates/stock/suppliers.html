@@ -3,20 +3,23 @@
 {% block title %}Suppliers · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-3 text-2xl font-bold text-primary-dark">Suppliers</h1>
+<h1 class="mb-1">Suppliers</h1>
+<p class="mb-5 text-sm text-gray-600">Change how long a supplier takes to deliver, or update their phone and email. Every item from a supplier follows what's set here.</p>
 
-<div class="mb-6 overflow-hidden rounded-lg border border-gray-200">
+<div class="mb-8 flex flex-col gap-5">
   {% for supplier in suppliers %}
     {% include "stock/_supplier_row.html" %}
   {% empty %}
-    <p class="p-3 text-sm text-gray-600">No suppliers yet.</p>
+    <p class="blueprint p-5 text-center text-gray-600">No suppliers yet.</p>
   {% endfor %}
 </div>
 
-<h2 class="mb-2 text-lg font-bold text-primary-dark">Add a supplier</h2>
-<form method="post" action="{% url 'stock:supplier_add' %}" class="space-y-4">
-  {% csrf_token %}
-  {{ form }}
-  <button type="submit" class="btn-primary">Add supplier</button>
-</form>
+<section class="blueprint p-4">
+  <h2 class="mb-4">Add a supplier</h2>
+  <form method="post" action="{% url 'stock:supplier_add' %}" class="space-y-4">
+    {% csrf_token %}
+    {{ form }}
+    <button type="submit" class="btn-primary">Add supplier</button>
+  </form>
+</section>
 {% endblock %}

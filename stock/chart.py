@@ -39,7 +39,7 @@ def usage_chart_svg(weeks: list[float], excluded_mask: list[bool]) -> str:
         fill = "url(#excluded-week-hatch)" if excluded else BAR_COLOR
         bars.append(
             format_html(
-                '<rect x="{}" y="{}" width="{}" height="{}" fill="{}" rx="2"></rect>',
+                '<rect x="{}" y="{}" width="{}" height="{}" fill="{}"></rect>',
                 round(x, 1),
                 y,
                 round(bar_width, 1),
