@@ -14,7 +14,7 @@
         <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ row.name|default:"(no name)" }}</span>
       </span>
       {% if row.is_valid %}
-        <span class="text-sm text-gray-600">{{ row.unit }} &middot; {{ row.supplier_name }}{% if row.price is not None %} &middot; ${{ row.price }}{% endif %}{% if row.count is not None %} &middot; {{ row.count }} on hand{% endif %}</span>
+        <span class="text-sm text-gray-600">{{ row.unit }} &middot; {{ row.supplier_name }}{% if row.price is not None %} &middot; ${{ row.price|floatformat:2 }}{% endif %}{% if row.count is not None %} &middot; {{ row.count }} on hand{% endif %}</span>
       {% else %}
         <span class="text-sm font-medium text-status-now">{{ row.errors|join:" " }}</span>
       {% endif %}
