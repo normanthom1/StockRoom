@@ -135,7 +135,8 @@ SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", not DEMO_MODE)
 # Ask StockRoom (chat) and the AI stock-list import, through Google Gemini
 # (assistant/gemini.py). Everything AI is hidden unless AI_API_KEY is set.
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
-AI_MODEL = os.environ.get("AI_MODEL", "gemini-2.5-flash")
+# Google retires models for new keys (2.5 Flash is gone), so check its model list if calls start 404ing.
+AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.8-flash")
 # A backstop on the bill: Gemini calls a day across every practice, demo included.
 AI_DAILY_LIMIT = int(os.environ.get("AI_DAILY_LIMIT", "300"))
 
