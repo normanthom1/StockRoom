@@ -24,6 +24,7 @@ PRACTICE_PASSWORD = "password"
 # (path, login_as) - login_as is "practice" (the practice login before anyone
 # has entered a code), a seed_demo staff code, or None for a public page.
 PAGES = [
+    ("/", None),  # the public page, for anyone logged out
     ("/accounts/login/", None),
     ("/accounts/signup/", None),
     ("/offline/", None),

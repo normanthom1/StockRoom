@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}StockRoom · Stock ordering for New Zealand dental practices{% endblock %}
+{% block meta %}<meta name="description" content="Your assistants tap what they use as they go. StockRoom works out when each item is likely to run out and puts it on one reorder list, sorted by supplier.">{% endblock %}
+
+{% block main %}
+{% partialdef actions %}
+  <div class="flex flex-col gap-3 sm:flex-row">
+    {% if demo_mode %}
+      <form method="post" action="{% url 'demo_login' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-fill min-h-14 w-full px-6 text-lg sm:w-auto">Try the demo practice</button>
+      </form>
+    {% endif %}
+    {% if signup_enabled %}
+      <a href="{% url 'signup' %}" class="btn {% if demo_mode %}btn-line{% else %}btn-fill{% endif %} min-h-14 px-6 text-lg">Set up your practice</a>
+    {% endif %}
+    {% if not demo_mode or not signup_enabled %}
+      <a href="{% url 'login' %}" class="btn {% if demo_mode or signup_enabled %}btn-line{% else %}btn-fill{% endif %} min-h-14 px-6 text-lg">Log in</a>
+    {% endif %}
+  </div>
+{% endpartialdef %}
+
+<header class="border-b border-gray-300">
+  <div class="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
+    <a href="/" class="flex min-h-12 items-center font-heading text-xl font-semibold tracking-[0.12em] text-primary-dark uppercase">StockRoom</a>
+    <a href="{% url 'login' %}" class="btn btn-line">Log in</a>
+  </div>
+</header>
+
+<main>
+  <section class="mx-auto grid max-w-5xl gap-12 px-4 pt-10 pb-14 sm:px-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-center lg:gap-16 lg:pt-16 lg:pb-20">
+    <div>
+      <p class="kicker text-primary-dark">Stock ordering for New Zealand dental practices</p>
+      <h1 class="mt-3 text-[2.5rem] leading-[1.02] sm:text-[3.25rem]">Know what to order before the shelf is empty.</h1>
+      <p class="mt-5 max-w-xl text-lg leading-relaxed text-gray-700">Your assistants tap what they use as they go. It takes a second or two, gloves on. StockRoom works out when each item is likely to run out and puts it on one reorder list, sorted by supplier, for whoever does the ordering.</p>
+      <div class="mt-8">{% partial actions %}</div>
+      {% if demo_mode %}
+        <p class="mt-4 text-sm text-gray-600">The demo is a made-up practice called Discover Dental. Poke around as much as you like. It resets every night.</p>
+      {% endif %}
+    </div>
+
+    <figure>
+      <div class="blueprint bg-gray-50 p-4 sm:p-5">
+        <div class="flex items-baseline justify-between gap-3 border-b border-gray-300 pb-3">
+          <span class="font-heading text-xl font-semibold text-gray-900">What to order today</span>
+          <span class="kicker">Discover Dental</span>
+        </div>
+        <div class="-mx-4 sm:-mx-5">
+          <div class="flex items-stretch border-b border-gray-300 bg-status-out-tint">
+            <span class="w-[5px] shrink-0 bg-status-out"></span>
+            <div class="flex min-w-0 flex-1 flex-col gap-1.5 py-3 pr-4 pl-3 sm:pr-5">
+              <span class="flex items-baseline gap-3">
+                <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">Suction tips, disposable</span>
+                <span class="shrink-0 font-heading font-semibold text-status-out">Out now</span>
+              </span>
+              <span><span class="chip border-status-out bg-status-out text-white">Out of stock</span></span>
+            </div>
+          </div>
+          <div class="flex items-stretch border-b border-gray-300">
+            <span class="w-[5px] shrink-0 bg-status-now"></span>
+            <div class="flex min-w-0 flex-1 flex-col gap-1.5 py-3 pr-4 pl-3 sm:pr-5">
+              <span class="flex items-baseline gap-3">
+                <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">Nitrile gloves, size M</span>
+                <span class="shrink-0 font-heading font-semibold text-status-now">~5 days</span>
+              </span>
+              <span class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <span class="chip border-status-now bg-status-now text-white">Order now</span>
+                <span class="text-[0.8125rem] text-gray-600">Henry Schein, ~5 days to arrive</span>
+              </span>
+            </div>
+          </div>
+          <div class="flex items-stretch border-b border-gray-300">
+            <span class="w-[5px] shrink-0 bg-status-week"></span>
+            <div class="flex min-w-0 flex-1 flex-col gap-1.5 py-3 pr-4 pl-3 sm:pr-5">
+              <span class="flex items-baseline gap-3">
+                <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">Face masks, Level 2</span>
+                <span class="shrink-0 font-heading font-semibold text-status-week">~11 days</span>
+              </span>
+              <span><span class="chip border-status-week text-status-week">Order this week</span></span>
+            </div>
+          </div>
+        </div>
+        <p class="pt-3 text-sm font-medium text-gray-600">38 other items fine, nothing to do</p>
+      </div>
+      <figcaption class="mt-3 text-sm text-gray-600">The home screen, showing the demo practice's stock.</figcaption>
+    </figure>
+  </section>
+
+  <section class="border-t border-gray-300">
+    <div class="mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:py-20">
+      <h2 class="text-[1.75rem] sm:text-[2rem]">How it works</h2>
+      <ol class="mt-8 grid gap-10 md:grid-cols-3">
+        <li class="border-t-2 border-primary pt-4">
+          <p class="font-heading text-sm font-semibold tracking-[0.12em] text-primary-dark" aria-hidden="true">01</p>
+          <h3 class="mt-2 text-xl">Assistants tap what they use</h3>
+          <p class="mt-2 leading-relaxed text-gray-700">The buttons are "Used one", "Used the last one" and "Running low". Logging something takes a tap or two between patients, and it still works when the Wi-Fi drops out.</p>
+        </li>
+        <li class="border-t-2 border-primary pt-4">
+          <p class="font-heading text-sm font-semibold tracking-[0.12em] text-primary-dark" aria-hidden="true">02</p>
+          <h3 class="mt-2 text-xl">StockRoom does the maths</h3>
+          <p class="mt-2 leading-relaxed text-gray-700">It averages each item's use over the last eight weeks and allows for how long your supplier takes to deliver. It shows its working, so you can see why something says "Order now".</p>
+        </li>
+        <li class="border-t-2 border-primary pt-4">
+          <p class="font-heading text-sm font-semibold tracking-[0.12em] text-primary-dark" aria-hidden="true">03</p>
+          <h3 class="mt-2 text-xl">You order from one list</h3>
+          <p class="mt-2 leading-relaxed text-gray-700">Everything that needs ordering sits on one list, sorted by supplier. You can ring or email the supplier from there (StockRoom writes the email), then mark it ordered. When the delivery turns up, whoever unpacks it ticks it off.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="border-t border-gray-300 bg-gray-50">
+    <div class="mx-auto grid max-w-5xl gap-8 px-4 py-14 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 lg:py-20">
+      <h2 class="text-[1.75rem] sm:text-[2rem]">What it changes for a practice manager</h2>
+      <ul class="divide-y divide-gray-300 border-y border-gray-300 text-[1.0625rem] leading-relaxed text-gray-800">
+        <li class="py-4">You hear about the gloves running low while there's still time to get more in.</li>
+        <li class="py-4">You count less. There's a full stocktake for when you want one, but day to day the numbers come from the people using the stock.</li>
+        <li class="py-4">You get a rough idea of spend: what you've ordered this week, month or year, by supplier, without digging through invoices.</li>
+        <li class="py-4">The practice has one login. Each device signs in once, then each person taps their own code, and assistants never see prices.</li>
+        <li class="py-4">Getting started means adding your suppliers, bringing in your stock list and counting everything once.{% if ai_enabled %} You can paste the list in or take a photo of an invoice, and check what StockRoom found before anything's saved.{% endif %}</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="border-t border-gray-300">
+    <div class="mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:py-20">
+      <div class="blueprint p-5 sm:p-8">
+        <h2 class="text-[1.75rem] sm:text-[2rem]">What it doesn't do</h2>
+        <ul class="mt-5 grid gap-x-12 gap-y-4 leading-relaxed text-gray-800 md:grid-cols-2">
+          <li class="border-l-2 border-gray-300 pl-4">It doesn't place orders. You still ring or email your supplier. StockRoom tells you what to order and when.</li>
+          <li class="border-l-2 border-gray-300 pl-4">It doesn't connect to your suppliers' systems or to your practice management software.</li>
+          <li class="border-l-2 border-gray-300 pl-4">The forecast isn't much use for the first few weeks. Until it has enough taps and counts to go on, it shows a range instead of a date.</li>
+          <li class="border-l-2 border-gray-300 pl-4">It keeps your stock, your suppliers and your staff's names, and nothing about patients.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-t border-gray-300">
+    <div class="mx-auto max-w-2xl px-4 py-14 text-center sm:px-6 lg:py-20">
+      <h2 class="text-[1.75rem] sm:text-[2rem]">Have a look around</h2>
+      <p class="mt-4 text-lg leading-relaxed text-gray-700">
+        {% if demo_mode %}The demo practice has 16 weeks of made-up history, so its forecasts and reorder list look the way yours would after a few months of use.{% else %}Set up your practice, add your suppliers and stock, and give each person on the team their own code.{% endif %}
+      </p>
+      <div class="mt-8 sm:flex sm:justify-center">{% partial actions %}</div>
+    </div>
+  </section>
+</main>
+
+<footer class="border-t border-gray-300">
+  <div class="mx-auto flex max-w-5xl flex-col gap-1 px-4 py-6 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <p>StockRoom. Built for New Zealand dental practices.</p>
+    <a href="{% url 'login' %}" class="link">Log in</a>
+  </div>
+</footer>
+{% endblock %}
