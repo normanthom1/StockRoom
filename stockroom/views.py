@@ -13,9 +13,12 @@ from django.urls import reverse
 @login_not_required
 def healthz(request):
     """Used by Railway's healthcheck. A real query, not just a 200, so a
-    database that's down or still migrating shows as unhealthy too."""
+    database that's down or still migrating shows as unhealthy too. It also
+    looks up the stylesheet's hashed name, which fails if the build skipped
+    collectstatic (every page would 500), so Railway keeps the old deployment."""
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
+    static("css/tailwind.css")
     return HttpResponse("ok")
 
 
