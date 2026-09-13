@@ -30,7 +30,7 @@ class UserAdmin(BaseUserAdmin):
     add_form = UserCreationAdminForm
     fieldsets = (
         (None, {"fields": ("email", "password")}),
-        ("Practice", {"fields": ("name", "organisation", "role")}),
+        ("Practice", {"fields": ("name", "organisation", "role", "pin", "is_practice_login")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
@@ -39,14 +39,14 @@ class UserAdmin(BaseUserAdmin):
             None,
             {
                 "classes": ("wide",),
-                "fields": ("email", "name", "organisation", "role", "usable_password", "password1", "password2"),
+                "fields": ("email", "name", "organisation", "role", "is_practice_login", "usable_password", "password1", "password2"),
             },
         ),
     )
-    list_display = ("email", "name", "organisation", "role", "is_superuser")
-    list_filter = ("role", "is_superuser", "is_active", "organisation")
+    list_display = ("__str__", "name", "organisation", "role", "pin", "is_practice_login", "is_superuser")
+    list_filter = ("role", "is_practice_login", "is_superuser", "is_active", "organisation")
     search_fields = ("email", "name")
-    ordering = ("email",)
+    ordering = ("organisation", "name", "email")
 
 
 @admin.register(Organisation)

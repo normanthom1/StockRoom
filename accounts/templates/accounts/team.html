@@ -3,23 +3,32 @@
 {% block title %}Team · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Team</h1>
+<div class="mb-1 flex items-center gap-3">
+  <h1 class="flex-1">Team</h1>
+  {% if user.is_practice_login %}<a href="{% url 'enter_code' %}" class="btn btn-line shrink-0">Done</a>{% endif %}
+</div>
+<p class="mb-5 text-sm text-gray-600">
+  Devices sign in once with the practice login{% if practice_logins %} ({{ practice_logins|join:", " }}){% endif %}.
+  After that, everyone taps their own 2-digit code.
+</p>
 
 <section class="mb-8">
   <h2 class="kicker mb-1">Staff</h2>
   <ul class="border-t border-gray-300">
     {% for member in members %}
       <li class="border-b border-gray-200 py-4">
-        <p class="font-heading text-lg leading-tight font-semibold text-gray-900">
-          {{ member.name|default:member.email }}{% if member == request.user %} <span class="font-sans text-sm font-normal text-gray-600">(you)</span>{% endif %}
-        </p>
+        <div class="flex items-baseline gap-3">
+          <p class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">
+            {{ member.name|default:member.email }}{% if member == request.user %} <span class="font-sans text-sm font-normal text-gray-600">(you)</span>{% endif %}
+          </p>
+          {% if member.pin %}<span class="shrink-0 text-sm text-gray-600">Code <span class="font-heading text-lg font-semibold text-gray-900">{{ member.pin }}</span></span>{% endif %}
+        </div>
         <p class="mb-3 text-sm text-gray-600">
-          {{ member.email }} ·
-          {% if member.is_active %}{{ member.get_role_display }}{% else %}<span class="text-status-out">Deactivated</span>{% endif %}
+          {% if member.is_active %}{{ member.get_role_display }}{% else %}<span class="text-status-out">Deactivated</span>{% endif %}{% if not member.pin %} &middot; {{ member.email }}{% endif %}
         </p>
 
-        {% if member.is_active %}
-          <div class="grid grid-cols-3 gap-2">
+        <div class="grid grid-cols-2 gap-2">
+          {% if member.is_active %}
             <form method="post" action="{% url 'team_role' member.pk %}">
               {% csrf_token %}
               <input type="hidden" name="role" value="{% if member.role == 'admin' %}assistant{% else %}admin{% endif %}">
@@ -27,42 +36,34 @@
                 {% if member.role == 'admin' %}Make assistant{% else %}Make admin{% endif %}
               </button>
             </form>
-            <form method="post" action="{% url 'team_reset_link' member.pk %}">
-              {% csrf_token %}
-              <button type="submit" class="btn btn-line w-full text-sm">
-                Password reset link
-              </button>
-            </form>
             {% if member != request.user %}
               <form method="post" action="{% url 'team_set_active' member.pk %}">
                 {% csrf_token %}
                 <input type="hidden" name="active" value="0">
-                <button type="submit" class="btn btn-line w-full text-sm text-status-now">
-                  Deactivate
-                </button>
+                <button type="submit" class="btn btn-line w-full text-sm text-status-now">Deactivate</button>
               </form>
             {% endif %}
-          </div>
-        {% else %}
-          <form method="post" action="{% url 'team_set_active' member.pk %}">
-            {% csrf_token %}
-            <input type="hidden" name="active" value="1">
-            <button type="submit" class="btn btn-line w-full text-sm">
-              Reactivate
-            </button>
-          </form>
-        {% endif %}
+          {% else %}
+            <form method="post" action="{% url 'team_set_active' member.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="active" value="1">
+              <button type="submit" class="btn btn-line w-full text-sm">Reactivate</button>
+            </form>
+          {% endif %}
+        </div>
       </li>
+    {% empty %}
+      <li class="py-4 text-sm text-gray-600">No one yet. Add the first person below.</li>
     {% endfor %}
   </ul>
 </section>
 
 <section class="blueprint p-4">
-  <h2 class="mb-4">Invite someone</h2>
-  <form method="post" action="{% url 'team_invite' %}" class="space-y-4">
+  <h2 class="mb-4">Add someone</h2>
+  <form method="post" action="{% url 'team_add' %}" class="space-y-4">
     {% csrf_token %}
-    {{ invite_form }}
-    <button type="submit" class="btn-primary">Create invite link</button>
+    {{ form }}
+    <button type="submit" class="btn-primary">Add to the team</button>
   </form>
 </section>
 {% endblock %}

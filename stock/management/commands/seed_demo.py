@@ -1,8 +1,9 @@
-"""Seed (or reset) a "Demo Dental" organisation with realistic-looking history.
+"""Seed (or reset) the demo practice (stockroom.demo.DEMO_ORG) with
+realistic-looking history, one practice login and four staff codes.
 
 Deterministic: always the same output for the same code, via random.Random(42).
 Safe to inspect before running for real practices - it only ever touches the
-one organisation named "Demo Dental".
+one organisation named DEMO_ORG.
 """
 
 import random
@@ -16,20 +17,21 @@ from django.utils import timezone
 from accounts.models import Organisation, User
 from stock.forecast import round_order_qty
 from stock.models import Item, OrderLine, StockEvent, Supplier
+from stockroom.demo import DEMO_EMAIL, DEMO_ORG, DEMO_PASSWORD
 
 WEEK = timedelta(weeks=1)
-DEMO_PASSWORD = "DemoPass123"
 
 SUPPLIERS = {
     "Henry Schein": {"lead_days": 5, "phone": "0800 807 707", "email": "orders@henryschein.co.nz"},
     "Dentsply": {"lead_days": 7, "phone": "0800 335 626", "email": "orders@dentsply.co.nz"},
 }
 
-USERS = [
-    {"email": "sandy@demodental.test", "name": "Sandy", "role": User.Role.ADMIN},
-    {"email": "owner@demodental.test", "name": "Practice Owner", "role": User.Role.ADMIN},
-    {"email": "johanna@demodental.test", "name": "Johanna", "role": User.Role.ASSISTANT},
-    {"email": "liz@demodental.test", "name": "Liz", "role": User.Role.ASSISTANT},
+# name, code, role - the practice login's staff.
+STAFF = [
+    ("Sandy", "00", User.Role.ADMIN),
+    ("Johanna", "11", User.Role.ASSISTANT),
+    ("Liz", "22", User.Role.ASSISTANT),
+    ("Practice Owner", "55", User.Role.ADMIN),
 ]
 
 # name, unit, supplier, weekly usage rate, unit price, shape.
@@ -95,11 +97,11 @@ DAYS_OFFSET = {"order_now": 1, "this_week": 6, "ok": 25, "spike": 25, "short_his
 @click.command()
 @click.option("--reset", is_flag=True, help="Delete and recreate the demo organisation.")
 def command(reset):
-    """Create (or --reset) the "Demo Dental" organisation with 16 weeks of history."""
-    existing = Organisation.objects.filter(name="Demo Dental").first()
+    """Create (or --reset) the demo practice with 16 weeks of history."""
+    existing = Organisation.objects.filter(name=DEMO_ORG).first()
     if existing:
         if not reset:
-            raise click.ClickException('"Demo Dental" already exists. Re-run with --reset to recreate it.')
+            raise click.ClickException(f'"{DEMO_ORG}" already exists. Re-run with --reset to recreate it.')
         with transaction.atomic():
             # Deleted in dependency order: StockEvent/OrderLine protect their
             # user, Item protects its supplier, and Organisation is protected
@@ -112,12 +114,13 @@ def command(reset):
             existing.delete()
 
     with transaction.atomic():
-        org = Organisation.objects.create(name="Demo Dental")
-        users = {u["email"]: User.objects.create_user(u["email"], DEMO_PASSWORD, organisation=org, **{
-            k: v for k, v in u.items() if k != "email"
-        }) for u in USERS}
-        admins = [u for u in users.values() if u.is_org_admin]
-        assistants = [u for u in users.values() if not u.is_org_admin]
+        org = Organisation.objects.create(name=DEMO_ORG)
+        User.objects.create_user(
+            DEMO_EMAIL, DEMO_PASSWORD, organisation=org, name="Reception", role=User.Role.ADMIN, is_practice_login=True
+        )
+        staff = [User.objects.create_staff(org, name, pin, role) for name, pin, role in STAFF]
+        admins = [u for u in staff if u.is_org_admin]
+        assistants = [u for u in staff if not u.is_org_admin]
 
         suppliers = {
             name: Supplier.objects.create(organisation=org, name=name, **info) for name, info in SUPPLIERS.items()
@@ -135,7 +138,8 @@ def command(reset):
             )
             _seed_item_history(rng, org, item, rate, shape, admins, assistants, now)
 
-    click.echo(f'Seeded "{org.name}" with {len(ITEMS)} items. Demo password for all users: {DEMO_PASSWORD}')
+    codes = ", ".join(f"{name} {pin}" for name, pin, _ in STAFF)
+    click.echo(f'Seeded "{org.name}" with {len(ITEMS)} items. Practice login: {DEMO_EMAIL} / {DEMO_PASSWORD}. Codes: {codes}')
 
 
 def _seed_item_history(rng, org, item, weekly_rate, shape, admins, assistants, now):

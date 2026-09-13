@@ -64,17 +64,6 @@ document.addEventListener("alpine:init", () => {
     },
   }));
 
-  Alpine.data("copyLink", () => ({
-    copied: false,
-    get notCopied() {
-      return !this.copied;
-    },
-    copy(event) {
-      navigator.clipboard.writeText(event.currentTarget.dataset.link);
-      this.copied = true;
-      setTimeout(() => { this.copied = false; }, 2000);
-    },
-  }));
 });
 
 // --- Delegated handlers for data-* attributes ---
@@ -90,6 +79,9 @@ document.addEventListener("click", (event) => {
   target.closest("[data-select-all]")?.select();
   const tile = target.closest("[data-capture-tile]");
   if (tile) openCaptureSheet(tile);
+  const codeKey = target.closest("[data-code-key]");
+  if (codeKey) typeCode(codeKey.dataset.codeKey);
+  if (target.closest("[data-code-clear]")) document.querySelector("[data-code-input]").value = "";
 });
 
 document.addEventListener("submit", (event) => {
@@ -104,7 +96,21 @@ document.addEventListener("submit", (event) => {
 
 document.addEventListener("input", (event) => {
   if (event.target.matches("[data-tile-search]")) filterTiles(event.target.value);
+  if (event.target.matches("[data-code-input]")) submitCodeIfComplete(event.target);
 });
+
+// --- Code pad: two digits in, from the keypad or a keyboard, and it submits itself ---
+
+function typeCode(digit) {
+  const input = document.querySelector("[data-code-input]");
+  if (input.value.length >= 2) return;
+  input.value += digit;
+  submitCodeIfComplete(input);
+}
+
+function submitCodeIfComplete(input) {
+  if (/^\d{2}$/.test(input.value)) input.form.requestSubmit();
+}
 
 // --- Shared bottom sheet ---
 

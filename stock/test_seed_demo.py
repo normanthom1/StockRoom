@@ -5,13 +5,14 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from accounts.models import Organisation, User
+from stockroom.demo import DEMO_ORG
 
 from .forecast import Status, forecast
 from .models import Item
 
 
 def seeded_statuses():
-    org = Organisation.objects.get(name="Demo Dental")
+    org = Organisation.objects.get(name=DEMO_ORG)
     counts = Counter()
     for item in Item.objects.filter(organisation=org):
         open_orders = [o for o in item.order_lines.all() if o.is_open]
@@ -29,7 +30,11 @@ class SeedDemoTests(TestCase):
         self.assertEqual(counts[Status.OUT], 1)
         self.assertEqual(counts[Status.ORDER_NOW], 2)
         self.assertGreaterEqual(counts[Status.ORDER_THIS_WEEK], 1)
-        self.assertEqual(User.objects.filter(organisation=org).count(), 4)
+        practice = User.objects.get(organisation=org, is_practice_login=True)
+        self.assertEqual(practice.email, "reception@discoverdental.co.nz")
+        self.assertTrue(practice.check_password("password"))
+        codes = dict(User.objects.filter(organisation=org, pin__isnull=False).values_list("name", "pin"))
+        self.assertEqual(codes, {"Sandy": "00", "Johanna": "11", "Liz": "22", "Practice Owner": "55"})
 
     def test_is_deterministic(self):
         call_command("seed_demo")

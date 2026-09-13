@@ -53,6 +53,7 @@ The prototype's "blueprint" style: Barlow body text, Barlow Condensed (`font-hea
 - **Quantity inputs** are `w-20 text-center`, with the unit beside them in a fixed-width `text-sm text-gray-600` span so the buttons line up row to row.
 - **Groups** (by supplier) get an `<h2>` over a `border-gray-300` rule, with the group's actions in a row of equal buttons underneath.
 - **Empty states** are a centred `blueprint p-5` message.
+- **Radio choices** (Django's `RadioSelect`) are styled as full-width 48px rows in the base layer, so `{{ form }}` needs no extra classes.
 - **Grey text** is `gray-500` or darker (these clear 4.5:1 on the page). Inputs keep a white fill and a `gray-500` border so the field edge reads (3:1).
 - **No rounded corners.** The radius tokens are 0; `rounded-full` is only for the "i" button.
 
@@ -65,7 +66,7 @@ The prototype's "blueprint" style: Barlow body text, Barlow Condensed (`font-hea
 
 ## Checking your work
 - Run `python manage.py tailwind build` after adding classes, and restart `runserver` after editing templates: with `--noreload` it keeps serving the old ones.
-- With `DEMO_MODE=1`, the login page has one-click manager and assistant sign-ins (`seed_demo` data). Screenshot at 390px wide with Playwright, and look at the pages, not just the tests.
+- With `DEMO_MODE=1`, the login page has a one-click sign-in to the demo practice (`seed_demo` data), then the code pad: `00` Sandy (manager), `11` Johanna (assistant). Screenshot at 390px wide with Playwright, and look at the pages, not just the tests.
 - Run `python scripts/axe_check.py http://127.0.0.1:<port>` before shipping. It must report every page clean.
 
 ## Copy

@@ -9,7 +9,7 @@ limits, and a tap queued by one user never being logged under another. This
 script covers what only a real browser can show.
 
 ## Setup
-1. Log in as an assistant on the phone.
+1. Sign the phone in with the practice login, then tap an assistant's code.
 2. Open **Log usage** once with a connection. The grid is cached after
    login too, but opening it once makes sure.
 3. On a laptop, open **Activity** as an admin and note the most recent entry.

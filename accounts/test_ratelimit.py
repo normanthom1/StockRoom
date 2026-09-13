@@ -1,11 +1,9 @@
 from django.contrib.auth.password_validation import get_default_password_validators
-from django.core import signing
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Organisation, User
-from .views import INVITE_SALT
 
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
@@ -70,13 +68,24 @@ class RateLimitTests(TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertContains(response, "Wait 60 minutes", status_code=429)
 
-    def test_invite_acceptance_is_limited(self):
+    def test_ten_wrong_codes_lock_the_code_pad_for_that_practice(self):
         org = Organisation.objects.create(name="Test Dental")
-        token = signing.dumps({"org": org.pk, "email": "new@example.com", "role": "assistant"}, salt=INVITE_SALT)
-        url = reverse("invite_accept", args=[token])
+        User.objects.create_user("front@example.com", "pw", organisation=org, role=User.Role.ADMIN, is_practice_login=True)
+        User.objects.create_staff(org, "Liz", "22")
+        self.client.post(reverse("login"), {"username": "front@example.com", "password": "pw"})
         for _ in range(10):
-            self.assertEqual(self.client.post(url, {"name": "New"}, REMOTE_ADDR="203.0.113.1").status_code, 200)
-        self.assertEqual(self.client.post(url, {"name": "New"}, REMOTE_ADDR="203.0.113.1").status_code, 429)
+            self.assertEqual(self.client.post(reverse("enter_code"), {"pin": "99"}).status_code, 200)
+        # Locked even for the right code, so guessing can't carry on underneath.
+        self.assertEqual(self.client.post(reverse("enter_code"), {"pin": "22"}).status_code, 429)
+
+    def test_right_codes_never_count_towards_the_lock(self):
+        org = Organisation.objects.create(name="Test Dental")
+        User.objects.create_user("front@example.com", "pw", organisation=org, role=User.Role.ADMIN, is_practice_login=True)
+        User.objects.create_staff(org, "Liz", "22")
+        self.client.post(reverse("login"), {"username": "front@example.com", "password": "pw"})
+        for _ in range(12):  # a busy morning of handing the device around
+            self.assertRedirects(self.client.post(reverse("enter_code"), {"pin": "22"}), reverse("stock:home"),
+                                 fetch_redirect_response=False)
 
     def test_django_admin_login_is_limited_too(self):
         url = reverse("admin:login")

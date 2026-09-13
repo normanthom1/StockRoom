@@ -55,6 +55,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     # Every view needs a login unless it's marked @login_not_required.
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
+    # A practice login only opens the device; stock work needs a staff code.
+    "accounts.middleware.PracticeLoginMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
@@ -121,18 +123,17 @@ LOGOUT_REDIRECT_URL = "login"
 # Staff log in on their phones once and stay logged in.
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 60  # 60 days
 
-# The public portfolio demo: one-click sign-in as a demo user, a nightly
-# reset of "Demo Dental" (see stockroom.demo.DemoResetMiddleware), and
+# The public portfolio demo: one-click sign-in to the demo practice, a nightly
+# reset of it (see stockroom.demo.DemoResetMiddleware), and
 # sign-up hidden by default (a demo visitor uses the demo practice, not
 # their own) unless explicitly turned back on.
 DEMO_MODE = env_bool("DEMO_MODE", False)
 SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", not DEMO_MODE)
 
-# Deliberately no provider (#13): invites and password resets for a team
-# member go out as mailto: links an admin sends from their own inbox
-# (accounts.mailto). The one thing that can't cover, a signed self-service
-# password reset link with nobody logged in to send it, prints to stdout,
-# which is Railway's logs in production, and stays a manual last resort.
+# Deliberately no provider (#13). Staff have no email or password of their
+# own (they sign in with a code), so the only mail is the practice login's
+# self-service password reset link. It prints to stdout, which is Railway's
+# logs in production, and stays a manual last resort.
 MAILERS = {"default": {"BACKEND": "stockroom.mail.ReadableConsoleBackend"}}
 DEFAULT_FROM_EMAIL = "StockRoom <no-reply@stockroom.invalid>"
 

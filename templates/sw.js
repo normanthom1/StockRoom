@@ -180,7 +180,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (request.method === "POST" && SESSION_URLS.includes(url.pathname)) {
-    // Devices are shared: wipe every cache when someone logs in or out, then
+    // Devices are shared: wipe every cache when someone logs in, out or switches, then
     // put back only the public app shell so the offline page still works.
     // Queued taps stay; the server only accepts them from the user who made them.
     const done = fetch(request).then(async (response) => {

@@ -1,5 +1,5 @@
-"""Cache-based rate limiting for the views a stranger can hammer: login,
-sign-up and invite acceptance.
+"""Cache-based rate limiting for the views someone can hammer: login,
+sign-up and the staff code pad.
 
 ponytail: the default cache is per-process memory. That's one bucket today
 (gunicorn runs a single worker on Railway); with more workers or instances,
@@ -21,9 +21,13 @@ def client_ip(request):
     return (header and request.META.get(header)) or request.META.get("REMOTE_ADDR", "")
 
 
+def _cache_key(key):
+    return "ratelimit:" + hashlib.sha256(key.encode()).hexdigest()
+
+
 def _over_limit(key, limit, window):
     """Count one attempt against key. True once it's past limit in this window."""
-    key = "ratelimit:" + hashlib.sha256(key.encode()).hexdigest()
+    key = _cache_key(key)
     cache.add(key, 0, window)  # the window starts at the first attempt
     try:
         count = cache.incr(key)
@@ -61,3 +65,17 @@ def rate_limit(scope, *, per_ip, per_field=None, window=WINDOW):
 
 
 login_rate_limit = rate_limit("login", per_ip=30, per_field=("username", 5))
+
+
+# Staff codes: only wrong codes count, so a busy practice can switch people
+# all day. ponytail: two digits is 100 guesses, so this slows a guesser down
+# rather than stopping one; the practice password is the real lock.
+CODE_FAILURES = 10
+
+
+def code_entry_locked(practice):
+    return cache.get(_cache_key(f"code:{practice.pk}"), 0) >= CODE_FAILURES
+
+
+def record_wrong_code(practice):
+    _over_limit(f"code:{practice.pk}", CODE_FAILURES, WINDOW)

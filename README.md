@@ -14,9 +14,11 @@ runs empty.
 
 **[stockroom-production-1adf.up.railway.app](https://stockroom-production-1adf.up.railway.app/)**
 
-The login page has one-click buttons to try every role, no account needed:
-Sandy (practice manager), Johanna (dental assistant), and a Practice Owner.
-Demo data resets every night, so feel free to change things.
+The login page has a one-click button into the demo practice, Discover
+Dental (or log in with `reception@discoverdental.co.nz` and the password
+`password`). Then tap a staff code: Sandy `00` (practice manager), Johanna
+`11` and Liz `22` (dental assistants), or the Practice Owner `55`. Demo data
+resets every night, so feel free to change things.
 
 <!-- Once DEMO_MODE=1 is set on Railway (see Local development), these buttons show up. -->
 
@@ -54,6 +56,14 @@ drops to "low" under 4 weeks of history, and the UI shows a range instead
 of a single date. See [why a moving average](#why-a-moving-average-before-any-ml)
 below.
 
+**One login per practice, one code per person.** A practice signs each
+device in once with its practice login (an email and password). Whoever picks
+the device up then taps their own 2-digit code, so every tap is credited to
+a person without anyone stopping to log in. The session remembers which
+practice login opened it: a code only reaches that practice's staff, and
+changing the practice password signs every device out
+(`accounts/middleware.py`).
+
 **Multi-tenancy.** Every row belongs to one `Organisation`, and every user
 is an `admin` or `assistant` for exactly one practice. A shared `for_org()`
 queryset method and `OrgOwned` base model keep every query scoped; a
@@ -73,7 +83,7 @@ reached the server but whose reply was lost can't be logged twice.
 
 **Security.** A Content Security Policy with no inline scripts and no
 `eval` (Alpine's CSP build, htmx with eval off, everything in one
-`static/js/app.js`), rate limiting on login/sign-up/invite acceptance,
+`static/js/app.js`), rate limiting on login, sign-up and wrong staff codes,
 HTTPS with HSTS, and Django admin moved off its default URL.
 
 ## Local development
@@ -92,8 +102,9 @@ python manage.py seed_demo      # optional: a realistic demo practice with 16 we
 python manage.py tailwind runserver
 ```
 
-Then open `http://localhost:8000`. `seed_demo` prints the demo users'
-password; re-run it with `--reset` to wipe and recreate the demo practice.
+Then open `http://localhost:8000`. `seed_demo` prints the practice login
+and the staff codes; re-run it with `--reset` to wipe and recreate the demo
+practice.
 
 Run the tests with `python manage.py test`. `scripts/axe_check.py` is a
 separate, dev-only accessibility check (`pip install playwright

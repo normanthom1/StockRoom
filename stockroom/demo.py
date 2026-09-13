@@ -1,7 +1,7 @@
 """Resets the public portfolio demo overnight with no separate Railway
 service. See issue #35: instead of a cron job, the first request each day
-(NZT) past midnight re-seeds "Demo Dental" inline, on whichever visitor's
-request happens to cross the boundary.
+(NZT) past midnight re-seeds the demo practice inline, on whichever
+visitor's request happens to cross the boundary.
 """
 
 from django.conf import settings
@@ -10,6 +10,12 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from stock.models import DemoResetState
+
+# The seeded practice and its practice login. Demo data only: the password is
+# public on the demo's login page, so never give a real practice these.
+DEMO_ORG = "Discover Dental"
+DEMO_EMAIL = "reception@discoverdental.co.nz"
+DEMO_PASSWORD = "password"
 
 # Comfortably longer than seed_demo takes (recreates ~44 items and their history).
 RESET_LOCK_SECONDS = 120

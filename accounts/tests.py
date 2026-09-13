@@ -1,5 +1,4 @@
 import re
-from unittest import mock
 
 from django.contrib.auth import authenticate
 from django.core import mail
@@ -64,9 +63,10 @@ class UserTests(TestCase):
 class AuthFlowTests(TestCase):
     signup_data = {
         "practice_name": "Kowhai Dental",
-        "name": "Sandy Ngata",
-        "email": "sandy@kowhai.test",
+        "email": "reception@kowhai.test",
         "password": "gloves-and-gauze-42",
+        "name": "Sandy Ngata",
+        "pin": "07",
     }
 
     def test_pages_render(self):
@@ -75,25 +75,35 @@ class AuthFlowTests(TestCase):
             with self.subTest(url):
                 self.assertEqual(self.client.get(url).status_code, 200)
 
-    def test_signup_creates_the_practice_and_its_manager(self):
+    def test_signup_creates_the_practice_login_and_its_first_manager(self):
         response = self.client.post("/accounts/signup/", self.signup_data)
         self.assertRedirects(response, "/")
-        user = User.objects.get(email="sandy@kowhai.test")
-        self.assertEqual(user.name, "Sandy Ngata")
-        self.assertEqual(user.organisation.name, "Kowhai Dental")
-        self.assertTrue(user.is_org_admin)
-        self.assertEqual(int(self.client.session["_auth_user_id"]), user.pk)
+        practice = User.objects.get(email="reception@kowhai.test")
+        self.assertTrue(practice.is_practice_login)
+        self.assertEqual(practice.organisation.name, "Kowhai Dental")
+        manager = User.objects.get(organisation=practice.organisation, pin="07")
+        self.assertEqual(manager.name, "Sandy Ngata")
+        self.assertTrue(manager.is_org_admin)
+        self.assertFalse(manager.has_usable_password())
+        # Straight in as the manager, on a session the practice login opened.
+        self.assertEqual(int(self.client.session["_auth_user_id"]), manager.pk)
+        self.assertEqual(self.client.get("/").status_code, 200)
 
     def test_signup_rejects_an_email_in_use_in_any_case(self):
-        User.objects.create_user("sandy@kowhai.test", "pw", organisation=Organisation.objects.create(name="Other"))
-        response = self.client.post("/accounts/signup/", {**self.signup_data, "email": "SANDY@kowhai.test"})
+        User.objects.create_user("reception@kowhai.test", "pw", organisation=Organisation.objects.create(name="Other"))
+        response = self.client.post("/accounts/signup/", {**self.signup_data, "email": "RECEPTION@kowhai.test"})
         self.assertContains(response, "Someone already uses that email address")
         self.assertFalse(Organisation.objects.filter(name="Kowhai Dental").exists())
 
     def test_signup_rejects_a_weak_password(self):
         response = self.client.post("/accounts/signup/", {**self.signup_data, "password": "password"})
         self.assertContains(response, "This password is too common")
-        self.assertFalse(User.objects.filter(email="sandy@kowhai.test").exists())
+        self.assertFalse(User.objects.filter(email="reception@kowhai.test").exists())
+
+    def test_signup_needs_a_two_digit_code(self):
+        response = self.client.post("/accounts/signup/", {**self.signup_data, "pin": "7a"})
+        self.assertContains(response, "Use two digits")
+        self.assertFalse(Organisation.objects.filter(name="Kowhai Dental").exists())
 
     @override_settings(SIGNUP_ENABLED=False)
     def test_signup_can_be_switched_off(self):
@@ -107,15 +117,17 @@ class AuthFlowTests(TestCase):
         self.assertEqual(self.client.get("/").status_code, 302)
 
         response = self.client.post(
-            "/accounts/login/", {"username": "Sandy@Kowhai.test", "password": self.signup_data["password"]}
+            "/accounts/login/", {"username": "Reception@Kowhai.test", "password": self.signup_data["password"]}
         )
-        self.assertRedirects(response, "/")
+        # The practice login alone only reaches the code pad.
+        self.assertRedirects(response, "/", fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/"), "/accounts/code/")
 
     def test_password_reset_link_sets_a_new_password(self):
         self.client.post("/accounts/signup/", self.signup_data)
         self.client.post("/accounts/logout/")
 
-        self.client.post("/accounts/password_reset/", {"email": "sandy@kowhai.test"})
+        self.client.post("/accounts/password_reset/", {"email": "reception@kowhai.test"})
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Reset your StockRoom password")
         link = re.search(r"http://testserver(/accounts/reset/\S+)", mail.outbox[0].body).group(1)
@@ -126,7 +138,7 @@ class AuthFlowTests(TestCase):
             set_password_url, {"new_password1": "fresh-bibs-and-tips-7", "new_password2": "fresh-bibs-and-tips-7"}
         )
         self.assertRedirects(response, "/accounts/reset/done/")
-        self.assertTrue(self.client.login(email="sandy@kowhai.test", password="fresh-bibs-and-tips-7"))
+        self.assertTrue(self.client.login(email="reception@kowhai.test", password="fresh-bibs-and-tips-7"))
 
     def test_password_reset_for_an_unknown_email_sends_nothing_and_says_the_same(self):
         response = self.client.post("/accounts/password_reset/", {"email": "nobody@nowhere.test"})
@@ -135,6 +147,8 @@ class AuthFlowTests(TestCase):
 
     def test_change_password(self):
         self.client.post("/accounts/signup/", self.signup_data)
+        self.client.post("/accounts/logout/")
+        self.client.post("/accounts/login/", {"username": "reception@kowhai.test", "password": self.signup_data["password"]})
         response = self.client.post(
             "/accounts/password_change/",
             {
@@ -144,7 +158,7 @@ class AuthFlowTests(TestCase):
             },
         )
         self.assertRedirects(response, "/accounts/password_change/done/")
-        self.assertTrue(self.client.login(email="sandy@kowhai.test", password="fresh-bibs-and-tips-7"))
+        self.assertTrue(self.client.login(email="reception@kowhai.test", password="fresh-bibs-and-tips-7"))
 
 
 class TeamTests(TestCase):
@@ -152,68 +166,39 @@ class TeamTests(TestCase):
     def setUpTestData(cls):
         cls.org = Organisation.objects.create(name="Kowhai Dental")
         cls.admin = User.objects.create_user("sandy@kowhai.test", "pw", organisation=cls.org, role=User.Role.ADMIN)
-        cls.assistant = User.objects.create_user("liz@kowhai.test", "pw", organisation=cls.org)
+        cls.assistant = User.objects.create_staff(cls.org, "Liz", "22")
 
     def setUp(self):
         self.client.force_login(self.admin)
 
-    def _invite_link(self, email="new@kowhai.test", role="assistant"):
-        response = self.client.post("/accounts/team/invite/", {"email": email, "role": role})
-        self.assertEqual(response.status_code, 200)
-        match = re.search(r'value="(http://testserver/accounts/invite/[^"]+)"', response.content.decode())
-        return match.group(1)
+    def test_add_staff_with_a_code(self):
+        response = self.client.post("/accounts/team/add/", {"name": "Johanna", "pin": "11", "role": "assistant"})
+        self.assertRedirects(response, "/accounts/team/")
+        johanna = User.objects.get(organisation=self.org, pin="11")
+        self.assertEqual(johanna.name, "Johanna")
+        self.assertEqual(johanna.role, User.Role.ASSISTANT)
+        self.assertIsNone(johanna.email)
+        self.assertFalse(johanna.has_usable_password())
 
-    def test_invite_link_creates_the_teammate_on_accept(self):
-        link = self._invite_link(email="new@kowhai.test", role="assistant")
-        self.client.logout()
+    def test_add_staff_as_an_admin(self):
+        self.client.post("/accounts/team/add/", {"name": "Owner", "pin": "55", "role": "admin"})
+        self.assertTrue(User.objects.get(organisation=self.org, pin="55").is_org_admin)
 
-        response = self.client.get(link)
-        self.assertContains(response, "Kowhai Dental")
+    def test_a_code_can_only_be_used_once_per_practice(self):
+        response = self.client.post("/accounts/team/add/", {"name": "Someone", "pin": "22", "role": "assistant"})
+        self.assertContains(response, "Liz already uses 22")
+        # Another practice can reuse it.
+        User.objects.create_staff(Organisation.objects.create(name="Other"), "Other Liz", "22")
 
-        response = self.client.post(link, {"name": "New Person", "password": "gloves-and-gauze-42"})
-        self.assertRedirects(response, "/")
-        member = User.objects.get(email="new@kowhai.test")
-        self.assertEqual(member.name, "New Person")
-        self.assertEqual(member.organisation, self.org)
-        self.assertEqual(member.role, User.Role.ASSISTANT)
-        self.assertEqual(int(self.client.session["_auth_user_id"]), member.pk)
+    def test_codes_are_two_digits(self):
+        for pin in ["1", "123", "ab"]:
+            with self.subTest(pin):
+                response = self.client.post("/accounts/team/add/", {"name": "Someone", "pin": pin, "role": "assistant"})
+                self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(name="Someone").exists())
 
-    def test_invite_carries_the_chosen_role(self):
-        link = self._invite_link(role="admin")
-        self.client.logout()
-        self.client.post(link, {"name": "New Manager", "password": "gloves-and-gauze-42"})
-        self.assertTrue(User.objects.get(email="new@kowhai.test").is_org_admin)
-
-    def test_invite_rejects_an_email_already_in_use(self):
-        response = self.client.post("/accounts/team/invite/", {"email": "liz@kowhai.test", "role": "assistant"})
-        self.assertContains(response, "Someone already uses that email address")
-
-    def test_already_logged_in_cannot_accept_an_invite(self):
-        link = self._invite_link()
-        response = self.client.get(link)  # still logged in as self.admin
-        self.assertRedirects(response, "/")
-
-    def test_tampered_invite_link_is_rejected(self):
-        link = self._invite_link()
-        self.client.logout()
-        tampered = link[:-2] + ("y" if link[-2] != "y" else "z") + link[-1:]  # corrupt the token, keep the trailing /
-        response = self.client.get(tampered)
-        self.assertContains(response, "doesn't work")
-
-    def test_expired_invite_link_is_rejected(self):
-        link = self._invite_link()
-        self.client.logout()
-        with mock.patch("accounts.views.INVITE_MAX_AGE", -1):
-            response = self.client.get(link)
-        self.assertContains(response, "expired")
-
-    def test_invite_already_accepted_cannot_be_used_again(self):
-        link = self._invite_link()
-        self.client.logout()
-        self.client.post(link, {"name": "New Person", "password": "gloves-and-gauze-42"})
-        self.client.logout()
-        response = self.client.get(link)
-        self.assertContains(response, "already been used")
+    def test_team_page_shows_codes(self):
+        self.assertContains(self.client.get("/accounts/team/"), "22")
 
     def test_change_role(self):
         response = self.client.post(f"/accounts/team/{self.assistant.pk}/role/", {"role": "admin"})
@@ -254,16 +239,127 @@ class TeamTests(TestCase):
         self.admin.refresh_from_db()
         self.assertTrue(self.admin.is_active)
 
-    def test_reset_link_for_a_teammate_sets_their_password(self):
-        response = self.client.post(f"/accounts/team/{self.assistant.pk}/reset-link/")
-        self.assertEqual(response.status_code, 200)
-        link = re.search(r'value="(http://testserver/accounts/reset/[^"]+)"', response.content.decode()).group(1)
 
-        self.client.logout()
-        form_page = self.client.get(link, follow=True)
-        set_password_url = form_page.redirect_chain[-1][0]
-        response = self.client.post(
-            set_password_url, {"new_password1": "fresh-bibs-and-tips-7", "new_password2": "fresh-bibs-and-tips-7"}
+class PracticeLoginTests(TestCase):
+    """One email-and-password login per practice, then a 2-digit code per person."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organisation.objects.create(name="Discover Dental")
+        cls.practice = User.objects.create_user(
+            "reception@discover.test", "pw", organisation=cls.org, role=User.Role.ADMIN, is_practice_login=True
         )
-        self.assertRedirects(response, "/accounts/reset/done/")
-        self.assertTrue(self.client.login(email="liz@kowhai.test", password="fresh-bibs-and-tips-7"))
+        cls.sandy = User.objects.create_staff(cls.org, "Sandy", "00", User.Role.ADMIN)
+        cls.johanna = User.objects.create_staff(cls.org, "Johanna", "11")
+
+    def open_device(self):
+        self.client.post("/accounts/login/", {"username": "reception@discover.test", "password": "pw"})
+
+    def enter_code(self, pin):
+        return self.client.post("/accounts/code/", {"pin": pin})
+
+    def signed_in_as(self):
+        return int(self.client.session["_auth_user_id"])
+
+    def test_the_practice_login_alone_only_reaches_the_code_pad_and_team(self):
+        self.open_device()
+        for url in ["/", "/log-usage/", "/reorder/", "/items/"]:
+            with self.subTest(url):
+                self.assertRedirects(self.client.get(url), "/accounts/code/")
+        self.assertEqual(self.client.get("/accounts/code/").status_code, 200)
+        self.assertEqual(self.client.get("/accounts/team/").status_code, 200)
+
+    def test_a_code_signs_that_person_in(self):
+        self.open_device()
+        self.assertRedirects(self.enter_code("11"), "/")
+        self.assertEqual(self.signed_in_as(), self.johanna.pk)
+        self.assertContains(self.client.get("/"), "Johanna")
+
+    def test_switching_person_needs_only_their_code(self):
+        self.open_device()
+        self.enter_code("11")
+        self.assertEqual(self.client.get("/accounts/code/").status_code, 200)
+        self.enter_code("00")
+        self.assertEqual(self.signed_in_as(), self.sandy.pk)
+        self.assertEqual(self.client.get("/items/").status_code, 200)  # Sandy is an admin
+
+    def test_a_wrong_code_says_so_and_changes_nothing(self):
+        self.open_device()
+        response = self.enter_code("99")
+        self.assertContains(response, "match anyone")
+        self.assertEqual(self.signed_in_as(), self.practice.pk)
+
+    def test_a_deactivated_persons_code_does_not_work(self):
+        User.objects.filter(pk=self.johanna.pk).update(is_active=False)
+        self.open_device()
+        self.assertContains(self.enter_code("11"), "match anyone")
+
+    def test_a_code_never_reaches_another_practice(self):
+        other = Organisation.objects.create(name="Other Dental")
+        User.objects.create_staff(other, "Stranger", "44")
+        self.open_device()
+        self.assertContains(self.enter_code("44"), "match anyone")
+
+    def test_changing_the_practice_password_signs_every_device_out(self):
+        self.open_device()
+        self.enter_code("11")
+        self.practice.set_password("a-brand-new-password-9")
+        self.practice.save()
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith("/accounts/login/"))
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_deactivating_the_practice_login_signs_every_device_out(self):
+        self.open_device()
+        self.enter_code("11")
+        User.objects.filter(pk=self.practice.pk).update(is_active=False)
+        self.assertTrue(self.client.get("/").url.startswith("/accounts/login/"))
+
+    def test_a_staff_session_without_a_practice_login_is_signed_out(self):
+        self.client.force_login(self.johanna)
+        self.assertTrue(self.client.get("/").url.startswith("/accounts/login/"))
+
+    def test_the_practice_login_can_make_someone_admin(self):
+        self.open_device()
+        self.client.post(f"/accounts/team/{self.johanna.pk}/role/", {"role": "admin"})
+        self.johanna.refresh_from_db()
+        self.assertTrue(self.johanna.is_org_admin)
+
+    def test_an_admin_can_make_someone_admin(self):
+        self.open_device()
+        self.enter_code("00")
+        self.client.post(f"/accounts/team/{self.johanna.pk}/role/", {"role": "admin"})
+        self.johanna.refresh_from_db()
+        self.assertTrue(self.johanna.is_org_admin)
+
+    def test_an_assistant_cannot_reach_the_team_page(self):
+        self.open_device()
+        self.enter_code("11")
+        self.assertEqual(self.client.get("/accounts/team/").status_code, 403)
+
+    def test_the_practice_login_can_always_demote_the_last_staff_admin(self):
+        self.open_device()
+        self.client.post(f"/accounts/team/{self.sandy.pk}/role/", {"role": "assistant"})
+        self.sandy.refresh_from_db()
+        self.assertEqual(self.sandy.role, User.Role.ASSISTANT)
+
+    def test_the_practice_login_is_not_on_the_team_page_to_lock_out(self):
+        self.open_device()
+        self.enter_code("00")
+        for url in [f"/accounts/team/{self.practice.pk}/role/", f"/accounts/team/{self.practice.pk}/active/"]:
+            with self.subTest(url):
+                self.assertEqual(self.client.post(url, {"role": "assistant", "active": "0"}).status_code, 404)
+        self.practice.refresh_from_db()
+        self.assertTrue(self.practice.is_active)
+
+    def test_someone_with_their_own_email_login_has_no_code_pad(self):
+        solo = User.objects.create_user("solo@discover.test", "pw", organisation=self.org)
+        self.client.force_login(solo)
+        self.assertEqual(self.client.get("/accounts/code/").status_code, 403)
+
+    def test_staff_have_no_email_so_the_unique_email_rule_allows_many(self):
+        self.assertIsNone(self.sandy.email)
+        self.assertEqual(str(self.sandy), "Sandy")
+        self.sandy.full_clean()  # AbstractUser.clean() would otherwise turn None into a shared ""
+        self.assertIsNone(self.sandy.email)

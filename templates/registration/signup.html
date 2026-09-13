@@ -4,7 +4,7 @@
 {% block heading %}Set up your practice{% endblock %}
 
 {% block body %}
-<p class="text-gray-700">You'll be the practice manager. You can add your team once you're in.</p>
+<p class="text-gray-700">Your practice gets one login that every device signs in with. You'll be its first manager, with your own code; add the rest of the team once you're in.</p>
 <form method="post" class="mt-6 space-y-4">
   {% csrf_token %}
   {{ form }}
