@@ -3,7 +3,25 @@
 {% block title %}Import items · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-2">Import items from a CSV</h1>
+{% if ai_enabled %}
+  <h1 class="mb-2">Add your stock list</h1>
+  <p class="mb-4 text-sm text-gray-600">Paste your list, or take a photo of an invoice or order sheet, and StockRoom reads the items out of it. Nothing is saved until you've checked the preview.</p>
+
+  <form method="post" action="{% url 'assistant:import_with_ai' %}" enctype="multipart/form-data"
+        class="blueprint flex flex-col gap-2 p-4" data-disable-on-submit>
+    {% csrf_token %}
+    <label for="text" class="mb-0">Paste your list</label>
+    <textarea id="text" name="text" rows="6" placeholder="Nitrile gloves M, box of 100, Henry Schein, $8.50"></textarea>
+    <label for="document" class="mt-2 mb-0">Or a photo or PDF</label>
+    <input id="document" type="file" name="document" accept="image/*,application/pdf">
+    <button type="submit" class="btn-primary mt-2">Read my list</button>
+    <p class="text-xs text-gray-600">Read by Google Gemini, which takes a few seconds. Suppliers need setting up first, on the Suppliers page.</p>
+  </form>
+
+  <h2 class="mt-8 mb-2">Or import a CSV</h2>
+{% else %}
+  <h1 class="mb-2">Import items from a CSV</h1>
+{% endif %}
 <p class="mb-4 text-sm text-gray-600">Columns: name, unit, supplier, price, order_size, count. Only name, unit and supplier are required - supplier must match a supplier already set up here. Nothing is saved until you confirm the preview.</p>
 
 <form method="post" action="{% url 'stock:item_import_preview' %}" enctype="multipart/form-data" class="flex flex-col gap-2">

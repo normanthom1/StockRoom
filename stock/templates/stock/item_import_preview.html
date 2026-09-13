@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1 class="mb-2">Import preview</h1>
-<p class="mb-4 text-sm text-gray-600">{{ valid_count }} item{{ valid_count|pluralize }} ready to import{% if error_count %}, {{ error_count }} row{{ error_count|pluralize }} with a problem below - fix your CSV and try again for those{% endif %}.</p>
+<p class="mb-4 text-sm text-gray-600">{{ valid_count }} item{{ valid_count|pluralize }} ready to import{% if error_count %}, {{ error_count }} row{{ error_count|pluralize }} with a problem below - fix {{ error_count|pluralize:"it,them" }} and import again (a missing supplier can be added on the Suppliers page){% endif %}.</p>
 
 <div class="mb-6 border-t border-gray-300">
   {% for row in rows %}
@@ -28,6 +28,6 @@
     <button type="submit" class="btn-primary">Import {{ valid_count }} item{{ valid_count|pluralize }}</button>
   </form>
 {% else %}
-  <a href="{% url 'stock:item_import' %}" class="link">Choose a different file</a>
+  <a href="{% url 'stock:item_import' %}" class="link">Try again</a>
 {% endif %}
 {% endblock %}

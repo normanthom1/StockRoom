@@ -1,0 +1,37 @@
+HOW STOCKROOM WORKS
+
+StockRoom is a dental practice's shared stock list. Whoever uses supplies logs it as they go, StockRoom works out how fast each item is used and when it'll run out, and the manager orders from one reorder list grouped by supplier.
+
+Roles
+- Assistants log what they've used, flag an item as running low, set an exact count, receive deliveries, and ask for things to go on the reorder list. They never see prices or spending.
+- Managers (admins) can do all of that, plus order stock, call or email suppliers, add and edit items and suppliers, set prices and order sizes, run a stocktake, see Spending and Activity, and manage the team.
+
+Signing in
+- Each device signs in once with the practice's email and password (the practice login). Everyone then taps their own code: 2 digits for an assistant, then Go; 4 digits for a manager, which signs in by itself.
+- To hand the device over: tap your name at the top, then Switch person.
+- Forgotten the practice password: "Forgotten your password?" on the log in page.
+- Forgotten a staff code: a manager (or the practice login, via Manage staff) opens Team and changes the person's role, which asks them to choose a new code. There's no separate reset.
+
+Pages (bottom bar: Home, Log usage, Reorder list, Deliveries; managers also get More)
+- Home, "What to order today": items that are out, need ordering now or this week, or are on order, most urgent first. Everything else is under "other items fine". Tap an item for its details.
+- Log usage: tap an item's tile, then "Used 1", "Used the last one" (the shelf is empty), "Running low" (tells the manager), or "Set exact count". Search at the top. Works without signal; taps are saved and sync when back online. Undo is in the message that pops up.
+- Item details: a usage chart, a sentence saying when it'll run out and when to order by, and how sure that is. Assistants get "Tell the manager we're low" and "Set exact count". Managers can set the price, the standard order size, count it, and add it to the reorder list.
+- Reorder list: everything that needs ordering, grouped by supplier. Managers call or email the supplier from there (the email is written for them), set quantities, then tap "Mark ordered" or "Mark all ordered" (undo is in the message). "Add something to the list" at the bottom adds any item. Assistants see the same list, and use "Ask for something to be added" to ask the manager, whose list then shows "The team asked for..." with "Add to list" or "Not needed".
+- Deliveries: orders waiting to arrive, by supplier. When a delivery comes, tap "Receive" on a line (change the quantity if only some came; the rest stays on order) or "Receive all". Managers can correct the price as they receive.
+- More (managers): Stock (the item list: add, edit, archive, search; "Start a full stocktake"; "Import a CSV"), Suppliers (add and edit, delivery days with - and +, and a suggested delivery time from real deliveries), Spending (this week, month or year, by supplier and top items, plus an estimate), Activity (who did what, filter by item or person, and CSV downloads), Team.
+- Team: add staff with a name, role and code; make someone a manager or an assistant (they choose a new code); turn someone off when they leave.
+
+How the forecast works
+- On hand is the last count, plus deliveries since, minus what's been used since.
+- Weekly usage is the average of the last 8 weeks, leaving out a one-off spike week. With under 4 weeks of history it shows a range instead of a date.
+- "Order now" means it'll run out within the supplier's delivery time plus 3 days; "Order this week" within delivery time plus 10 days. "Running low" caps it at 4 days left until the next count or delivery.
+- Counts are the truth: a fresh count fixes any drift from missed taps.
+
+Getting started (a new practice)
+1. Set up your practice: "Set up your practice" on the log in page creates the practice login and the first manager's code.
+2. Add your suppliers: More, Suppliers, with how many days their deliveries take.
+3. Add your items: More, Stock, then "Import a CSV", or paste your stock list or upload a photo of an invoice and StockRoom reads it for you. Nothing is saved until you check the preview. Or add items one at a time.
+4. Count everything once: "Start a full stocktake" on the Stock page, so the forecast has a starting point.
+5. Add your team: Team, with a 2-digit code for each assistant and a 4-digit code for each manager.
+6. Sign in each device with the practice login and show the team their codes.
+The forecast gets useful after a couple of weeks of taps and counts, and confident after about 4 weeks.

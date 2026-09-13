@@ -1,5 +1,5 @@
 """Cache-based rate limiting for the views someone can hammer: login,
-sign-up and the staff code pad.
+sign-up, the staff code pad, and anything that calls Gemini.
 
 ponytail: the default cache is per-process memory. That's one bucket today
 (gunicorn runs a single worker on Railway); with more workers or instances,
@@ -79,3 +79,17 @@ def code_entry_locked(practice):
 
 def record_wrong_code(practice):
     _over_limit(f"code:{practice.pk}", CODE_FAILURES, WINDOW)
+
+
+# Gemini calls (assistant/): each costs money, so every one counts.
+AI_PER_HOUR = 20
+
+
+def ai_limited(request):
+    """True once this person has had AI_PER_HOUR answers this hour, or every
+    practice together has had settings.AI_DAILY_LIMIT today. On the demo,
+    visitors share the same staff accounts, so it's per device instead.
+    """
+    who = f"ip:{client_ip(request)}" if settings.DEMO_MODE else f"user:{request.user.pk}"
+    # Short-circuits: someone already over their own limit doesn't use up everyone's daily total.
+    return _over_limit(f"ai:{who}", AI_PER_HOUR, 60 * 60) or _over_limit("ai:all", settings.AI_DAILY_LIMIT, 24 * 60 * 60)

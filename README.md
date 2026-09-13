@@ -84,6 +84,17 @@ made with no signal is queued in IndexedDB with a client-generated UUID and
 replayed once reconnected; the server dedupes on that UUID, so a tap that
 reached the server but whose reply was lost can't be logged twice.
 
+**Ask StockRoom (optional, Google Gemini).** With `AI_API_KEY` set, an
+"Ask" button in the header opens a chat. It answers how-to questions from a
+built-in guide, and questions about the practice's own stock from a snapshot
+built fresh for each question. Managers' snapshots include prices and
+spending; assistants' never do. The same key lets a manager paste a stock
+list or photograph an invoice on the import page. Gemini reads it into rows
+that go through the normal CSV checks and preview, so nothing is saved
+unchecked. Gemini is called server-side only (`assistant/gemini.py`, no
+SDK), is rate limited per person and per day, and can't change anything.
+Questions and stock data go to Google, never patient data.
+
 **Security.** A Content Security Policy with no inline scripts and no
 `eval` (Alpine's CSP build, htmx with eval off, everything in one
 `static/js/app.js`), rate limiting on login, sign-up and wrong staff codes,

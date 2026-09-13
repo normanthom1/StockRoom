@@ -62,6 +62,10 @@
           <span class="grid size-8 place-items-center rounded-full border-[1.5px] border-primary font-heading text-sm font-semibold text-primary-dark">i</span>
         </button>
         <p class="min-w-0 flex-1 truncate font-heading text-lg font-semibold tracking-[0.06em] uppercase">{{ user.organisation|default:"StockRoom" }}</p>
+        {% if ai_enabled and not user.is_practice_login %}
+          {% url 'assistant:ask' as url_ask %}
+          <a href="{{ url_ask }}" class="btn btn-line shrink-0 px-3" {% if request.path == url_ask %}aria-current="page"{% endif %}>Ask</a>
+        {% endif %}
         {% if user.is_practice_login %}
           {# The practice login alone: no one has entered a code yet. #}
           <form method="post" action="{% url 'logout' %}" class="shrink-0">

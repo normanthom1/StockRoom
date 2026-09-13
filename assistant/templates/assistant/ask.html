@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Ask StockRoom · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Ask StockRoom</h1>
+<p class="mb-5 text-sm text-gray-600">How to do something, or what's in stock{% if user.is_org_admin %} and what it's cost{% endif %}. It can't change anything for you.</p>
+
+<div id="chat" class="flex flex-col gap-3" aria-live="polite">
+  {% partialdef turn %}
+    <p class="ml-auto max-w-[85%] bg-primary-tint px-3 py-2.5 text-gray-900">{{ q }}</p>
+    <p class="mr-auto max-w-[92%] border border-gray-300 bg-white px-3 py-2.5 leading-relaxed text-gray-900">{{ answer|linebreaksbr }}</p>
+  {% endpartialdef %}
+  {% for q, answer in history %}{% partial turn %}{% endfor %}
+</div>
+<p id="thinking" class="htmx-indicator mt-3 text-sm text-gray-600" role="status">Thinking…</p>
+
+<form hx-post="{% url 'assistant:ask' %}" hx-target="#chat" hx-swap="beforeend" hx-indicator="#thinking"
+      hx-disabled-elt="find button" data-ask class="mt-5 flex flex-col gap-2.5">
+  <label for="q" class="sr-only">Your question</label>
+  <textarea id="q" name="q" rows="2" maxlength="500" required placeholder="Ask a question…" class="text-lg"></textarea>
+  <button type="submit" class="btn-primary">Ask</button>
+</form>
+
+<form hx-post="{% url 'assistant:ask' %}" hx-target="#chat" hx-swap="beforeend" hx-indicator="#thinking"
+      hx-disabled-elt="find button" class="mt-4 flex flex-col gap-2">
+  <p class="kicker">Or tap one</p>
+  {% for suggestion in suggestions %}
+    <button type="submit" name="q" value="{{ suggestion }}" class="btn btn-line min-h-12 justify-start text-left">{{ suggestion }}</button>
+  {% endfor %}
+</form>
+
+<p class="mt-6 text-xs text-gray-600">Answers come from Google Gemini and can be wrong, so check before you order. Your question and the practice's stock{% if user.is_org_admin %} and spending{% endif %} are sent to Google to answer it. No patient information is ever sent.</p>
+{% endblock %}
