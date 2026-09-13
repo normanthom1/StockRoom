@@ -860,7 +860,6 @@ def item_import(request):
 @require_POST
 @admin_required
 def item_import_preview(request):
-    org = request.user.organisation
     csv_file = request.FILES.get("csv_file")
     if not csv_file:
         messages.error(request, "Choose a CSV file first.")
@@ -871,7 +870,13 @@ def item_import_preview(request):
     except UnicodeDecodeError:
         messages.error(request, "That file doesn't look like a CSV.")
         return redirect("stock:item_import")
+    return import_preview(request, text)
 
+
+def import_preview(request, text):
+    """Check CSV text and show what would be imported. Nothing is saved until
+    item_import_confirm; also used by the AI import (assistant.views)."""
+    org = request.user.organisation
     active_supplier_names = {
         n.lower() for n in Supplier.objects.for_org(org).filter(is_active=True).values_list("name", flat=True)
     }

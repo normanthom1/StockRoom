@@ -119,6 +119,13 @@ document.addEventListener("htmx:afterSwap", (event) => {
   if (event.target.id === "sheet-content") document.getElementById("sheet").showModal();
 });
 document.addEventListener("sheet-close", () => document.getElementById("sheet")?.close());
+
+// Ask StockRoom: clear the question once it's answered, and bring the answer into view.
+document.addEventListener("htmx:afterSwap", (event) => {
+  if (event.target.id !== "chat") return;
+  document.querySelector("[data-ask]")?.reset();
+  event.target.lastElementChild?.scrollIntoView({ block: "nearest" });
+});
 // Only reachable without a controlling service worker (it answers every htmx request itself).
 document.addEventListener("htmx:sendError", () => toast("Couldn't reach StockRoom. Check your connection and try again."));
 

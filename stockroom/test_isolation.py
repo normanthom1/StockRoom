@@ -133,6 +133,7 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:export_items"),
     Case("stock:export_stock_events"),
     Case("stock:export_order_lines"),
+    Case("assistant:import_with_ai", method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.
@@ -143,6 +144,7 @@ ASSISTANT_PAGES: list[Case] = [
     Case("stock:deliveries"),
     Case("stock:item_detail", make=make_item),
     Case("stock:item_count_sheet", make=make_item),
+    Case("assistant:ask"),  # and what's sent to Gemini for an assistant has no prices (assistant.tests)
 ]
 
 # URLs that show no practice data at all, so none of the checks above apply.
@@ -222,6 +224,7 @@ class TwoPractices(TestCase):
         cls.platform = User.objects.create_superuser("platform@stockroom.test", "pw")
 
 
+@override_settings(AI_API_KEY="test-key")  # otherwise the AI views 404 for everyone
 class IsolationSuite(IsolationChecks, TwoPractices):
     def test_other_practices_objects_are_404(self):
         for case in ORG_OBJECT_URLS:

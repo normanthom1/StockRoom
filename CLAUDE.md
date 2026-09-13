@@ -16,6 +16,7 @@ Details: [ui-design](.claude/skills/ui-design/SKILL.md)
 - Every row belongs to an Organisation, and users are `admin` or `assistant`. The organisation always comes from `request.user`.
 - Each practice has one practice login (email and password) that opens a device; staff then sign in with a code: 2 digits for assistants, 4 for admins (a role change always sets a new code). Stock work always runs as a staff member (`accounts/middleware.py`).
 - Stock is an append-only `StockEvent` log. On-hand and forecasts are calculated, never stored.
+- AI (Ask StockRoom, AI import) only calls Gemini through `assistant/gemini.py`, and only when `AI_API_KEY` is set. Prompts for assistants never include prices or spending (`assistant/snapshot.py`).
 - New views follow [org-scoped-view](.claude/skills/org-scoped-view/SKILL.md). Test with `python manage.py test`.
 
 ## Workflow

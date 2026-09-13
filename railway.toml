@@ -5,7 +5,9 @@ buildCommand = "python manage.py tailwind build && python manage.py collectstati
 # Migrate before gunicorn starts. Railway only routes traffic to the new
 # container once /healthz passes, so a failed migration leaves the old
 # deployment serving. (preDeployCommand here was silently never run.)
-startCommand = "python manage.py migrate --noinput && gunicorn stockroom.wsgi --bind 0.0.0.0:$PORT"
+# Threads so one slow Gemini answer (assistant/) doesn't hold up everyone
+# else. Still one process, so the in-memory rate-limit cache stays shared.
+startCommand = "python manage.py migrate --noinput && gunicorn stockroom.wsgi --bind 0.0.0.0:$PORT --worker-class gthread --threads 8"
 healthcheckPath = "/healthz"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"

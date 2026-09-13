@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "django_tailwind_cli",
     "accounts",
     "stock",
+    "assistant",
 ]
 
 MIDDLEWARE = [
@@ -96,6 +97,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "stockroom.context_processors.ai_enabled",
             ],
         },
     },
@@ -129,6 +131,13 @@ SESSION_COOKIE_AGE = 60 * 60 * 24 * 60  # 60 days
 # their own) unless explicitly turned back on.
 DEMO_MODE = env_bool("DEMO_MODE", False)
 SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", not DEMO_MODE)
+
+# Ask StockRoom (chat) and the AI stock-list import, through Google Gemini
+# (assistant/gemini.py). Everything AI is hidden unless AI_API_KEY is set.
+AI_API_KEY = os.environ.get("AI_API_KEY", "")
+AI_MODEL = os.environ.get("AI_MODEL", "gemini-2.5-flash")
+# A backstop on the bill: Gemini calls a day across every practice, demo included.
+AI_DAILY_LIMIT = int(os.environ.get("AI_DAILY_LIMIT", "300"))
 
 # Deliberately no provider (#13). Staff have no email or password of their
 # own (they sign in with a code), so the only mail is the practice login's

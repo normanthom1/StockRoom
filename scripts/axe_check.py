@@ -39,9 +39,12 @@ PAGES = [
     ("/activity/", "0000"),
     ("/stocktake/", "0000"),
     ("/accounts/team/", "0000"),
+    ("/items/import/", "0000"),
+    ("/ask/", "0000"),  # only with AI_API_KEY set; a 404 page otherwise
     ("/", "11"),  # Johanna, assistant
     ("/log-usage/", "11"),
     ("/reorder/", "11"),
+    ("/ask/", "11"),
 ]
 SERIOUS = {"serious", "critical"}
 

@@ -77,6 +77,15 @@
   display: none !important;
 }
 
+/* htmx's own indicator styles are off (they'd be an injected <style>, which the CSP blocks). */
+.htmx-indicator {
+  display: none;
+}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: block;
+}
+
 /* Django renders forms as label, help text, errors, input. These make every
    {{ form }} usable with gloves: 48px fields, 16px text so iOS doesn't zoom. */
 @layer base {
