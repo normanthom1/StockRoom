@@ -116,7 +116,7 @@ class AuthFlowTests(TestCase):
         self.client.post("/accounts/signup/", self.signup_data)
         self.assertEqual(self.client.get("/accounts/logout/").status_code, 405)  # POST only
         self.assertRedirects(self.client.post("/accounts/logout/"), "/accounts/login/")
-        self.assertEqual(self.client.get("/").status_code, 302)
+        self.assertEqual(self.client.get("/reorder/").status_code, 302)
 
         response = self.client.post(
             "/accounts/login/", {"username": "Reception@Kowhai.test", "password": self.signup_data["password"]}

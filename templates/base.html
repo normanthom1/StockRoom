@@ -5,6 +5,7 @@
   {# No maximum-scale: it would block pinch-zoom, which low-vision users rely on. #}
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}StockRoom{% endblock %}</title>
+  {% block meta %}{% endblock %}
 
   <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
   <meta name="theme-color" content="#5980a6">
@@ -129,9 +130,11 @@
     </dialog>
   {% endif %}
 
-  <main class="mx-auto max-w-md px-4 pt-5 {% if user.is_authenticated and not user.is_practice_login %}pb-28{% else %}pb-8{% endif %}">
-    {% block content %}{% endblock %}
-  </main>
+  {% block main %}
+    <main class="mx-auto max-w-md px-4 pt-5 {% if user.is_authenticated and not user.is_practice_login %}pb-28{% else %}pb-8{% endif %}">
+      {% block content %}{% endblock %}
+    </main>
+  {% endblock %}
 
   {% if user.is_authenticated and not user.is_practice_login %}
     <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-300 bg-app-bg pb-[env(safe-area-inset-bottom)]"

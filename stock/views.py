@@ -5,7 +5,9 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from statistics import median
 
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
@@ -105,7 +107,13 @@ def _row(item, f, today):
     }
 
 
+@login_not_required
 def home(request):
+    """The practice's "what to order today" list, or for someone logged out,
+    the public page saying what StockRoom is."""
+    if not request.user.is_authenticated:
+        context = {"demo_mode": settings.DEMO_MODE, "signup_enabled": settings.SIGNUP_ENABLED}
+        return render(request, "stock/landing.html", context)
     org = request.user.organisation
     now = timezone.localtime()
     today = now.date()
