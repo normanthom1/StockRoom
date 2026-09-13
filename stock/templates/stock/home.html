@@ -38,8 +38,9 @@
   </div>
 {% elif not fine_rows and user.is_org_admin %}
   <div class="blueprint mt-2 mb-4 flex flex-col gap-3 p-5 text-center">
-    <p class="text-gray-700">No stock yet. Add your suppliers, then bring in your stock list{% if ai_enabled %}: paste it, or take a photo of an invoice{% endif %}.</p>
-    <a href="{% url 'stock:item_import' %}" class="btn-primary">Get started: add your stock</a>
+    <p class="text-gray-700">No stock yet. Pick what you order from the catalogue, or bring in your own list{% if ai_enabled %} (paste it, or take a photo of an invoice){% endif %}.</p>
+    <a href="{% url 'stock:catalogue' %}" class="btn-primary">Get started: pick your stock</a>
+    <a href="{% url 'stock:item_import' %}" class="link self-center">Bring in your own list</a>
   </div>
 {% else %}
   <p class="blueprint mt-2 mb-4 p-5 text-center text-gray-600">Nothing needs ordering right now.</p>

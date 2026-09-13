@@ -20,6 +20,13 @@ Pages (bottom bar: Home, Log usage, Reorder list, Deliveries; managers also get 
 - Deliveries: orders waiting to arrive, by supplier. When a delivery comes, tap "Receive" on a line (change the quantity if only some came; the rest stays on order) or "Receive all". Managers can correct the price as they receive.
 - More (managers): Stock (the item list: add, edit, archive, search; "Start a full stocktake"; "Import a CSV"), Suppliers (add and edit, delivery days with - and +, and a suggested delivery time from real deliveries), Spending (this week, month or year, by supplier and top items, plus an estimate), Activity (who did what, filter by item or person, and CSV downloads), Team.
 - Team: add staff with a name, role and code; make someone a manager or an assistant (they choose a new code); turn someone off when they leave.
+- Catalogue (managers, Stock page, "Add from the catalogue"): common NZ dental stock by category, with suppliers whose ranges include each product. Tap Add, pick who you'll usually order it from, and it's on your stock list. Anything already on the list isn't shown. It doesn't hold prices; check those with your supplier.
+
+Preferred and backup suppliers (managers)
+- Each item has one preferred supplier. The reorder list groups by it, and orders go to it.
+- An item can also have backup suppliers. Adding from the catalogue keeps any others you already use as backups; on an item's page you can add or remove them.
+- If the preferred supplier can't supply something, tap "Order from them" under the item on the reorder list (or "Make preferred" on the item's page). The backup becomes the preferred supplier and the old one becomes a backup, so switching back is the same tap. Undo is in the message that pops up.
+- Orders remember who they went to, so deliveries on the way and past spending stay with the right supplier after a switch.
 
 How the forecast works
 - On hand is the last count, plus deliveries since, minus what's been used since.
@@ -30,7 +37,7 @@ How the forecast works
 Getting started (a new practice)
 1. Set up your practice: "Set up your practice" on the log in page creates the practice login and the first manager's code.
 2. Add your suppliers: More, Suppliers, with how many days their deliveries take.
-3. Add your items: More, Stock, then "Import a CSV", or paste your stock list or upload a photo of an invoice and StockRoom reads it for you. Nothing is saved until you check the preview. Or add items one at a time.
+3. Add your items: More, Stock, then "Add from the catalogue" to pick common items, or "Import a CSV", or paste your stock list or upload a photo of an invoice and StockRoom reads it for you. Nothing from an import is saved until you check the preview. Or add items one at a time.
 4. Count everything once: "Start a full stocktake" on the Stock page, so the forecast has a starting point.
 5. Add your team: Team, with a 2-digit code for each assistant and a 4-digit code for each manager.
 6. Sign in each device with the practice login and show the team their codes.

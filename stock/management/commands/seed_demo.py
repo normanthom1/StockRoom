@@ -24,6 +24,18 @@ WEEK = timedelta(weeks=1)
 SUPPLIERS = {
     "Henry Schein": {"lead_days": 5, "phone": "0800 807 707", "email": "orders@henryschein.co.nz"},
     "Dentsply": {"lead_days": 7, "phone": "0800 335 626", "email": "orders@dentsply.co.nz"},
+    # A backup for a few items (BACKUPS), to show switching supplier. No phone or
+    # email, so the demo's Call and Email buttons can't reach a real business.
+    "Independent Dental Supplies": {"lead_days": 3},
+}
+
+# Items the practice can also get from another supplier: item name -> backup supplier.
+BACKUPS = {
+    "Nitrile gloves, size M": "Independent Dental Supplies",
+    "Suction tips, disposable": "Independent Dental Supplies",
+    "Face masks, Level 2": "Independent Dental Supplies",
+    "Gauze squares, 5x5cm": "Independent Dental Supplies",
+    "Lignocaine 2% w/ adrenaline": "Henry Schein",
 }
 
 # name, code, role - the practice login's staff. Managers have 4-digit codes.
@@ -74,11 +86,11 @@ ITEMS = [
     ("Disposable impression trays", "tray", "Henry Schein", 6, "0.90", "ok"),
     ("Alginate powder", "bag", "Dentsply", 2, "18.00", "ok"),
     ("Bite registration paste", "cartridge", "Dentsply", 1, "9.50", "ok"),
-    ("Anesthetic needles, 30G", "needle", "Henry Schein", 25, "0.35", "ok"),
-    ("Topical anesthetic gel", "tub", "Henry Schein", 0.5, "7.00", "ok"),
+    ("Anaesthetic needles, 30G", "needle", "Henry Schein", 25, "0.35", "ok"),
+    ("Topical anaesthetic gel", "tub", "Henry Schein", 0.5, "7.00", "ok"),
     ("Surgical sutures", "suture", "Dentsply", 2, "4.00", "ok"),
     ("Scalpel blades, #15", "blade", "Henry Schein", 4, "0.60", "ok"),
-    ("Hemostatic gauze", "pack", "Dentsply", 1, "22.00", "ok"),
+    ("Haemostatic gauze", "pack", "Dentsply", 1, "22.00", "ok"),
     ("Digital sensor barriers", "barrier", "Henry Schein", 40, "0.15", "ok"),
     ("Ultrasonic scaler tips", "tip", "Henry Schein", 1, "35.00", "ok"),
     ("Polishing paste", "tub", "Dentsply", 1, "6.50", "ok"),
@@ -140,6 +152,8 @@ def command(reset):
                 price=Decimal(price),
             )
             _seed_item_history(rng, org, item, rate, shape, admins, assistants, now)
+            if name in BACKUPS:
+                item.other_suppliers.add(suppliers[BACKUPS[name]])
 
         item_name, asker = ASKED_FOR
         Item.objects.filter(organisation=org, name=item_name).update(

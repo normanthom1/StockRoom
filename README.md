@@ -67,6 +67,17 @@ practice login opened it: a code only reaches that practice's staff, and
 changing the practice password signs every device out
 (`accounts/middleware.py`).
 
+**A shared catalogue, and preferred suppliers.** A catalogue of about 100
+products NZ practices commonly order, in 12 categories, each with the NZ
+suppliers whose published ranges include it (`stock/catalogue_data.py`,
+loaded by migration). A manager adds a product in two taps and picks who
+they'll usually order it from. That becomes the item's preferred supplier,
+and any others they already use become backups. If the preferred supplier
+can't supply it, "Order from them" on the reorder list swaps the two. Each
+order records who it went to, so deliveries on the way and spending history
+stay with the right supplier after a switch. The catalogue is the one table
+that isn't per-practice.
+
 **Multi-tenancy.** Every row belongs to one `Organisation`, and every user
 is an `admin` or `assistant` for exactly one practice. A shared `for_org()`
 queryset method and `OrgOwned` base model keep every query scoped; a

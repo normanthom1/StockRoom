@@ -58,6 +58,14 @@
           {% include "stock/_status_chip.html" with s=line %}
         </div>
         <p class="mt-1 text-[0.8125rem] leading-snug text-gray-600">{{ line.sub }}{% if line.order_by_text %} &middot; {{ line.order_by_text }}{% endif %}{% if line.item.reorder_requested_by %} &middot; {{ line.item.reorder_requested_by.name }} asked for it{% endif %}</p>
+        {% for backup in line.backups %}
+          <form method="post" action="{% url 'stock:item_switch_supplier' line.item.pk %}?to={{ backup.pk }}&amp;next={{ request.path|urlencode }}"
+                class="mt-2 flex items-center gap-2" data-disable-on-submit>
+            {% csrf_token %}
+            <span class="min-w-0 flex-1 text-[0.8125rem] text-gray-600">Also from {{ backup.name }}, <span class="whitespace-nowrap">~{{ backup.lead_days }} days</span></span>
+            <button type="submit" class="btn btn-line shrink-0 px-3 text-sm" aria-label="Order {{ line.item.name }} from {{ backup.name }} instead">Order from them</button>
+          </form>
+        {% endfor %}
         <div class="mt-3 flex items-center gap-2.5">
           <input type="number" inputmode="numeric" min="1" name="qty_{{ line.item.pk }}" data-supplier="{{ group.supplier.pk }}"
                  value="{{ line.suggested_qty }}" class="w-20 text-center" aria-label="Order quantity for {{ line.item.name }}">

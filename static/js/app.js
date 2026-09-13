@@ -139,6 +139,10 @@ function filterList(query) {
     row.hidden = !row.dataset.search.includes(q);
     if (!row.hidden) shown++;
   }
+  // A heading with nothing left under it goes too (the catalogue's categories).
+  for (const group of document.querySelectorAll("[data-search-group]")) {
+    group.hidden = !group.querySelector("[data-search]:not([hidden])");
+  }
   document.getElementById("no-match").hidden = shown > 0;
 }
 

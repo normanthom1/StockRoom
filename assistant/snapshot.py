@@ -27,11 +27,14 @@ def practice_snapshot(user, now):
     for item, f in sorted(wanted + rest, key=lambda e: e[0].name.lower()):
         parts = [
             item.name,
-            f"supplier {item.supplier.name}, about {item.supplier.lead_days} days to arrive",
+            f"preferred supplier {item.supplier.name}, about {item.supplier.lead_days} days to arrive",
             f"on hand {format_qty(f.on_hand, item.unit)}",
             f"uses {format_rate(f.weekly_usage, item.unit)}",
             f"status {f.status.label}",
         ]
+        backups = [s.name for s in item.other_suppliers.all() if s.is_active]
+        if backups:
+            parts.append(f"also available from {', '.join(backups)}")
         if f.days_left is not None:
             parts.append(f"about {round(f.days_left)} days left")
         if f.incoming:

@@ -18,7 +18,7 @@ from django.urls import URLResolver, get_resolver, path, reverse
 
 from accounts.decorators import admin_required
 from accounts.models import Organisation, User
-from stock.models import Item, OrderLine, StockEvent, Supplier
+from stock.models import CatalogueProduct, Item, OrderLine, StockEvent, Supplier
 
 
 class Case(NamedTuple):
@@ -51,6 +51,11 @@ def make_supplier(org):
     return Supplier.objects.create(organisation=org, name=f"Supplier {Supplier.objects.count()}")
 
 
+def any_catalogue_product(org):
+    """The catalogue is shared, not practice data: any product will do."""
+    return CatalogueProduct.objects.first()
+
+
 def make_order_line(org):
     """An open order line in org, for Cases that need some existing order's pk."""
     item = make_item(org)
@@ -71,6 +76,9 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:item_set_price", make=make_item, method="post"),
     Case("stock:item_set_order_size", make=make_item, method="post"),
     Case("stock:item_toggle_reorder", make=make_item, method="post"),
+    Case("stock:item_switch_supplier", make=make_item, method="post"),
+    Case("stock:item_other_suppliers", make=make_item, method="post"),
+    Case("stock:catalogue_undo", make=make_item, method="post"),
     Case("stock:item_count_save", make=make_item, method="post"),
     Case("stock:supplier_row", make=make_supplier),
     Case("stock:supplier_edit", make=make_supplier),
@@ -105,6 +113,12 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:item_set_price", make=make_item, method="post"),
     Case("stock:item_set_order_size", make=make_item, method="post"),
     Case("stock:item_toggle_reorder", make=make_item, method="post"),
+    Case("stock:item_switch_supplier", make=make_item, method="post"),
+    Case("stock:item_other_suppliers", make=make_item, method="post"),
+    Case("stock:catalogue"),
+    Case("stock:catalogue_sheet", make=any_catalogue_product),
+    Case("stock:catalogue_add", make=any_catalogue_product, method="post"),
+    Case("stock:catalogue_undo", make=make_item, method="post"),
     Case("stock:stocktake_step"),
     Case("stock:stocktake_save", method="post"),
     Case("stock:supplier_add", method="post"),
