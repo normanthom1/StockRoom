@@ -45,6 +45,37 @@
       </form>
     </div>
 
+    <section class="border-t border-gray-300 pt-4" aria-labelledby="suppliers-heading">
+      <h2 id="suppliers-heading" class="kicker mb-2 font-sans">Suppliers</h2>
+      <p><span class="font-heading text-lg font-semibold text-gray-900">{{ item.supplier.name }}</span>
+        <span class="text-sm text-gray-600">&middot; preferred &middot; ~{{ item.supplier.lead_days }} days</span></p>
+      {% for backup in backups %}
+        <div class="mt-2 flex items-center gap-2 border-t border-gray-200 pt-2">
+          <span class="min-w-0 flex-1">{{ backup.name }} <span class="text-sm text-gray-600">&middot; ~{{ backup.lead_days }} days</span></span>
+          <form method="post" action="{% url 'stock:item_switch_supplier' item.pk %}?to={{ backup.pk }}&amp;next={{ request.path|urlencode }}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-line px-3 text-sm" aria-label="Make {{ backup.name }} preferred">Make preferred</button>
+          </form>
+          <form method="post" action="{% url 'stock:item_other_suppliers' item.pk %}">
+            {% csrf_token %}
+            <button type="submit" name="remove" value="{{ backup.pk }}" class="btn btn-line px-3 text-sm" aria-label="Remove {{ backup.name }}">Remove</button>
+          </form>
+        </div>
+      {% endfor %}
+      {% if addable_suppliers %}
+        <form method="post" action="{% url 'stock:item_other_suppliers' item.pk %}" class="mt-3 flex items-end gap-2.5">
+          {% csrf_token %}
+          <div class="min-w-0 flex-1">
+            <label for="add-supplier">Another supplier that sells it</label>
+            <select id="add-supplier" name="add">
+              {% for supplier in addable_suppliers %}<option value="{{ supplier.pk }}">{{ supplier.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-line w-20">Add</button>
+        </form>
+      {% endif %}
+    </section>
+
     <div class="flex flex-col gap-2.5 border-t border-gray-300 pt-4">
       <button type="button" hx-get="{% url 'stock:item_count_sheet' item.pk %}" hx-target="#sheet-content" hx-swap="innerHTML"
               class="btn btn-tonal min-h-14 w-full text-lg">Count now</button>

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Catalogue · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Catalogue</h1>
+<p class="mb-4 text-sm text-gray-600">Stock NZ practices commonly order, and suppliers whose ranges include it. Anything already on your stock list isn't shown. Check prices and exact products with your supplier.</p>
+
+{% if products %}
+  <input type="search" aria-label="Search the catalogue" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
+         placeholder="Search {{ products|length }} products…" class="mb-2 min-h-14 text-lg" data-search-input>
+
+  {% regroup products by category as groups %}
+  {% for group in groups %}
+    <section class="mt-6" data-search-group>
+      <h2 class="border-b border-gray-300 pb-2">{{ group.grouper }}</h2>
+      {% for product in group.list %}
+        <div class="flex items-center gap-3 border-b border-gray-200 py-2" data-search="{{ product.name|lower }}">
+          <span class="min-w-0 flex-1">
+            <span class="block font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ product.name }}</span>
+            <span class="mt-0.5 block text-xs leading-snug text-gray-600">{{ product.unit }} &middot; {% for offer in product.offers.all %}{{ offer.supplier.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+          </span>
+          <button type="button" hx-get="{% url 'stock:catalogue_sheet' product.pk %}" hx-target="#sheet-content" hx-swap="innerHTML"
+                  class="btn btn-line w-20 shrink-0" aria-label="Add {{ product.name }}">Add</button>
+        </div>
+      {% endfor %}
+    </section>
+  {% endfor %}
+  <p id="no-match" hidden class="py-10 text-center text-gray-600">Nothing in the catalogue matches that. You can add it yourself on the Stock page.</p>
+{% else %}
+  <p class="blueprint p-5 text-center text-gray-600">Everything in the catalogue is already on your stock list.</p>
+{% endif %}
+
+<a href="{% url 'stock:items' %}" class="btn btn-line mt-8 w-full">Back to your stock</a>
+{% endblock %}

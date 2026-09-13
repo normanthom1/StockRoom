@@ -1,0 +1,23 @@
+{% load stock_units %}
+<div class="flex items-center gap-3">
+  <h2 class="flex-1">{{ product.name }}</h2>
+  <button type="button" class="btn btn-line" data-close-dialog>Cancel</button>
+</div>
+<form method="post" action="{% url 'stock:catalogue_add' product.pk %}" class="mt-4" data-disable-on-submit>
+  {% csrf_token %}
+  <fieldset>
+    <legend class="mb-2 text-sm font-medium text-gray-700">Who will you usually order it from?</legend>
+    {% for name, ours in choices %}
+      <label>
+        <input type="radio" name="supplier" value="{{ name }}" {% if name == default %}checked{% endif %}>
+        <span class="flex-1">{{ name }}</span>
+        {% if ours %}<span class="text-xs text-gray-600">You use them</span>{% endif %}
+      </label>
+    {% endfor %}
+  </fieldset>
+  <p class="mt-2 text-sm text-gray-600">
+    Counted in {{ product.unit|plural }}.
+    {% if choices|length > 1 %}Any of the others you already use are kept as backups, so you can switch if this one can't supply it.{% endif %}
+  </p>
+  <button type="submit" class="btn-primary mt-4">Add to my stock</button>
+</form>

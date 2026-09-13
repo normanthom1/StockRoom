@@ -4,6 +4,7 @@ import uuid
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from statistics import median
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
@@ -16,6 +17,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import admin_required
@@ -39,7 +41,7 @@ from .humanize import (
     phone_digits,
     pluralize_unit,
 )
-from .models import Item, OrderLine, StockEvent, Supplier
+from .models import CatalogueProduct, Item, OrderLine, StockEvent, Supplier
 from .spending import PERIOD_WEEKS, period_bounds, previous_period_bounds
 
 CHART_WEEKS = 12
@@ -52,8 +54,13 @@ def _org_items(org):
         Item.objects.for_org(org)
         .filter(is_active=True)
         .select_related("supplier", "reorder_requested_by")
-        .prefetch_related("events", "order_lines")
+        .prefetch_related("events", "order_lines", "other_suppliers")
     )
+
+
+def _backups(item):
+    """The item's other suppliers that are still active: the ones it could switch to."""
+    return [s for s in item.other_suppliers.all() if s.is_active]
 
 
 def _forecast_for(item, now):
@@ -156,6 +163,10 @@ def item_detail(request, pk):
         "chart_history_text": _chart_history_text(len(weeks), sum(mask)),
         "chart_svg": usage_chart_svg(weeks, mask),
         "on_reorder_list": bool(item.pinned_to_reorder_at) or f.status != Status.OK,
+        "backups": _backups(item),
+        # Suppliers the manager could add as another source for this item.
+        "addable_suppliers": Supplier.objects.for_org(request.user.organisation).filter(is_active=True)
+        .exclude(pk=item.supplier_id).exclude(pk__in=item.other_suppliers.all()).order_by("name"),
         "price_label": f"${item.price:.2f} / {item.unit}" if item.price is not None else "Not set",
     }
     return render(request, "stock/item_detail.html", context)
@@ -261,6 +272,62 @@ def item_set_order_size(request, pk):
         item.order_size = None
     item.save(update_fields=["order_size"])
     messages.success(request, f"Order size updated for {item.name}.")
+    return redirect("stock:item_detail", pk=pk)
+
+
+def _id(raw):
+    """A pk from a query or form value; anything else can't match, so it 404s."""
+    return int(raw) if (raw or "").isdigit() else 0
+
+
+def _back_to(request, default):
+    """Where to go after a switch: the page it came from, if it's one of ours."""
+    target = request.GET.get("next", "")
+    return target if url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}) else default
+
+
+def _go(request, url):
+    """Undo buttons post through htmx, so they need HX-Redirect; forms get a plain redirect."""
+    if request.headers.get("HX-Request"):
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = url
+        return response
+    return redirect(url)
+
+
+@require_POST
+@admin_required
+def item_switch_supplier(request, pk):
+    """Order from one of the item's other suppliers from now on (?to=<supplier>).
+    The old preferred supplier becomes a backup, so switching back is the same tap."""
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    new = get_object_or_404(item.other_suppliers.filter(is_active=True), pk=_id(request.GET.get("to")))
+    old = item.supplier
+    item.supplier = new
+    item.save(update_fields=["supplier"])
+    item.other_suppliers.remove(new)
+    item.other_suppliers.add(old)
+    back = _back_to(request, reverse("stock:reorder_list"))
+    undo = f"{reverse('stock:item_switch_supplier', args=[item.pk])}?{urlencode({'to': old.pk, 'next': back})}"
+    messages.success(request, f"{item.name} now comes from {new.name}. {old.name} is kept as a backup.", extra_tags=undo)
+    return _go(request, back)
+
+
+@require_POST
+@admin_required
+def item_other_suppliers(request, pk):
+    """Add (add=<supplier>) or remove (remove=<supplier>) one of an item's backup suppliers."""
+    org = request.user.organisation
+    item = get_object_or_404(Item.objects.for_org(org), pk=pk)
+    if request.POST.get("add"):
+        supplier = get_object_or_404(Supplier.objects.for_org(org).filter(is_active=True), pk=_id(request.POST["add"]))
+        if supplier != item.supplier:
+            item.other_suppliers.add(supplier)
+            messages.success(request, f"{supplier.name} added as another supplier for {item.name}.")
+    elif request.POST.get("remove"):
+        supplier = get_object_or_404(item.other_suppliers.all(), pk=_id(request.POST["remove"]))
+        item.other_suppliers.remove(supplier)
+        messages.success(request, f"{supplier.name} removed from {item.name}'s suppliers.")
     return redirect("stock:item_detail", pk=pk)
 
 
@@ -493,6 +560,7 @@ def _reorder_groups(org, admin, wanted, today):
                 "order_by": f.order_by,
                 "order_by_text": order_by_text(f.order_by, today),
                 "suggested_qty": item.order_size or f.order_qty,
+                "backups": _backups(item),
             }
             for item, f in sorted(entries, key=lambda e: e[0].name)
         ]
@@ -671,7 +739,7 @@ def _open_lines_for_org(org):
     return (
         OrderLine.objects.for_org(org)
         .filter(received_at__isnull=True, cancelled_at__isnull=True)
-        .select_related("item", "item__supplier")
+        .select_related("item", "supplier")
         .order_by("expected_at")
     )
 
@@ -683,7 +751,7 @@ def deliveries(request):
 
     by_supplier = {}
     for line in _open_lines_for_org(org):
-        by_supplier.setdefault(line.item.supplier, []).append(line)
+        by_supplier.setdefault(line.supplier, []).append(line)
 
     groups = []
     for supplier, lines in sorted(by_supplier.items(), key=lambda kv: kv[0].name):
@@ -728,6 +796,7 @@ def _receive_line(order, received_qty, user, unit_price=None):
         OrderLine.objects.create(
             organisation=order.organisation,
             item=order.item,
+            supplier=order.supplier,
             qty=remainder,
             unit_price=order.unit_price,
             ordered_by=order.ordered_by,
@@ -742,7 +811,7 @@ def delivery_submit(request, pk):
     supplier's "Receive all" button was pressed - both roles can use it."""
     org = request.user.organisation
     supplier = get_object_or_404(Supplier.objects.for_org(org), pk=pk)
-    open_lines = list(_open_lines_for_org(org).filter(item__supplier=supplier))
+    open_lines = list(_open_lines_for_org(org).filter(supplier=supplier))
 
     if "receive_line" in request.POST:
         target_ids = {request.POST["receive_line"]}
@@ -833,7 +902,8 @@ def item_update_row(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
     form = ItemForm(request.POST, instance=item)
     if form.is_valid():
-        form.save()
+        item = form.save()
+        item.other_suppliers.remove(item.supplier)  # now the preferred one, so no longer a backup
         item = Item.objects.select_related("supplier").get(pk=item.pk)
         return render(request, "stock/_item_row.html", {"item": item})
     return render(request, "stock/_item_row.html", {"item": item, "edit_form": form})
@@ -939,10 +1009,88 @@ def item_import_confirm(request):
     return redirect("stock:items")
 
 
+def _stocked_names(org):
+    return {n.lower() for n in Item.objects.for_org(org).filter(is_active=True).values_list("name", flat=True)}
+
+
+def _catalogue_product(pk):
+    return get_object_or_404(CatalogueProduct.objects.prefetch_related("offers__supplier"), pk=pk)
+
+
+def _supplier_choices(org, product):
+    """[(catalogue supplier name, the practice's own active Supplier of that name or None)], in catalogue order."""
+    ours = {s.name.lower(): s for s in Supplier.objects.for_org(org).filter(is_active=True)}
+    return [(offer.supplier.name, ours.get(offer.supplier.name.lower())) for offer in product.offers.all()]
+
+
+@admin_required
+def catalogue(request):
+    """Stock NZ practices commonly order, and who sells it, less what this practice already has."""
+    stocked = _stocked_names(request.user.organisation)
+    products = [
+        p for p in CatalogueProduct.objects.prefetch_related("offers__supplier").order_by("position")
+        if p.name.lower() not in stocked
+    ]
+    return render(request, "stock/catalogue.html", {"products": products})
+
+
+@admin_required
+def catalogue_sheet(request, pk):
+    """Who to order a catalogue product from, in the bottom sheet. A supplier
+    the practice already uses is picked to start with."""
+    product = _catalogue_product(pk)
+    choices = _supplier_choices(request.user.organisation, product)
+    default = next((name for name, ours in choices if ours), choices[0][0])
+    return render(request, "stock/_catalogue_sheet.html", {"product": product, "choices": choices, "default": default})
+
+
+@require_POST
+@admin_required
+def catalogue_add(request, pk):
+    """Copy a catalogue product into the practice's stock, ordered from the
+    supplier they picked. Others they already use who sell it become backups."""
+    org = request.user.organisation
+    product = _catalogue_product(pk)
+    choices = dict(_supplier_choices(org, product))
+    chosen = request.POST.get("supplier", "")
+    if chosen not in choices:
+        messages.error(request, "Choose who you'll order it from.")
+        return redirect("stock:catalogue")
+    if product.name.lower() in _stocked_names(org):
+        messages.info(request, f"{product.name} is already on your stock list.")
+        return redirect("stock:catalogue")
+
+    preferred, note = choices[chosen], ""
+    if preferred is None:
+        # An archived supplier of that name comes back rather than clashing on the name.
+        preferred = Supplier.objects.for_org(org).filter(name__iexact=chosen).first()
+        if preferred:
+            preferred.is_active = True
+            preferred.save(update_fields=["is_active"])
+        else:
+            preferred = Supplier.objects.create(organisation=org, name=chosen)
+        note = f" {preferred.name} is now one of your suppliers: set how long their deliveries take on the Suppliers page."
+    item = Item.objects.create(organisation=org, name=product.name, unit=product.unit, supplier=preferred)
+    item.other_suppliers.set([s for s in choices.values() if s and s != preferred])
+    messages.success(request, f"Added {item.name}.{note}", extra_tags=reverse("stock:catalogue_undo", args=[item.pk]))
+    return redirect("stock:catalogue")
+
+
+@require_POST
+@admin_required
+def catalogue_undo(request, pk):
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    if item.events.exists() or item.order_lines.exists():
+        raise PermissionDenied  # it's been counted or ordered since; archive it instead
+    item.delete()
+    messages.success(request, "Undone.")
+    return _go(request, reverse("stock:catalogue"))
+
+
 def _median_lead_days(supplier):
     """Actual ordered -> received time over the last 10 deliveries, or None
     with fewer than 1. A suggestion only - it never changes lead_days itself."""
-    lines = OrderLine.objects.filter(item__supplier=supplier, received_at__isnull=False).order_by("-received_at")[:10]
+    lines = OrderLine.objects.filter(supplier=supplier, received_at__isnull=False).order_by("-received_at")[:10]
     diffs = [(line.received_at - line.ordered_at).days for line in lines]
     return round(median(diffs)) if diffs else None
 
@@ -1077,14 +1225,14 @@ def spending(request):
     lines = list(
         OrderLine.objects.for_org(org)
         .filter(ordered_at__date__gte=start, ordered_at__date__lt=end, cancelled_at__isnull=True, unit_price__isnull=False)
-        .select_related("item", "item__supplier")
+        .select_related("item", "supplier")
     )
     actual_total = sum((line.qty * line.unit_price for line in lines), Decimal(0))
 
     supplier_totals, item_totals = {}, {}
     for line in lines:
         amount = line.qty * line.unit_price
-        supplier_totals[line.item.supplier.name] = supplier_totals.get(line.item.supplier.name, Decimal(0)) + amount
+        supplier_totals[line.supplier.name] = supplier_totals.get(line.supplier.name, Decimal(0)) + amount
         item_totals[line.item.name] = item_totals.get(line.item.name, Decimal(0)) + amount
 
     by_supplier = sorted(
@@ -1141,7 +1289,7 @@ def _toast_response(message, undo_url=None):
 
 def _activity_entries(org, item_id, user_id):
     events = StockEvent.objects.for_org(org).select_related("item", "user")
-    orders = OrderLine.objects.for_org(org).select_related("item", "ordered_by", "received_by")
+    orders = OrderLine.objects.for_org(org).select_related("item", "supplier", "ordered_by", "received_by")
 
     if item_id:
         events = events.filter(item_id=item_id)
@@ -1159,7 +1307,7 @@ def _activity_entries(org, item_id, user_id):
                 "when": order.ordered_at,
                 "who_id": order.ordered_by_id,
                 "who": order.ordered_by.name or order.ordered_by.email,
-                "what": f"Ordered {format_qty(order.qty, order.item.unit)} of {order.item.name} from {order.item.supplier.name}",
+                "what": f"Ordered {format_qty(order.qty, order.item.unit)} of {order.item.name} from {order.supplier.name}",
             }
         )
         if order.received_at:
@@ -1235,7 +1383,7 @@ def export_order_lines(request):
         [
             order.ordered_at.isoformat(),
             order.item.name,
-            order.item.supplier.name,
+            order.supplier.name,
             order.qty,
             order.unit_price,
             order.ordered_by.name or order.ordered_by.email,
@@ -1246,7 +1394,7 @@ def export_order_lines(request):
             order.cancelled_at.isoformat() if order.cancelled_at else "",
         ]
         for order in OrderLine.objects.for_org(org)
-        .select_related("item", "item__supplier", "ordered_by", "received_by")
+        .select_related("item", "supplier", "ordered_by", "received_by")
         .order_by("ordered_at")
     ]
     return _csv_response(

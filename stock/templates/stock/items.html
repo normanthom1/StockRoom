@@ -6,6 +6,7 @@
 <h1 class="mb-4">Stock</h1>
 
 <div class="mb-4 grid grid-cols-2 gap-2.5">
+  <a href="{% url 'stock:catalogue' %}" class="btn btn-tonal col-span-2">Add from the catalogue</a>
   <a href="{% url 'stock:stocktake_step' %}" class="btn btn-tonal">Start a full stocktake</a>
   <a href="{% url 'stock:item_import' %}" class="btn btn-tonal">{% if ai_enabled %}Import a list or photo{% else %}Import a CSV{% endif %}</a>
 </div>

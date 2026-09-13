@@ -34,7 +34,11 @@ class Supplier(OrgOwned):
 class Item(OrgOwned):
     name = models.CharField(max_length=200)
     unit = models.CharField(max_length=50, help_text='Singular, e.g. "box".')
+    # The preferred supplier: the reorder list groups by it and orders go to it.
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="items")
+    # Others that sell it, for when the preferred one can't. Switching makes
+    # one of these the preferred supplier and keeps the old one here.
+    other_suppliers = models.ManyToManyField(Supplier, blank=True, related_name="backup_items")
     # Per unit. Admins only: never render it on a page an assistant can open.
     price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     # Null means "about two weeks of usage", worked out by the forecast.
@@ -89,6 +93,8 @@ class StockEvent(OrgOwned):
 
 class OrderLine(OrgOwned):
     item = models.ForeignKey(Item, on_delete=models.PROTECT, related_name="order_lines")
+    # Who it was ordered from, which stays put if the item's preferred supplier changes later.
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="order_lines")
     qty = models.PositiveIntegerField()
     # The item's price when it was ordered, so later price changes don't rewrite history.
     unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -110,9 +116,48 @@ class OrderLine(OrgOwned):
         return self.received_at is None and self.cancelled_at is None
 
     def save(self, *args, **kwargs):
+        if self.supplier_id is None:
+            self.supplier = self.item.supplier
         if self.expected_at is None:
-            self.expected_at = self.ordered_at + timedelta(days=self.item.supplier.lead_days)
+            self.expected_at = self.ordered_at + timedelta(days=self.supplier.lead_days)
         super().save(*args, **kwargs)
+
+
+# The shared catalogue: the same reference list for every practice, so not
+# OrgOwned. Practices copy products from it into their own Items. Loaded from
+# stock/catalogue_data.py by stock.catalogue.sync_catalogue.
+
+
+class CatalogueSupplier(models.Model):
+    name = models.CharField(max_length=200, unique=True)
+    website = models.URLField(blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class CatalogueProduct(models.Model):
+    name = models.CharField(max_length=200, unique=True)
+    unit = models.CharField(max_length=50)
+    category = models.CharField(max_length=100)
+    position = models.PositiveIntegerField(help_text="Display order: by category, then as listed.")
+    suppliers = models.ManyToManyField(CatalogueSupplier, through="CatalogueOffer", related_name="products")
+
+    def __str__(self):
+        return self.name
+
+
+class CatalogueOffer(models.Model):
+    """This supplier sells that product. A product's first supplier is the
+    default pick for a practice that uses none of them yet."""
+
+    product = models.ForeignKey(CatalogueProduct, on_delete=models.CASCADE, related_name="offers")
+    supplier = models.ForeignKey(CatalogueSupplier, on_delete=models.CASCADE, related_name="offers")
+    position = models.PositiveSmallIntegerField()
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [models.UniqueConstraint(fields=["product", "supplier"], name="stock_catalogue_offer_unique")]
 
 
 class DemoResetState(models.Model):
