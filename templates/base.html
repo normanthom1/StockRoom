@@ -62,20 +62,32 @@
           <span class="grid size-8 place-items-center rounded-full border-[1.5px] border-primary font-heading text-sm font-semibold text-primary-dark">i</span>
         </button>
         <p class="min-w-0 flex-1 truncate font-heading text-lg font-semibold tracking-[0.06em] uppercase">{{ user.organisation|default:"StockRoom" }}</p>
-        <div class="relative shrink-0" x-data="dropdown" @click.outside="close">
-          <button type="button" class="btn btn-line max-w-40 flex-col items-start gap-1 px-3 text-left leading-none"
-                  @click="toggle" :aria-expanded="open" aria-haspopup="true" aria-label="Account: {{ user.name|default:user.email }}, {{ user.get_role_display }}">
-            <span class="max-w-full truncate">{{ user.name|default:user.email }}</span>
-            <span class="font-sans text-[0.6875rem] font-semibold tracking-[0.06em] text-gray-600 uppercase">{% if user.is_org_admin %}Manager{% else %}Assistant{% endif %}</span>
-          </button>
-          <div x-show="open" x-cloak class="absolute top-full right-0 mt-1 w-52 border border-gray-300 bg-app-bg py-1 shadow-lg">
-            <a href="{% url 'password_change' %}" class="menu-item">Change password</a>
-            <form method="post" action="{% url 'logout' %}">
-              {% csrf_token %}
-              <button type="submit" class="menu-item">Log out</button>
-            </form>
+        {% if user.is_practice_login %}
+          {# The practice login alone: no one has entered a code yet. #}
+          <form method="post" action="{% url 'logout' %}" class="shrink-0">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-line">Log out</button>
+          </form>
+        {% else %}
+          <div class="relative shrink-0" x-data="dropdown" @click.outside="close">
+            <button type="button" class="btn btn-line max-w-40 flex-col items-start gap-1 px-3 text-left leading-none"
+                    @click="toggle" :aria-expanded="open" aria-haspopup="true" aria-label="Signed in as {{ user.name|default:user.email }}, {{ user.get_role_display }}">
+              <span class="max-w-full truncate">{{ user.name|default:user.email }}</span>
+              <span class="font-sans text-[0.6875rem] font-semibold tracking-[0.06em] text-gray-600 uppercase">{% if user.is_org_admin %}Manager{% else %}Assistant{% endif %}</span>
+            </button>
+            <div x-show="open" x-cloak class="absolute top-full right-0 mt-1 w-56 border border-gray-300 bg-app-bg py-1 shadow-lg">
+              {% if user.pin %}
+                <a href="{% url 'enter_code' %}" class="menu-item">Switch person</a>
+              {% else %}
+                <a href="{% url 'password_change' %}" class="menu-item">Change password</a>
+              {% endif %}
+              <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit" class="menu-item">{% if user.pin %}Log this device out{% else %}Log out{% endif %}</button>
+              </form>
+            </div>
           </div>
-        </div>
+        {% endif %}
       </div>
     </header>
 
@@ -96,6 +108,10 @@
             <p>It catches items before they run out instead of after, saves the team from doing mental maths or keeping a whiteboard tally, and gives a rough sense of what the practice spends on supplies without anyone having to dig through invoices.</p>
           </div>
           <div>
+            <p class="kicker mb-1.5 text-primary-dark">Signing in</p>
+            <p>Each device signs in once with the practice's email and password. After that, whoever picks it up taps their own code (2 digits for assistants, 4 for managers), so StockRoom knows who logged what without anyone stopping to log in properly. To hand over, tap your name at the top and choose Switch person.</p>
+          </div>
+          <div>
             <p class="kicker mb-1.5 text-primary-dark">Roles</p>
             <p>Dental assistants can log what they've used and flag an item as running low, and that's about all. No prices, no supplier calls, no admin screens to wade through, so it stays quick to use with gloves on between patients. Practice managers and owners can do everything assistants can, plus order stock, call or email suppliers, add and edit items, update counts and prices, edit suppliers and their delivery times, and see the Spending page.</p>
           </div>
@@ -109,11 +125,11 @@
     </dialog>
   {% endif %}
 
-  <main class="mx-auto max-w-md px-4 pt-5 {% if user.is_authenticated %}pb-28{% else %}pb-8{% endif %}">
+  <main class="mx-auto max-w-md px-4 pt-5 {% if user.is_authenticated and not user.is_practice_login %}pb-28{% else %}pb-8{% endif %}">
     {% block content %}{% endblock %}
   </main>
 
-  {% if user.is_authenticated %}
+  {% if user.is_authenticated and not user.is_practice_login %}
     <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-300 bg-app-bg pb-[env(safe-area-inset-bottom)]"
          aria-label="Main">
       <p id="sync-status" hidden role="status"

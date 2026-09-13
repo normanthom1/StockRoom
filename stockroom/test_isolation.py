@@ -62,7 +62,6 @@ def make_order_line(org):
 ORG_OBJECT_URLS: list[Case] = [
     Case("team_role", make=make_member, method="post"),
     Case("team_set_active", make=make_member, method="post"),
-    Case("team_reset_link", make=make_member, method="post"),
     Case("stock:item_detail", make=make_item),
     Case("stock:log_used_one", make=make_item, method="post"),
     Case("stock:log_running_low", make=make_item, method="post"),
@@ -94,10 +93,9 @@ ORG_OBJECT_URLS: list[Case] = [
 # Manager-only views. Assistants get a 403 for each.
 ADMIN_ONLY_URLS: list[Case] = [
     Case("team"),
-    Case("team_invite", method="post"),
+    Case("team_add", method="post"),
     Case("team_role", make=make_member, method="post"),
     Case("team_set_active", make=make_member, method="post"),
-    Case("team_reset_link", make=make_member, method="post"),
     Case("stock:items"),
     Case("stock:suppliers"),
     Case("stock:spending"),
@@ -152,7 +150,7 @@ NO_PRACTICE_DATA: dict[str, str] = {
     "demo_login": "public; 404s unless DEMO_MODE, and only reaches the fixed demo practice",
     "logout": "ends your own session",
     "signup": "public; creates a new practice",
-    "invite_accept": "public; the signed token names the practice",
+    "enter_code": "codes only match staff of the practice login that opened the session (accounts.tests.PracticeLoginTests)",
     "password_change": "your own password",
     "password_change_done": "your own password",
     "password_reset": "public",

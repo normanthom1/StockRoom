@@ -11,9 +11,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Organisation, User
-from accounts.views import DEMO_LOGINS
 from stock.models import DemoResetState
-from stockroom.demo import DemoResetMiddleware
+from stockroom.demo import DEMO_EMAIL, DEMO_ORG, DEMO_PASSWORD, DemoResetMiddleware
 
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
@@ -21,47 +20,60 @@ LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"
 class DemoLoginTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        org = Organisation.objects.create(name="Demo Dental")
-        User.objects.create_user("sandy@demodental.test", "DemoPass123", organisation=org, role=User.Role.ADMIN)
+        org = Organisation.objects.create(name=DEMO_ORG)
+        User.objects.create_user(DEMO_EMAIL, DEMO_PASSWORD, organisation=org, role=User.Role.ADMIN, is_practice_login=True)
+        User.objects.create_staff(org, "Sandy", "0000", User.Role.ADMIN)
+        User.objects.create_staff(org, "Johanna", "11")
+        # Already reset today, so DemoResetMiddleware leaves these fixtures alone.
+        DemoResetState.objects.create(pk=1, date=timezone.localdate())
 
     @override_settings(DEMO_MODE=True)
-    def test_one_click_login_works_for_a_mapped_demo_user(self):
-        response = self.client.post(reverse("demo_login", args=["sandy"]))
-        self.assertRedirects(response, reverse("stock:home"))
-        self.assertTrue(self.client.session.get("_auth_user_id"))
+    def test_one_click_opens_the_demo_practice_at_its_code_pad(self):
+        response = self.client.post(reverse("demo_login"))
+        self.assertRedirects(response, reverse("enter_code"))
+        content = self.client.get(reverse("enter_code")).content.decode()
+        self.assertIn("Sandy 0000", content)
+        self.assertIn("Johanna 11", content)
+
+    @override_settings(DEMO_MODE=True)
+    def test_the_practice_login_works_by_hand_too(self):
+        self.client.post(reverse("login"), {"username": DEMO_EMAIL, "password": DEMO_PASSWORD})
+        self.client.post(reverse("enter_code"), {"pin": "11"})
+        self.assertContains(self.client.get(reverse("stock:home")), "Johanna")
 
     def test_disabled_when_demo_mode_is_off(self):
         with override_settings(DEMO_MODE=False):
-            response = self.client.post(reverse("demo_login", args=["sandy"]))
+            response = self.client.post(reverse("demo_login"))
         self.assertEqual(response.status_code, 404)
 
     @override_settings(DEMO_MODE=True)
-    def test_unknown_who_is_404(self):
-        self.assertEqual(self.client.post(reverse("demo_login", args=["someone-else"])).status_code, 404)
-
-    @override_settings(DEMO_MODE=True)
     def test_get_is_not_allowed(self):
-        self.assertEqual(self.client.get(reverse("demo_login", args=["sandy"])).status_code, 405)
+        self.assertEqual(self.client.get(reverse("demo_login")).status_code, 405)
 
     @override_settings(DEMO_MODE=True)
-    def test_a_mapped_email_belonging_to_a_different_org_is_not_found(self):
-        # Emails are globally unique, so this can't collide with "sandy" above - it
-        # documents that the lookup is scoped to "Demo Dental", not just any user.
-        User.objects.create_user("someone@realpractice.test", "pw", organisation=Organisation.objects.create(name="Real Practice"))
-        with patch.dict(DEMO_LOGINS, {"sandy": ("someone@realpractice.test", "Sandy (manager)")}):
-            self.assertEqual(self.client.post(reverse("demo_login", args=["sandy"])).status_code, 404)
+    def test_only_the_demo_practice_is_reachable(self):
+        Organisation.objects.filter(name=DEMO_ORG).update(name="Renamed Dental")
+        self.assertEqual(self.client.post(reverse("demo_login")).status_code, 404)
 
     @override_settings(DEMO_MODE=True)
-    def test_login_page_shows_the_one_click_buttons_and_reset_notice(self):
+    def test_a_real_practices_codes_are_never_shown(self):
+        org = Organisation.objects.create(name="Real Practice")
+        User.objects.create_user("front@real.test", "pw", organisation=org, role=User.Role.ADMIN, is_practice_login=True)
+        User.objects.create_staff(org, "Private Person", "42")
+        self.client.post(reverse("login"), {"username": "front@real.test", "password": "pw"})
+        self.assertNotContains(self.client.get(reverse("enter_code")), "Private Person")
+
+    @override_settings(DEMO_MODE=True)
+    def test_login_page_shows_the_one_click_button_login_and_reset_notice(self):
         content = self.client.get(reverse("login")).content.decode()
-        self.assertIn("Sign in as Sandy (manager)", content)
-        self.assertIn("Sign in as Johanna (assistant)", content)
-        self.assertIn("Sign in as Practice Owner", content)
+        self.assertIn("Sign in to the demo practice", content)
+        self.assertIn(DEMO_EMAIL, content)
         self.assertIn("Demo data resets every night.", content)
 
     def test_login_page_hides_them_outside_demo_mode(self):
         content = self.client.get(reverse("login")).content.decode()
-        self.assertNotIn("Sign in as Sandy", content)
+        self.assertNotIn("demo practice", content)
+        self.assertNotIn(DEMO_EMAIL, content)
         self.assertNotIn("resets every night", content)
 
 
@@ -85,12 +97,12 @@ class DemoResetMiddlewareTests(TestCase):
     def test_does_nothing_outside_demo_mode(self):
         self.client.get(reverse("login"))
         self.assertFalse(DemoResetState.objects.exists())
-        self.assertFalse(Organisation.objects.filter(name="Demo Dental").exists())
+        self.assertFalse(Organisation.objects.filter(name=DEMO_ORG).exists())
 
     @override_settings(DEMO_MODE=True)
     def test_first_request_ever_seeds_the_demo_and_records_todays_date(self):
         self.client.get(reverse("login"))
-        self.assertTrue(Organisation.objects.filter(name="Demo Dental").exists())
+        self.assertTrue(Organisation.objects.filter(name=DEMO_ORG).exists())
         self.assertEqual(DemoResetState.objects.get(pk=1).date, timezone.localdate())
 
     @override_settings(DEMO_MODE=True)

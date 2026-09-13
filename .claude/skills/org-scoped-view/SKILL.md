@@ -11,6 +11,7 @@ The helpers live in `accounts.models` (`OrgOwned`, `for_org()`) and `accounts.de
 1. **The organisation comes from `request.user.organisation`, never from the URL, a form or a hidden field.**
 2. **Always look objects up through the org:** `get_object_or_404(Item.objects.for_org(org), pk=pk)`. An object from another organisation returns 404, never 403.
 3. **Login is required by default** (`LoginRequiredMiddleware`). Mark public views with `@login_not_required` (from `django.contrib.auth.decorators`).
+   `request.user` in a stock view is always a person: `PracticeLoginMiddleware` keeps a practice login on its own (before anyone enters a code) to `/accounts/`. A view the practice login itself needs, like staff management, goes under `/accounts/`.
 4. **Manager-only views** use `@admin_required`. Don't put prices in an assistant's template context at all (check `request.user.is_org_admin`). Hiding them in the template isn't enough.
 5. **Forms:** never include `organisation` as a field (set it in the view), and scope every `ModelChoiceField` queryset with `for_org(org)`. A default `.objects.all()` dropdown lets someone post another practice's row id.
 6. **New practice-owned models** subclass `accounts.models.OrgOwned`.
@@ -38,3 +39,4 @@ The helpers live in `accounts.models` (`OrgOwned`, `for_org()`) and `accounts.de
   - `ASSISTANT_PAGES`: renders for an assistant with no `$` amount.
   - `NO_PRACTICE_DATA`: only for URLs with no practice data at all, with a one-line reason. An unregistered URL fails the suite.
 - Add one test for the view's own behaviour.
+- Signing in as staff in a test: `force_login` a staff member on their own and the middleware signs them out, because no practice login opened the session. Use `force_login(practice_login)`, then `POST /accounts/code/` with their code (see `accounts.tests.PracticeLoginTests`). Or use an email user from `create_user()`, which works on its own.

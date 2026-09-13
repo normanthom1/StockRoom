@@ -17,18 +17,18 @@
 
 ## Email
 
-There's no email provider, by design (see [#13](https://github.com/normanthom1/StockRoom/issues/13)). Team invites and password resets for a teammate go out as `mailto:` links: an admin clicks one, their own mail client opens pre-filled, and they send it from their own account. Nothing on Railway needs to send that mail (and its Hobby plan blocks outbound SMTP anyway, so a real provider would need an HTTPS API such as Resend rather than SMTP settings — reopen #13 if that's ever needed).
+There's no email provider, by design (see [#13](https://github.com/normanthom1/StockRoom/issues/13)). Each practice has one practice login (an email and password) that signs its devices in; staff are added on the Team page with a code (2 digits for assistants, 4 for managers) and have no email or password of their own, so there's nothing to invite or reset for them. Supplier orders go out as `mailto:` links from the manager's own mail client. Nothing on Railway needs to send mail (and its Hobby plan blocks outbound SMTP anyway, so a real provider would need an HTTPS API such as Resend rather than SMTP settings; reopen #13 if that's ever needed).
 
-The one thing `mailto:` can't do is the self-service **"Forgotten your password?"** link, since whoever's locked out isn't logged in to click anything. That link is printed to stdout as plain text, which on Railway means the deploy logs. To fetch one:
+The one thing that leaves is the practice login's self-service **"Forgotten your password?"** link, since whoever's locked out isn't logged in to click anything. That link is printed to stdout as plain text, which on Railway means the deploy logs. To fetch one:
 
 ```bash
 railway logs --service StockRoom --deployment --lines 1000 | grep -A 12 "Subject: Reset your StockRoom password"
 ```
 
-If a practice's only admin is the one who's locked out, they contact you and you set their password directly instead:
+If a practice can't get into its practice login at all, they contact you and you set its password directly instead:
 
 ```bash
-railway ssh --service StockRoom -- python manage.py changepassword someone@example.com
+railway ssh --service StockRoom -- python manage.py changepassword reception@example.co.nz
 ```
 
 ## Healthcheck

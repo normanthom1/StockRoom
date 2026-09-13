@@ -69,7 +69,8 @@ def service_worker(request):
         "precache": json.dumps([static(path) for path in PRECACHE_STATIC] + [offline_url]),
         "offline_url": json.dumps(offline_url),
         "capture_page_url": json.dumps(reverse("stock:log_usage")),
-        "session_urls": json.dumps([reverse("login"), reverse("logout")]),
+        # Entering a code switches who's signed in, so it wipes the caches too.
+        "session_urls": json.dumps([reverse("login"), reverse("logout"), reverse("enter_code")]),
         "offline_fragment": json.dumps(render_to_string("offline.html#message").strip()),
     })
     return HttpResponse(js, content_type="application/javascript")

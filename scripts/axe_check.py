@@ -17,33 +17,50 @@ import sys
 from axe_core_python.sync_playwright import Axe
 from playwright.sync_api import sync_playwright
 
-# (path, login_as) - login_as is an email from seed_demo, or None for a public page.
+# seed_demo's practice login (stockroom.demo.DEMO_EMAIL / DEMO_PASSWORD).
+PRACTICE_EMAIL = "reception@discoverdental.co.nz"
+PRACTICE_PASSWORD = "password"
+
+# (path, login_as) - login_as is "practice" (the practice login before anyone
+# has entered a code), a seed_demo staff code, or None for a public page.
 PAGES = [
     ("/accounts/login/", None),
     ("/accounts/signup/", None),
     ("/offline/", None),
-    ("/", "sandy@demodental.test"),
-    ("/log-usage/", "sandy@demodental.test"),
-    ("/reorder/", "sandy@demodental.test"),
-    ("/deliveries/", "sandy@demodental.test"),
-    ("/items/", "sandy@demodental.test"),
-    ("/suppliers/", "sandy@demodental.test"),
-    ("/spending/", "sandy@demodental.test"),
-    ("/activity/", "sandy@demodental.test"),
-    ("/stocktake/", "sandy@demodental.test"),
-    ("/accounts/team/", "sandy@demodental.test"),
-    ("/", "johanna@demodental.test"),
-    ("/log-usage/", "johanna@demodental.test"),
+    ("/accounts/code/", "practice"),
+    ("/accounts/team/", "practice"),
+    ("/", "0000"),  # Sandy, manager
+    ("/log-usage/", "0000"),
+    ("/reorder/", "0000"),
+    ("/deliveries/", "0000"),
+    ("/items/", "0000"),
+    ("/suppliers/", "0000"),
+    ("/spending/", "0000"),
+    ("/activity/", "0000"),
+    ("/stocktake/", "0000"),
+    ("/accounts/team/", "0000"),
+    ("/", "11"),  # Johanna, assistant
+    ("/log-usage/", "11"),
 ]
 SERIOUS = {"serious", "critical"}
 
 
-def login(page, base_url, email):
-    page.goto(f"{base_url}/accounts/login/")
-    page.fill("input[name=username]", email)
-    page.fill("input[name=password]", "DemoPass123")
-    page.click("form:has(input[name=username]) button[type=submit]")
-    page.wait_for_load_state("networkidle")
+def login(page, base_url, who):
+    page.goto(f"{base_url}/accounts/code/")
+    if "/accounts/login/" in page.url:
+        page.fill("input[name=username]", PRACTICE_EMAIL)
+        page.fill("input[name=password]", PRACTICE_PASSWORD)
+        page.click("form:has(input[name=username]) button[type=submit]")
+        page.wait_for_load_state("networkidle")
+    if who != "practice":
+        # Through the on-screen keypad, the way staff actually sign in: a
+        # manager's 4 digits submit themselves, an assistant's 2 need Go.
+        for digit in who[:-1]:
+            page.click(f"[data-code-key='{digit}']")
+        with page.expect_navigation():
+            page.click(f"[data-code-key='{who[-1]}']")
+            if len(who) == 2:
+                page.click("button[type=submit]:has-text('Go')")
 
 
 def check_page(axe, page, label, failures):

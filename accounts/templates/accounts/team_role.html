@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}New code for {{ member.name }} · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-2">Make {{ member.name }} {% if role == "admin" %}an admin{% else %}an assistant{% endif %}</h1>
+<p class="mb-5 text-gray-700">
+  {% if role == "admin" %}
+    Managers sign in with a 4-digit code, since they can see prices and change the team.
+  {% else %}
+    Assistants sign in with a 2-digit code.
+  {% endif %}
+  Hand the device to {{ member.name }} so they can choose it. Only they need to know it.
+</p>
+
+<form method="post" class="blueprint space-y-4 p-4">
+  {% csrf_token %}
+  <input type="hidden" name="role" value="{{ role }}">
+  <p class="kicker">{{ member.name }}, choose your new code</p>
+  {{ form }}
+  <button type="submit" class="btn-primary">{% if role == "admin" %}Save code and make admin{% else %}Save code and make assistant{% endif %}</button>
+</form>
+<a href="{% url 'team' %}" class="btn btn-line mt-4 w-full">Cancel</a>
+{% endblock %}

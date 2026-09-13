@@ -2,9 +2,11 @@ import zoneinfo
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Lower
+from django.db.models.functions import Length, Lower
+from django.db.models.lookups import Exact
 from django.utils.text import slugify
 
 
@@ -84,6 +86,14 @@ class UserManager(BaseUserManager.from_queryset(OrgQuerySet)):
         extra_fields.setdefault("is_superuser", False)
         return self._create_user(email, password, **extra_fields)
 
+    def create_staff(self, organisation, name, pin, role="assistant"):
+        """A staff member: no email or password, just a code entered on a
+        device the practice login has opened."""
+        user = self.model(organisation=organisation, name=name, pin=pin, role=role)
+        user.set_unusable_password()
+        user.save(using=self._db)
+        return user
+
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
@@ -92,19 +102,33 @@ class UserManager(BaseUserManager.from_queryset(OrgQuerySet)):
         return self._create_user(email, password, **extra_fields)
 
 
+pin_validator = RegexValidator(r"^(\d{2}|\d{4})$", "Use digits only: 2 for an assistant, 4 for a manager.")
+
+
 class User(AbstractUser):
-    """A person who logs in. Staff belong to one practice; superusers are platform staff and belong to none."""
+    """Someone who uses StockRoom. A practice signs in on a device with its
+    practice login (email and password), then each staff member picks
+    themselves with a code (2 digits for an assistant, 4 for a manager).
+    Superusers are platform staff and belong to no practice."""
 
     class Role(models.TextChoices):
         ADMIN = "admin", "Practice manager or owner"
         ASSISTANT = "assistant", "Dental assistant"
+
+    # Managers see prices and run the team, so their code is harder to guess.
+    CODE_LENGTH = {Role.ADMIN: 4, Role.ASSISTANT: 2}
 
     # Email is the login, and one name field fits how practices refer to people.
     username = None
     first_name = None
     last_name = None
     name = models.CharField(max_length=150, blank=True)
-    email = models.EmailField("email address", unique=True)
+    # Staff have no email; they sign in with their code instead.
+    email = models.EmailField("email address", unique=True, null=True, blank=True)
+    pin = models.CharField("code", max_length=4, null=True, blank=True, validators=[pin_validator])
+    # The practice's shared login. It opens a device and manages staff; the
+    # stock work itself is always done as a staff member (PracticeLoginMiddleware).
+    is_practice_login = models.BooleanField(default=False)
     organisation = models.ForeignKey(
         Organisation, on_delete=models.PROTECT, null=True, blank=True, related_name="users"
     )
@@ -131,10 +155,33 @@ class User(AbstractUser):
                 name="accounts_user_has_organisation",
                 violation_error_message="Everyone except platform superusers must belong to a practice.",
             ),
+            models.UniqueConstraint(
+                fields=["organisation", "pin"],
+                name="accounts_user_pin_unique_per_practice",
+                violation_error_message="Someone at this practice already uses that code.",
+            ),
+            models.CheckConstraint(
+                condition=Q(email__isnull=False) | Q(pin__isnull=False),
+                name="accounts_user_has_a_way_in",
+                violation_error_message="Everyone needs an email address or a code to sign in with.",
+            ),
+            models.CheckConstraint(
+                condition=Q(pin__isnull=True)
+                | Q(Q(role="admin"), Exact(Length("pin"), 4))
+                | Q(Q(role="assistant"), Exact(Length("pin"), 2)),
+                name="accounts_user_code_length_matches_role",
+                violation_error_message="Managers need a 4-digit code, and assistants a 2-digit one.",
+            ),
         ]
 
     def __str__(self):
-        return self.email
+        return self.email or self.name
+
+    def clean(self):
+        super().clean()
+        # AbstractUser.clean() turns a missing email into "", which the unique
+        # constraint would then treat as one shared address between staff.
+        self.email = self.email or None
 
     def get_full_name(self):
         return self.name
