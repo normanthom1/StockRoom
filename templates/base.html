@@ -55,8 +55,21 @@
   </div>
 
   {% if user.is_authenticated %}
+    {% if not user.is_practice_login %}
+      {# Shared by the header's desktop nav row and the phone's bottom tab bar. #}
+      {% url 'stock:home' as url_home %}
+      {% url 'stock:log_usage' as url_log_usage %}
+      {% url 'stock:reorder_list' as url_reorder_list %}
+      {% url 'stock:deliveries' as url_deliveries %}
+      {% url 'stock:items' as url_items %}
+      {% url 'stock:stocktake_step' as url_stocktake %}
+      {% url 'stock:suppliers' as url_suppliers %}
+      {% url 'stock:spending' as url_spending %}
+      {% url 'stock:activity_log' as url_activity %}
+      {% url 'team' as url_team %}
+    {% endif %}
     <header class="sticky top-0 z-30 border-b border-gray-300 bg-app-bg">
-      <div class="mx-auto flex h-16 max-w-md items-center gap-2 px-4">
+      <div class="mx-auto flex h-16 max-w-md items-center gap-2 px-4 lg:max-w-3xl lg:px-6">
         <button type="button" class="tap-target -ml-2 grid shrink-0 place-items-center"
                 data-open-dialog="about" aria-label="About StockRoom">
           <span class="grid size-8 place-items-center rounded-full border-[1.5px] border-primary font-heading text-sm font-semibold text-primary-dark">i</span>
@@ -93,7 +106,32 @@
           </div>
         {% endif %}
       </div>
+      {% if not user.is_practice_login %}
+        {# The phone's bottom tab bar becomes a normal nav row once there's room for one. #}
+        <nav class="hidden border-t border-gray-200 lg:block" aria-label="Main">
+          <div class="mx-auto flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-1 px-6 py-2">
+            <a href="{{ url_home }}" class="nav-link" {% if request.path == url_home %}aria-current="page"{% endif %}>Home</a>
+            <a href="{{ url_log_usage }}" class="nav-link" {% if request.path == url_log_usage %}aria-current="page"{% endif %}>Log usage</a>
+            <a href="{{ url_reorder_list }}" class="nav-link" {% if request.path == url_reorder_list %}aria-current="page"{% endif %}>Reorder list</a>
+            <a href="{{ url_deliveries }}" class="nav-link" {% if request.path == url_deliveries %}aria-current="page"{% endif %}>Deliveries</a>
+            {% if user.is_org_admin %}
+              <span class="h-5 w-px shrink-0 bg-gray-300" aria-hidden="true"></span>
+              <a href="{{ url_items }}" class="nav-link" {% if url_items in request.path or url_stocktake in request.path %}aria-current="page"{% endif %}>Stock</a>
+              <a href="{{ url_suppliers }}" class="nav-link" {% if url_suppliers in request.path %}aria-current="page"{% endif %}>Suppliers</a>
+              <a href="{{ url_spending }}" class="nav-link" {% if url_spending in request.path %}aria-current="page"{% endif %}>Spending</a>
+              <a href="{{ url_activity }}" class="nav-link" {% if url_activity in request.path %}aria-current="page"{% endif %}>Activity</a>
+              <a href="{{ url_team }}" class="nav-link" {% if url_team in request.path %}aria-current="page"{% endif %}>Team</a>
+            {% endif %}
+          </div>
+        </nav>
+      {% endif %}
     </header>
+
+    {% if not user.is_practice_login %}
+      {# Moved out of the bottom tab bar so it still shows once that bar is lg:hidden. #}
+      <p id="sync-status" hidden role="status"
+         class="border-b-2 border-status-week bg-status-week/10 px-4 py-1 text-center text-sm font-medium text-gray-900"></p>
+    {% endif %}
 
     <dialog id="about" data-backdrop-close class="m-auto w-[min(90vw,32rem)] border border-gray-300 p-0 backdrop:bg-gray-900/50">
       <div class="max-h-[85vh] overflow-y-auto p-5">
@@ -130,33 +168,22 @@
   {% endif %}
 
   {% block main %}
-    <main class="mx-auto max-w-md px-4 pt-5 {% if user.is_authenticated and not user.is_practice_login %}pb-28{% else %}pb-8{% endif %}">
+    <main class="mx-auto max-w-md px-4 pt-5 lg:max-w-3xl lg:px-6 lg:pt-8 {% if user.is_authenticated and not user.is_practice_login %}pb-28 lg:pb-10{% else %}pb-8{% endif %}">
       {% block content %}{% endblock %}
     </main>
   {% endblock %}
 
   {% if user.is_authenticated and not user.is_practice_login %}
-    <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-300 bg-app-bg pb-[env(safe-area-inset-bottom)]"
+    {# The header grows a nav row of its own once there's room; this stays for narrower screens. #}
+    <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-300 bg-app-bg pb-[env(safe-area-inset-bottom)] lg:hidden"
          aria-label="Main">
-      <p id="sync-status" hidden role="status"
-         class="border-b-2 border-status-week bg-status-week/10 px-4 py-1 text-center text-sm font-medium text-gray-900"></p>
       <div class="mx-auto flex max-w-md">
-        {% url 'stock:home' as url_home %}
-        {% url 'stock:log_usage' as url_log_usage %}
-        {% url 'stock:reorder_list' as url_reorder_list %}
-        {% url 'stock:deliveries' as url_deliveries %}
         <a href="{{ url_home }}" class="nav-tab" {% if request.path == url_home %}aria-current="page"{% endif %}>Home</a>
         <a href="{{ url_log_usage }}" class="nav-tab" {% if request.path == url_log_usage %}aria-current="page"{% endif %}>Log usage</a>
         <a href="{{ url_reorder_list }}" class="nav-tab" {% if request.path == url_reorder_list %}aria-current="page"{% endif %}>Reorder list</a>
         <a href="{{ url_deliveries }}" class="nav-tab" {% if request.path == url_deliveries %}aria-current="page"{% endif %}>Deliveries</a>
         {% if user.is_org_admin %}
           {# The More pages (and the pages under them) light up More, so you can see where you are. #}
-          {% url 'stock:items' as url_items %}
-          {% url 'stock:stocktake_step' as url_stocktake %}
-          {% url 'stock:suppliers' as url_suppliers %}
-          {% url 'stock:spending' as url_spending %}
-          {% url 'stock:activity_log' as url_activity %}
-          {% url 'team' as url_team %}
           <div class="relative flex min-w-0 flex-1" x-data="dropdown" @click.outside="close">
             <button type="button" class="nav-tab" @click="toggle" :aria-expanded="open" aria-haspopup="true"
                     {% if url_items in request.path or url_stocktake in request.path or url_suppliers in request.path or url_spending in request.path or url_activity in request.path or url_team in request.path %}data-current{% endif %}>More</button>

@@ -129,6 +129,14 @@
   input[type="radio"] {
     @apply size-5 shrink-0 accent-primary-dark;
   }
+  /* A mouse pointer expects a hand over anything clickable; a touch screen
+     never sees this, so it's a desktop-only affordance. */
+  button:not(:disabled) {
+    @apply cursor-pointer;
+  }
+  button:disabled {
+    @apply cursor-not-allowed;
+  }
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible,
@@ -224,6 +232,14 @@
   .nav-tab[aria-current="page"]::before,
   .nav-tab[data-current]::before {
     @apply absolute inset-x-3 top-0 h-[3px] bg-primary content-[''];
+  }
+
+  /* The header's nav row, once there's room for one instead of the bottom tabs. */
+  .nav-link {
+    @apply inline-flex min-h-10 items-center border-b-2 border-transparent font-heading text-[0.9375rem] font-semibold text-gray-600 transition-colors hover:text-gray-900;
+  }
+  .nav-link[aria-current="page"] {
+    @apply border-primary text-primary-dark;
   }
   /* A flat <progress> bar. Width comes from value/max, since the CSP
      blocks inline style="width: …". */
