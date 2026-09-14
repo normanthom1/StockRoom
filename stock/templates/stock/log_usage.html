@@ -9,7 +9,7 @@
   <input type="search" id="tile-search" aria-label="Search items" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
          placeholder="Search all {{ tiles|length }} items…" class="mb-4 min-h-14 text-lg" data-search-input>
 
-  <div id="tile-grid" class="grid grid-cols-2 gap-2.5">
+  <div id="tile-grid" class="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
     {% for tile in tiles %}
       <button type="button" data-capture-tile
               data-search="{{ tile.name|lower }}" data-name="{{ tile.name }}" data-unit="{{ tile.unit }}"

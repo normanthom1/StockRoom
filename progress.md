@@ -36,6 +36,15 @@ Tracks work so a fresh session can resume. Update after each issue closes.
     `hx-get`/`hx-post` opens it automatically (base.html listens for
     `htmx:afterSwap` on `#sheet-content`). Close with
     `document.getElementById('sheet').close()`.
+  - Desktop layout (added later, no issue number): at `lg:` (1024px) and up,
+    `base.html` hides the bottom tab bar and adds a nav row (`.nav-link`) to
+    the header instead, and `<main>` widens to `lg:max-w-3xl`. Below `lg:` it's
+    pixel-for-pixel the same mobile layout as before. Nothing page-specific
+    needed unless a page has its own fixed-width or `grid-cols-N` layout, in
+    which case give it an `lg:` variant too (`log_usage.html`'s tile grid).
+    Also added a plain `button { cursor: pointer }` base rule - mobile never
+    sees it, but a laptop's mouse otherwise showed an arrow cursor on every
+    `<button>` (only `<a>` gets a hand cursor by default).
 - After editing any template class names, `python manage.py tailwind build
   --force` before eyeballing in a browser - plain `runserver` does not rebuild
   CSS on its own (needs `manage.py tailwind runserver` for that).
