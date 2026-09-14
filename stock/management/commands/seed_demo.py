@@ -108,6 +108,17 @@ DAYS_OFFSET = {"order_now": 1, "this_week": 6, "ok": 25, "spike": 25, "short_his
 # An assistant's request waiting on the manager's reorder list: (item, who asked).
 ASKED_FOR = ("Gauze squares, 5x5cm", "Johanna")
 
+RATE_BY_NAME = {name: rate for name, _unit, _supplier, rate, _price, _shape in ITEMS}
+
+# Orders still on the way, so the Deliveries page has something to receive
+# (one of them late) and this week's and this month's spend aren't zero:
+# (item, days since ordered, days until expected).
+INCOMING = [
+    ("Barrier film rolls", 3, 3),
+    ("Rubber dam sheets", 1, 4),
+    ("Autoclave pouches 90x230", 5, -1),  # expected in the past, so it shows as "Late"
+]
+
 
 @click.command()
 @click.option("--reset", is_flag=True, help="Delete and recreate the demo organisation.")
@@ -159,6 +170,22 @@ def command(reset):
         Item.objects.filter(organisation=org, name=item_name).update(
             reorder_requested_by=next(u for u in staff if u.name == asker)
         )
+
+        # Capped by how far into the week/month "now" is, so these always land
+        # in the current week's and month's spend, whatever day the nightly
+        # reset happens to land on.
+        max_days_ago = now.weekday()
+        for item_name, days_ago, days_until in INCOMING:
+            item = Item.objects.get(organisation=org, name=item_name)
+            OrderLine.objects.create(
+                organisation=org,
+                item=item,
+                qty=round_order_qty(RATE_BY_NAME[item_name] * 2),
+                unit_price=item.price,
+                ordered_by=rng.choice(admins),
+                ordered_at=now - timedelta(days=min(days_ago, max_days_ago)),
+                expected_at=now + timedelta(days=days_until),
+            )
 
     codes = ", ".join(f"{name} {pin}" for name, pin, _ in STAFF)
     click.echo(f'Seeded "{org.name}" with {len(ITEMS)} items. Practice login: {DEMO_EMAIL} / {DEMO_PASSWORD}. Codes: {codes}')
