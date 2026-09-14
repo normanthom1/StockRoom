@@ -91,6 +91,10 @@
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
+    /* Stops a double-tap (e.g. two quick taps on the code pad's "0") from
+       zooming the page. Pinch-zoom still works: that's a separate gesture,
+       and the viewport meta tag deliberately allows it for low vision. */
+    touch-action: manipulation;
   }
   body {
     @apply font-sans leading-normal;
