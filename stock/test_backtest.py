@@ -60,7 +60,7 @@ class BacktestCommandTests(TestCase):
         with redirect_stdout(out):
             call_command("backtest_forecast")
         output = out.getvalue()
-        self.assertIn("Discover Dental: 2-week forecasts", output)
+        self.assertIn("NZ Dentist: 2-week forecasts", output)
         self.assertRegex(output, r"Nitrile gloves, size M\s+13\s")
         self.assertRegex(output, r"Overall: \d+ forecasts, off by \d+% of actual use \(bias [+-]\d+%\)\. 1 stock-out, 0 missed\.")
         self.assertIn("Empty Dental: no stock history yet.", output)

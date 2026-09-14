@@ -31,10 +31,10 @@ class SeedDemoTests(TestCase):
         self.assertEqual(counts[Status.ORDER_NOW], 2)
         self.assertGreaterEqual(counts[Status.ORDER_THIS_WEEK], 1)
         practice = User.objects.get(organisation=org, is_practice_login=True)
-        self.assertEqual(practice.email, "reception@discoverdental.co.nz")
+        self.assertEqual(practice.email, "reception@nzdentist.co.nz")
         self.assertTrue(practice.check_password("password"))
         codes = dict(User.objects.filter(organisation=org, pin__isnull=False).values_list("name", "pin"))
-        self.assertEqual(codes, {"Sandy": "0000", "Johanna": "11", "Liz": "22", "Practice Owner": "5555"})
+        self.assertEqual(codes, {"Sofia": "0000", "Johanna": "11", "Emilio": "22", "Practice Owner": "5555"})
 
     def test_is_deterministic(self):
         call_command("seed_demo")

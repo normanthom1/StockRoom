@@ -18,7 +18,7 @@ from axe_core_python.sync_playwright import Axe
 from playwright.sync_api import sync_playwright
 
 # seed_demo's practice login (stockroom.demo.DEMO_EMAIL / DEMO_PASSWORD).
-PRACTICE_EMAIL = "reception@discoverdental.co.nz"
+PRACTICE_EMAIL = "reception@nzdentist.co.nz"
 PRACTICE_PASSWORD = "password"
 
 # (path, login_as) - login_as is "practice" (the practice login before anyone
@@ -30,7 +30,7 @@ PAGES = [
     ("/offline/", None),
     ("/accounts/code/", "practice"),
     ("/accounts/team/", "practice"),
-    ("/", "0000"),  # Sandy, manager
+    ("/", "0000"),  # Sofia, manager
     ("/log-usage/", "0000"),
     ("/reorder/", "0000"),
     ("/deliveries/", "0000"),

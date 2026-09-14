@@ -18,8 +18,8 @@ class DesktopNavTests(TestCase):
         call_command("seed_demo")
         org = Organisation.objects.get(name=DEMO_ORG)
         cls.practice = User.objects.get(organisation=org, is_practice_login=True)
-        cls.admin = User.objects.get(organisation=org, name="Sandy")
-        cls.assistant = User.objects.get(organisation=org, name="Liz")
+        cls.admin = User.objects.get(organisation=org, name="Sofia")
+        cls.assistant = User.objects.get(organisation=org, name="Emilio")
 
     def sign_in(self, staff):
         self.client.force_login(self.practice)

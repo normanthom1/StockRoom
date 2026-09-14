@@ -22,7 +22,7 @@ class DemoLoginTests(TestCase):
     def setUpTestData(cls):
         org = Organisation.objects.create(name=DEMO_ORG)
         User.objects.create_user(DEMO_EMAIL, DEMO_PASSWORD, organisation=org, role=User.Role.ADMIN, is_practice_login=True)
-        User.objects.create_staff(org, "Sandy", "0000", User.Role.ADMIN)
+        User.objects.create_staff(org, "Sofia", "0000", User.Role.ADMIN)
         User.objects.create_staff(org, "Johanna", "11")
         # Already reset today, so DemoResetMiddleware leaves these fixtures alone.
         DemoResetState.objects.create(pk=1, date=timezone.localdate())
@@ -32,7 +32,7 @@ class DemoLoginTests(TestCase):
         response = self.client.post(reverse("demo_login"))
         self.assertRedirects(response, reverse("enter_code"))
         content = self.client.get(reverse("enter_code")).content.decode()
-        self.assertIn("Sandy 0000", content)
+        self.assertIn("Sofia 0000", content)
         self.assertIn("Johanna 11", content)
 
     @override_settings(DEMO_MODE=True)

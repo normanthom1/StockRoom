@@ -67,7 +67,7 @@ The prototype's "blueprint" style: Barlow body text, Barlow Condensed (`font-hea
 
 ## Checking your work
 - Run `python manage.py tailwind build` after adding classes, and restart `runserver` after editing templates: with `--noreload` it keeps serving the old ones.
-- With `DEMO_MODE=1`, the login page has a one-click sign-in to the demo practice (`seed_demo` data), then the code pad: `0000` Sandy (manager), `11` then Go for Johanna (assistant). Screenshot at 390px wide with Playwright, and look at the pages, not just the tests.
+- With `DEMO_MODE=1`, the login page has a one-click sign-in to the demo practice (`seed_demo` data), then the code pad: `0000` Sofia (manager), `11` then Go for Johanna (assistant). Screenshot at 390px wide with Playwright, and look at the pages, not just the tests.
 - Run `python scripts/axe_check.py http://127.0.0.1:<port>` before shipping. It must report every page clean.
 
 ## Copy
