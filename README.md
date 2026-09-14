@@ -15,10 +15,10 @@ runs empty.
 
 **[stockroom-production-1adf.up.railway.app](https://stockroom-production-1adf.up.railway.app/)**
 
-The login page has a one-click button into the demo practice, Discover
-Dental (or log in with `reception@discoverdental.co.nz` and the password
-`password`). Then tap a staff code: Johanna `11` or Liz `22` (dental
-assistants, 2 digits then Go), or Sandy `0000` or the Practice Owner `5555`
+The login page has a one-click button into the demo practice, NZ
+Dentist (or log in with `reception@nzdentist.co.nz` and the password
+`password`). Then tap a staff code: Johanna `11` or Emilio `22` (dental
+assistants, 2 digits then Go), or Sofia `0000` or the Practice Owner `5555`
 (managers, whose codes are 4 digits). Demo data
 resets every night, so feel free to change things.
 

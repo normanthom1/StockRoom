@@ -13,8 +13,8 @@ from stock.models import DemoResetState
 
 # The seeded practice and its practice login. Demo data only: the password is
 # public on the demo's login page, so never give a real practice these.
-DEMO_ORG = "Discover Dental"
-DEMO_EMAIL = "reception@discoverdental.co.nz"
+DEMO_ORG = "NZ Dentist"
+DEMO_EMAIL = "reception@nzdentist.co.nz"
 DEMO_PASSWORD = "password"
 
 # Comfortably longer than seed_demo takes (recreates ~44 items and their history).

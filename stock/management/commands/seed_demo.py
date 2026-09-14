@@ -40,9 +40,9 @@ BACKUPS = {
 
 # name, code, role - the practice login's staff. Managers have 4-digit codes.
 STAFF = [
-    ("Sandy", "0000", User.Role.ADMIN),
+    ("Sofia", "0000", User.Role.ADMIN),
     ("Johanna", "11", User.Role.ASSISTANT),
-    ("Liz", "22", User.Role.ASSISTANT),
+    ("Emilio", "22", User.Role.ASSISTANT),
     ("Practice Owner", "5555", User.Role.ADMIN),
 ]
 
