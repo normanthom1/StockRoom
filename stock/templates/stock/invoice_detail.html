@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% load stock_units %}
 
-{% block title %}{{ invoice.supplier_name|default:"Invoice" }} · StockRoom{% endblock %}
+{% block title %}{{ invoice.supplier_name|default:"Invoice or receipt" }} · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-1">{{ invoice.supplier_name|default:"Invoice" }}</h1>
+<h1 class="mb-1">{{ invoice.supplier_name|default:"Invoice or receipt" }}</h1>
 <p class="mb-4 text-sm text-gray-600">{% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</p>
 
 {% if invoice.status == "ignored" %}
@@ -34,7 +35,7 @@
     {% for line in received %}
       <div class="flex flex-col gap-1 border-b border-gray-200 py-3">
         <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ line.description|default:line.sku }}</span>
-        <span class="text-sm text-gray-600">{{ line.qty }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.order_line.item.name != line.description %} &middot; {{ line.order_line.item.name }}{% endif %}</span>
+        <span class="text-sm text-gray-600">{{ line.qty }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.item.name != line.description %} &middot; {{ line.item.name }}{% endif %}{% if not line.order_line_id %} &middot; added to stock, not on an order{% endif %}</span>
       </div>
     {% endfor %}
   </details>
@@ -50,13 +51,19 @@
       <span class="text-sm text-gray-600">
         {{ line.qty|default_if_none:"?" }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.item %} &middot; {{ line.item.name }}{% endif %}
       </span>
-      {% if open_orders is not None %}
+      {% if receivable %}
         <span class="text-sm text-gray-600">{% if open_orders %}Not matched to anything on order{% else %}Nothing left on order from {{ invoice.supplier.name }} to match it to{% endif %}</span>
-      {% endif %}
-      {% if open_orders %}
         <form method="post" action="{% url 'stock:invoice_line_receive' line.pk %}" data-disable-on-submit>
           {% csrf_token %}
-          {% include "stock/_match_to.html" with key=line.pk supplier=invoice.supplier orders=open_orders receive_button=True %}
+          {% if open_orders %}
+            {% include "stock/_match_to.html" with key=line.pk supplier=invoice.supplier orders=open_orders receive_button=True %}
+          {% endif %}
+          {% if line.item and line.qty %}
+            <button type="submit" name="to_stock" value="1" class="btn btn-line mt-2 w-full">Add {{ line.qty }} {{ line.item.unit|plural:line.qty }} to stock</button>
+            <p class="mt-1 text-sm text-gray-600">Adds it without an order and sets the price to ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}. For a receipt, or anything ordered outside StockRoom.</p>
+          {% elif not line.item %}
+            <p class="mt-1 text-sm text-gray-600">No item in StockRoom matches this. Add it on the Items page, then check this invoice again.</p>
+          {% endif %}
         </form>
       {% endif %}
     </div>

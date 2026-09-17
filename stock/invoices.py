@@ -295,12 +295,43 @@ def receive(invoice, lines, user):
                 order.item.supplier_sku = line.sku
                 order.item.save(update_fields=["supplier_sku"])
         InvoiceLine.objects.bulk_update(lines, ["order_line", "item"])
-        received, total = invoice.lines.exclude(order_line=None).count(), invoice.lines.count()
-        invoice.status = (Invoice.Status.COMPLETE if received == total
-                          else Invoice.Status.PARTIAL if received else Invoice.Status.PARSED)
-        invoice.undo_snapshot = snapshot
-        invoice.undo_until = timezone.now() + UNDO_WINDOW
-        invoice.save(update_fields=["status", "undo_snapshot", "undo_until"])
+        _finish(invoice, snapshot)
+
+
+def receive_to_stock(invoice, line, user):
+    """Put a line that isn't on any order straight onto the shelf: a receipt, or
+    a delivery someone ordered outside StockRoom. The invoice's price becomes the
+    item's price, and Undo puts both back. The caller checks the line has an item
+    and a quantity and hasn't been received already."""
+    with transaction.atomic():
+        item_price_before = line.item.price
+        if line.unit_price is not None and line.item.price != line.unit_price:
+            line.item.price = line.unit_price
+            line.item.save(update_fields=["price"])
+        event = StockEvent.objects.create(organisation=invoice.organisation, item=line.item,
+                                          user=user, kind="received", qty=line.qty)
+        line.stock_event = event
+        line.save(update_fields=["stock_event"])
+        _finish(invoice, [*(invoice.undo_snapshot or []), {
+            "order_line_id": None,
+            "invoice_line_id": line.pk,
+            "unit_price": None,
+            "item_price": str(item_price_before) if item_price_before is not None else None,
+            "item_before_id": line.item_id,
+            "stock_event_id": event.pk,
+            "remainder_id": None,
+        }])
+
+
+def _finish(invoice, snapshot):
+    """Set how much of the invoice has landed, and open the undo window."""
+    received = invoice.lines.filter(Q(order_line__isnull=False) | Q(stock_event__isnull=False)).count()
+    total = invoice.lines.count()
+    invoice.status = (Invoice.Status.COMPLETE if received == total
+                      else Invoice.Status.PARTIAL if received else Invoice.Status.PARSED)
+    invoice.undo_snapshot = snapshot
+    invoice.undo_until = timezone.now() + UNDO_WINDOW
+    invoice.save(update_fields=["status", "undo_snapshot", "undo_until"])
 
 
 def undo_ingest(invoice):
@@ -313,25 +344,28 @@ def undo_ingest(invoice):
         orders = {
             order.pk: order for order in
             OrderLine.objects.select_for_update().select_related("item")
-            .filter(pk__in=[entry["order_line_id"] for entry in snapshot])
+            .filter(pk__in=[entry["order_line_id"] for entry in snapshot if entry["order_line_id"]])
         }
         for entry in snapshot:
+            line = InvoiceLine.objects.select_related("item").filter(pk=entry["invoice_line_id"]).first()
             order = orders.get(entry["order_line_id"])
-            if order is None:
+            if order is None and not (entry["order_line_id"] is None and line):
                 continue
             if entry["remainder_id"]:
                 OrderLine.objects.filter(pk=entry["remainder_id"]).delete()
-            StockEvent.objects.filter(pk=entry["stock_event_id"]).delete()
-            order.received_qty = order.received_at = order.received_by = order.price_before = None
-            order.unit_price = Decimal(entry["unit_price"]) if entry["unit_price"] is not None else None
-            order.save()
-            item_price = Decimal(entry["item_price"]) if entry["item_price"] is not None else None
-            if order.item.price != item_price:
-                order.item.price = item_price
-                order.item.save(update_fields=["price"])
             InvoiceLine.objects.filter(pk=entry["invoice_line_id"]).update(
-                order_line=None, item_id=entry["item_before_id"]
+                order_line=None, stock_event=None, item_id=entry["item_before_id"]
             )
+            StockEvent.objects.filter(pk=entry["stock_event_id"]).delete()
+            if order is not None:
+                order.received_qty = order.received_at = order.received_by = order.price_before = None
+                order.unit_price = Decimal(entry["unit_price"]) if entry["unit_price"] is not None else None
+                order.save()
+            item = order.item if order is not None else line.item
+            item_price = Decimal(entry["item_price"]) if entry["item_price"] is not None else None
+            if item is not None and item.price != item_price:
+                item.price = item_price
+                item.save(update_fields=["price"])
         invoice.status = Invoice.Status.PARSED
         invoice.undo_snapshot, invoice.undo_until = None, None
         invoice.save(update_fields=["status", "undo_snapshot", "undo_until"])

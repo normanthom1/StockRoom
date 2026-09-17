@@ -1,10 +1,16 @@
 {% extends "base.html" %}
 
-{% block title %}Upload invoice · StockRoom{% endblock %}
+{% block title %}Upload an invoice or receipt · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-2">Upload an invoice</h1>
-<p class="mb-4 text-sm text-gray-600">A photo, PDF or CSV of a supplier invoice. StockRoom reads the lines out of it. Nothing is saved until you've checked the preview.</p>
+<h1 class="mb-2">Upload an invoice or receipt</h1>
+<p class="mb-3 text-sm text-gray-600">A photo, PDF or CSV. StockRoom reads the lines out of it, then:</p>
+<ul class="mb-4 list-disc pl-5 text-sm leading-relaxed text-gray-600">
+  <li>ticks off what it matches on order, and leaves the rest back-ordered</li>
+  <li>adds what arrived to your stock levels, so the runout dates catch up</li>
+  <li>updates each item's price to what the supplier charged</li>
+</ul>
+<p class="mb-4 text-sm text-gray-600">Nothing is saved until you've checked the preview. The file itself is never kept.</p>
 
 {% if unfinished %}
   <h2 class="mb-2">Still importing</h2>
@@ -20,10 +26,10 @@
 <form method="post" action="{% url 'assistant:invoice_upload' %}" enctype="multipart/form-data"
       class="blueprint flex flex-col gap-2 p-4" data-disable-on-submit>
   {% csrf_token %}
-  <label for="invoice_file" class="mb-0">Invoice</label>
+  <label for="invoice_file" class="mb-0">Invoice or receipt</label>
   <input id="invoice_file" type="file" name="invoice_file" accept="image/*,application/pdf,.csv,text/csv" required>
-  <button type="submit" class="btn-primary mt-2">Choose invoice</button>
-  <p class="hidden text-sm text-gray-600 [button:disabled+&]:block" role="status">Reading your invoice…</p>
+  <button type="submit" class="btn-primary mt-2">Read this file</button>
+  <p class="hidden text-sm text-gray-600 [button:disabled+&]:block" role="status">Reading your file…</p>
 </form>
 
 <h2 class="mt-8 mb-2">Several at once</h2>
@@ -31,8 +37,8 @@
 <form method="post" action="{% url 'assistant:invoice_batch_upload' %}" enctype="multipart/form-data"
       class="blueprint flex flex-col gap-2 p-4" data-disable-on-submit>
   {% csrf_token %}
-  <label for="invoice_files" class="mb-0">Invoices</label>
+  <label for="invoice_files" class="mb-0">Invoices or receipts</label>
   <input id="invoice_files" type="file" name="invoice_files" accept="image/*,application/pdf,.csv,text/csv" multiple required>
-  <button type="submit" class="btn btn-fill mt-2">Import invoices</button>
+  <button type="submit" class="btn btn-fill mt-2">Import files</button>
 </form>
 {% endblock %}
