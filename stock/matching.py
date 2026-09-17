@@ -140,15 +140,15 @@ class Match:
 
 
 class Matcher:
-    """Matches names against one practice's active items. Build one per
-    invoice or import, so the items are only read and normalised once."""
+    """Matches names against one practice's active items, or just the items
+    given. Build one per invoice or import, so the items are only read and
+    normalised once."""
 
-    def __init__(self, organisation):
+    def __init__(self, organisation, items=None):
         self.organisation = organisation
-        self.items = [
-            (item, normalize(item.name), synonym_key(item.name))
-            for item in Item.objects.for_org(organisation).filter(is_active=True)
-        ]
+        if items is None:
+            items = Item.objects.for_org(organisation).filter(is_active=True)
+        self.items = [(item, normalize(item.name), synonym_key(item.name)) for item in items]
         by_pk = {item.pk: item for item, _, _ in self.items}
         live, self.not_same = {}, set()
         for alias in ItemAlias.objects.for_org(organisation).filter(item__in=list(by_pk)).order_by("created_at"):

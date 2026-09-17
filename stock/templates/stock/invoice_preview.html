@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load stock_units %}
 
 {% block title %}Invoice preview · StockRoom{% endblock %}
 
@@ -9,6 +10,59 @@
 {% if not invoice.totals_ok %}
   <p class="mb-4 border border-dashed border-status-week px-3 py-2.5 text-sm leading-relaxed text-status-week">Some lines don't add up. Check the quantity, price and line total below. If they still don't, it's saved as needing a check.</p>
 {% endif %}
+
+{% partialdef line %}
+  <div class="flex flex-col gap-1 border-b border-gray-200 py-3">
+    <span class="flex items-baseline gap-2">
+      <span class="text-xs text-gray-500">{{ line.sku|default:"" }}</span>
+      <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ line.description|default:"(no description)" }}</span>
+    </span>
+    <div class="mt-1 flex items-center gap-2.5">
+      <label class="sr-only" for="qty_{{ line.index }}">Quantity</label>
+      <input id="qty_{{ line.index }}" type="number" inputmode="numeric" min="0" name="qty_{{ line.index }}"
+             value="{{ line.qty|default_if_none:'' }}" class="w-20 text-center">
+      <span class="w-16 shrink-0 text-sm text-gray-600">qty</span>
+      <label class="sr-only" for="price_{{ line.index }}">Unit price</label>
+      <input id="price_{{ line.index }}" type="number" inputmode="decimal" step="0.01" min="0" name="price_{{ line.index }}"
+             value="{{ line.unit_price|default_if_none:'' }}" class="w-24 text-center">
+      <span class="shrink-0 text-sm text-gray-600">$ each</span>
+    </div>
+    {% if not line.adds_up %}
+      <div class="mt-1 flex items-center gap-2.5">
+        <label class="sr-only" for="total_{{ line.index }}">Line total</label>
+        <input id="total_{{ line.index }}" type="number" inputmode="decimal" step="0.01" min="0" name="total_{{ line.index }}"
+               value="{{ line.line_total|default_if_none:'' }}" class="w-20 text-center">
+        <span class="text-sm font-medium text-status-week">$ total: doesn't add up</span>
+      </div>
+    {% elif line.line_total is not None %}
+      <span class="text-sm text-gray-600">${{ line.line_total }} total on the invoice</span>
+    {% endif %}
+    {% if line.order %}
+      <span class="text-sm font-medium text-gray-900">On order: {{ line.order.item.name }} &middot; {{ line.order.qty }} {{ line.order.item.unit|plural:line.order.qty }}</span>
+    {% else %}
+      {% if line.match.band == "sure" %}
+        <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-gray-900">
+          <span>Item: {{ line.match.item.name }}</span>
+          <span class="chip">{{ line.match.label }}</span>
+        </span>
+      {% elif line.match.band %}
+        <fieldset class="mt-1">
+          <legend class="text-sm font-medium text-gray-900">{{ line.match.label }}: is it {{ line.match.item.name }}?</legend>
+          <label><input type="radio" name="same_{{ line.index }}" value="1"> Same as {{ line.match.item.name }}</label>
+          <label><input type="radio" name="same_{{ line.index }}" value="" checked> Not matched</label>
+        </fieldset>
+      {% else %}
+        <span class="text-sm text-gray-600">No matching item</span>
+      {% endif %}
+      {% if invoice.supplier %}
+        <span class="text-sm text-gray-600">{% if open_orders %}Not matched to anything on order{% else %}Nothing on order from {{ invoice.supplier.name }} to match it to{% endif %}</span>
+      {% endif %}
+      {% if open_orders %}
+        {% include "stock/_match_to.html" with key=line.index supplier=invoice.supplier orders=open_orders %}
+      {% endif %}
+    {% endif %}
+  </div>
+{% endpartialdef %}
 
 <form method="post" action="{% url 'stock:invoice_confirm' %}" data-disable-on-submit>
   {% csrf_token %}
@@ -31,49 +85,17 @@
     </fieldset>
   {% endif %}
 
-  <div class="mb-6 border-t border-gray-300">
-    {% for line in lines %}
-      <div class="flex flex-col gap-1 border-b border-gray-200 py-3">
-        <span class="flex items-baseline gap-2">
-          <span class="text-xs text-gray-500">{{ line.sku|default:"" }}</span>
-          <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ line.description|default:"(no description)" }}</span>
-        </span>
-        <div class="mt-1 flex items-center gap-2.5">
-          <label class="sr-only" for="qty_{{ line.index }}">Quantity</label>
-          <input id="qty_{{ line.index }}" type="number" inputmode="numeric" min="0" name="qty_{{ line.index }}"
-                 value="{{ line.qty|default_if_none:'' }}" class="w-20 text-center">
-          <span class="w-16 shrink-0 text-sm text-gray-600">qty</span>
-          <label class="sr-only" for="price_{{ line.index }}">Unit price</label>
-          <input id="price_{{ line.index }}" type="number" inputmode="decimal" step="0.01" min="0" name="price_{{ line.index }}"
-                 value="{{ line.unit_price|default_if_none:'' }}" class="w-24 text-center">
-          <span class="shrink-0 text-sm text-gray-600">$ each</span>
-        </div>
-        {% if not line.adds_up %}
-          <div class="mt-1 flex items-center gap-2.5">
-            <label class="sr-only" for="total_{{ line.index }}">Line total</label>
-            <input id="total_{{ line.index }}" type="number" inputmode="decimal" step="0.01" min="0" name="total_{{ line.index }}"
-                   value="{{ line.line_total|default_if_none:'' }}" class="w-20 text-center">
-            <span class="text-sm font-medium text-status-week">$ total: doesn't add up</span>
-          </div>
-        {% elif line.line_total is not None %}
-          <span class="text-sm text-gray-600">${{ line.line_total }} total on the invoice</span>
-        {% endif %}
-        {% if line.match.band == "sure" %}
-          <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-gray-900">
-            <span>Matched: {{ line.match.item.name }}</span>
-            <span class="chip">{{ line.match.label }}</span>
-          </span>
-        {% elif line.match.band %}
-          <fieldset class="mt-1">
-            <legend class="text-sm font-medium text-gray-900">{{ line.match.label }}: is it {{ line.match.item.name }}?</legend>
-            <label><input type="radio" name="same_{{ line.index }}" value="1"> Same as {{ line.match.item.name }}</label>
-            <label><input type="radio" name="same_{{ line.index }}" value="" checked> Not matched</label>
-          </fieldset>
-        {% else %}
-          <span class="text-sm text-gray-600">No matching item</span>
-        {% endif %}
-      </div>
-    {% endfor %}
+  {% if matched %}
+    <details class="border-t border-gray-300">
+      <summary class="flex min-h-12 cursor-pointer items-center gap-2 border-b border-gray-200">
+        <span class="font-heading text-lg font-semibold text-status-ok">{{ matched|length }} matched</span>
+        <span class="text-sm text-gray-600">received when you confirm</span>
+      </summary>
+      {% for line in matched %}{% partial line %}{% endfor %}
+    </details>
+  {% endif %}
+  <div class="mb-6 {% if not matched %}border-t border-gray-300{% endif %}">
+    {% for line in to_check %}{% partial line %}{% endfor %}
   </div>
 
   <div class="flex gap-2.5">

@@ -23,7 +23,14 @@ from django.db.models import Q
 from assistant import gemini
 
 from .matching import Matcher, record_merge
-from .models import Invoice, InvoiceBatchFile, InvoiceLine, ItemAlias, Supplier
+from .models import (
+    Invoice,
+    InvoiceBatchFile,
+    InvoiceLine,
+    ItemAlias,
+    OrderLine,
+    Supplier,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +209,66 @@ def match_lines(invoice, lines):
             line.item = match.item
 
 
+def match_orders(invoice, lines):
+    """Pick the open order each line was delivered against (line.order), from
+    the invoice supplier's open order lines: those on the invoice's own order
+    number first, by the supplier's product code, then the item the line
+    matched, then its name among just the items on order. A line given an
+    order already keeps it, and no order is picked for two lines."""
+    for line in lines:
+        line.order = getattr(line, "order", None)
+    open_orders = [] if invoice.supplier_id is None else sorted(
+        OrderLine.objects.for_org(invoice.organisation)
+        .filter(supplier=invoice.supplier, received_at=None, cancelled_at=None).select_related("item"),
+        key=lambda order: (order.order_ref.lower() != invoice.order_ref.lower() or not invoice.order_ref,
+                           order.expected_at, order.pk),
+    )
+    if not open_orders:
+        return
+    taken = {line.order.pk for line in lines if line.order}
+    on_order = Matcher(invoice.organisation, items=list({order.item_id: order.item for order in open_orders}.values()))
+    for line in lines:
+        if line.order:
+            continue
+        free = [order for order in open_orders if order.pk not in taken]
+        item = line.item
+        if item is None:
+            match = on_order.match(line.description or line.sku, sku=line.sku, supplier=invoice.supplier)
+            item = match.item if match.band == "sure" else None
+        sku = line.sku.lower()
+        line.order = (next((order for order in free if sku and order.item.supplier_sku.lower() == sku), None)
+                      or next((order for order in free if order.item == item), None))
+        if line.order:
+            taken.add(line.order.pk)
+
+
+def receive(invoice, lines, user):
+    """Receive each of a saved invoice's lines against its order (line.order),
+    the same way a tap on Deliveries does, if the order's still open. The
+    supplier's product code goes onto the item, so it matches first time next
+    month. Then the invoice is received, partly received or nothing received yet."""
+    match_orders(invoice, lines)
+    with transaction.atomic():
+        for line in lines:
+            if line.order_line_id or not (line.order and line.qty):
+                continue
+            order = (OrderLine.objects.select_for_update().select_related("item")
+                     .filter(pk=line.order.pk, organisation=invoice.organisation, supplier=invoice.supplier,
+                             received_at=None, cancelled_at=None).first())
+            if order is None:
+                continue
+            order.receive(line.qty, user)
+            line.order_line, line.item = order, order.item
+            if line.sku and not order.item.supplier_sku and order.item.supplier_id == invoice.supplier_id:
+                order.item.supplier_sku = line.sku
+                order.item.save(update_fields=["supplier_sku"])
+        InvoiceLine.objects.bulk_update(lines, ["order_line", "item"])
+        received, total = invoice.lines.exclude(order_line=None).count(), invoice.lines.count()
+        invoice.status = (Invoice.Status.COMPLETE if received == total
+                          else Invoice.Status.PARTIAL if received else Invoice.Status.PARSED)
+        invoice.save(update_fields=["status"])
+
+
 def find_original(invoice):
     """The earlier invoice this one repeats: the same file, or the same number from the same supplier."""
     same = Q(checksum=invoice.checksum) if invoice.checksum else Q(pk__in=[])
@@ -228,6 +295,8 @@ def ingest(invoice, lines, user, force_reason=""):
                 if line.item_id and match and match.item == line.item:
                     record_merge(match, name=line.description or line.sku, user=user,
                                  source=ItemAlias.Source.INVOICE, invoice=invoice)
+            if invoice.status == Invoice.Status.PARSED:
+                receive(invoice, lines, user)
     except IntegrityError:
         # Another upload of it got in between find_original and here.
         if invoice.forced_by_id or not find_original(invoice):

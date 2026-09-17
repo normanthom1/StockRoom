@@ -26,19 +26,42 @@
   <p class="mb-4 text-sm text-gray-600">Imported again by {{ invoice.forced_by.name|default:"a manager" }}: {{ invoice.force_reason }}</p>
 {% endif %}
 
-<div class="border-t border-gray-300">
-  {% for line in lines %}
+{% if received %}
+  <details class="border-t border-gray-300">
+    <summary class="flex min-h-12 cursor-pointer items-center gap-2 border-b border-gray-200">
+      <span class="font-heading text-lg font-semibold text-status-ok">{{ received|length }} received</span>
+    </summary>
+    {% for line in received %}
+      <div class="flex flex-col gap-1 border-b border-gray-200 py-3">
+        <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ line.description|default:line.sku }}</span>
+        <span class="text-sm text-gray-600">{{ line.qty }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.order_line.item.name != line.description %} &middot; {{ line.order_line.item.name }}{% endif %}</span>
+      </div>
+    {% endfor %}
+  </details>
+{% endif %}
+
+<div class="{% if not received %}border-t border-gray-300{% endif %}">
+  {% for line in not_received %}
     <div class="flex flex-col gap-1 border-b border-gray-200 py-3">
       <span class="flex items-baseline gap-2">
         <span class="text-xs text-gray-500">{{ line.sku|default:"" }}</span>
         <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ line.description|default:"(no description)" }}</span>
       </span>
       <span class="text-sm text-gray-600">
-        {{ line.qty|default_if_none:"?" }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.item %} &middot; {{ line.item.name }}{% elif invoice.status != "ignored" %} &middot; Not matched to an item{% endif %}
+        {{ line.qty|default_if_none:"?" }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.item %} &middot; {{ line.item.name }}{% endif %}
       </span>
+      {% if open_orders is not None %}
+        <span class="text-sm text-gray-600">{% if open_orders %}Not matched to anything on order{% else %}Nothing left on order from {{ invoice.supplier.name }} to match it to{% endif %}</span>
+      {% endif %}
+      {% if open_orders %}
+        <form method="post" action="{% url 'stock:invoice_line_receive' line.pk %}" data-disable-on-submit>
+          {% csrf_token %}
+          {% include "stock/_match_to.html" with key=line.pk supplier=invoice.supplier orders=open_orders receive_button=True %}
+        </form>
+      {% endif %}
     </div>
   {% empty %}
-    <p class="blueprint p-5 text-center text-gray-600">No lines on this invoice.</p>
+    {% if not received %}<p class="blueprint p-5 text-center text-gray-600">No lines on this invoice.</p>{% endif %}
   {% endfor %}
 </div>
 {% endblock %}

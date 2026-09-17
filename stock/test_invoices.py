@@ -144,14 +144,16 @@ class RepeatsAndConflictsTests(TestCase):
         return ingest(invoice, lines, self.admin, force_reason)
 
     def test_the_same_file_twice_is_ignored_logged_and_changes_nothing(self):
+        OrderLine.objects.create(organisation=self.org, item=self.gloves, qty=10, ordered_by=self.admin)
         with mock.patch("assistant.gemini.generate", return_value=AI_REPLY):
             first = self.upload(b"%PDF scan", "application/pdf", "schein.pdf")
         counts = (StockEvent.objects.count(), ItemAlias.objects.count())
+        self.assertEqual(counts[0], 1)  # the first one received the gloves
         with (mock.patch("assistant.gemini.generate") as generate,
               self.assertLogs("stock.invoices", "INFO") as logs):
             second = self.upload(b"%PDF scan", "application/pdf", "schein (1).pdf")
         generate.assert_not_called()  # the earlier reading is reused
-        self.assertEqual((first.status, second.status), (Invoice.Status.PARSED, Invoice.Status.IGNORED))
+        self.assertEqual((first.status, second.status), (Invoice.Status.PARTIAL, Invoice.Status.IGNORED))
         self.assertEqual((StockEvent.objects.count(), ItemAlias.objects.count()), counts)
         checksum = hashlib.sha256(b"%PDF scan").hexdigest()
         self.assertEqual((second.checksum, second.source_name), (checksum, "schein (1).pdf"))
@@ -188,7 +190,8 @@ class RepeatsAndConflictsTests(TestCase):
 
     def test_more_than_is_outstanding_is_an_over_delivery(self):
         order = OrderLine.objects.create(organisation=self.org, item=self.gloves, qty=10, ordered_by=self.admin)
-        order.receive(12, self.admin)
+        self.upload(NUMBERED.replace(b",10,8.50,85.00", b",12,8.50,102.00"))
+        order.refresh_from_db()
         self.assertEqual((order.received_qty, order.over_delivered, order.is_open), (12, True, False))
         self.assertEqual(StockEvent.objects.get(kind="received").qty, 12)
         self.assertEqual(OrderLine.objects.count(), 1)  # nothing left on back-order
@@ -262,8 +265,10 @@ class BatchTests(TestCase):
     def test_a_run_killed_halfway_ends_with_the_same_stock_as_one_that_wasnt(self):
         files = [invoice_csv(n, qty=n + 1) for n in range(6)]
         steady, killed = self.practice("Steady Dental"), self.practice("Killed Dental")
-        self.assertEqual(self.stock(steady[0]), self.stock(killed[0]))
+        before = self.stock(killed[0])
+        self.assertEqual(self.stock(steady[0]), before)
         run_batch(self.batch(*steady, files))
+        self.assertEqual(self.stock(steady[0]), {"Gloves": 5 + 15})  # the 6th invoice had nothing left on order
 
         batch = self.batch(*killed, files)
         real_ingest, calls = invoices.ingest, []
@@ -285,3 +290,63 @@ class BatchTests(TestCase):
         for model in (Invoice, ItemAlias):
             self.assertEqual(model.objects.filter(organisation=killed[0]).count(),
                              model.objects.filter(organisation=steady[0]).count())
+
+
+class ReconcileTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organisation.objects.create(name="Test Dental")
+        cls.admin = User.objects.create_user("sandy@example.com", "pw", organisation=cls.org, role=User.Role.ADMIN)
+        cls.schein = Supplier.objects.create(organisation=cls.org, name="Henry Schein")
+        cls.dentsply = Supplier.objects.create(organisation=cls.org, name="Dentsply")
+        cls.gloves = cls.item("Nitrile gloves, size M", supplier_sku="HS-GLV-M")
+        cls.bibs = cls.item("Patient bibs")
+        cls.tips = cls.item("Suction tips, disposable")
+        cls.dentsply_tips = cls.item("Suction tips, disposable", supplier=cls.dentsply)
+
+    @classmethod
+    def item(cls, name, supplier=None, **fields):
+        return Item.objects.create(organisation=cls.org, name=name, unit="box", supplier=supplier or cls.schein, **fields)
+
+    def order(self, item, qty, **fields):
+        return OrderLine.objects.create(organisation=self.org, item=item, supplier=item.supplier, qty=qty,
+                                        ordered_by=self.admin, **fields)
+
+    def upload(self, data):
+        invoice, lines = parse_invoice(self.org, data, "text/csv")
+        match_lines(invoice, lines)
+        return ingest(invoice, lines, self.admin)
+
+    def test_lines_match_open_orders_by_order_number_then_product_code_then_name(self):
+        orders = [
+            self.order(self.gloves, 10, order_ref="PO-1"),
+            self.order(self.gloves, 10, order_ref="PO-2"),
+            self.order(self.bibs, 4),
+            self.order(self.tips, 50),
+            self.order(self.dentsply_tips, 50),
+        ]
+        invoice = self.upload(b"""vendor,po_number,invoice_number,sku,description,qty,unit
+Henry Schein,PO-2,INV-1,HS-GLV-M,Medium nitrile exam gloves,10,8.50
+,,,HS-BIB,Patient bib,4,1.00
+,,,HS-TIP,Disposable suction tips,50,0.20
+""")
+        self.assertEqual(invoice.status, Invoice.Status.COMPLETE)
+        for order in orders:
+            order.refresh_from_db()
+        # PO-2's gloves by code, the bibs by name, and the tips by name among what's on order from
+        # Henry Schein (two items share that name, so on its own it isn't a sure match).
+        self.assertEqual([order.received_qty for order in orders], [None, 10, 4, 50, None])
+        self.assertEqual((orders[1].received_by, orders[1].received_at is not None), (self.admin, True))
+        self.assertEqual(sorted(StockEvent.objects.filter(kind="received").values_list("item__name", "qty")),
+                         [("Nitrile gloves, size M", 10), ("Patient bibs", 4), ("Suction tips, disposable", 50)])
+        self.assertEqual(list(invoice.lines.order_by("pk").values_list("order_line", flat=True)),
+                         [orders[1].pk, orders[2].pk, orders[3].pk])
+        self.bibs.refresh_from_db()
+        self.gloves.refresh_from_db()
+        self.assertEqual((self.bibs.supplier_sku, self.gloves.supplier_sku), ("HS-BIB", "HS-GLV-M"))
+
+    def test_a_line_with_nothing_on_order_is_left_unmatched(self):
+        self.order(self.bibs, 4)
+        invoice = self.upload(b"vendor,description,qty,unit\nHenry Schein,Patient bibs,4,1.00\nHenry Schein,Gloves,1,8.50\n")
+        self.assertEqual(invoice.status, Invoice.Status.PARTIAL)
+        self.assertEqual(StockEvent.objects.filter(kind="received").count(), 1)

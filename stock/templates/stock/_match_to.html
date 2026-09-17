@@ -1,0 +1,10 @@
+{# An invoice line to match by hand: key names the choice (order_<key>), orders are what's on order from supplier. #}
+<details class="mt-1">
+  <summary class="link cursor-pointer">Match to…</summary>
+  <label class="sr-only" for="search_{{ key }}">Search what's on order from {{ supplier.name }}</label>
+  <input id="search_{{ key }}" type="search" name="q" placeholder="Search what's on order" autocomplete="off" class="my-2 w-full"
+         hx-get="{% url 'stock:invoice_order_search' %}?supplier={{ supplier.pk }}&amp;key={{ key }}"
+         hx-trigger="input changed delay:300ms, search" hx-target="#orders_{{ key }}">
+  <div id="orders_{{ key }}">{% include "stock/_order_choices.html" %}</div>
+  {% if receive_button %}<button type="submit" class="btn btn-fill mt-2 w-full">Receive</button>{% endif %}
+</details>
