@@ -196,6 +196,23 @@ USE_TZ = True
 FORMAT_MODULE_PATH = "stockroom.formats"
 
 
+# Django's default config only sets levels for its own loggers, so an INFO line
+# from ours would be dropped by the root logger's WARNING. These two say what
+# they did and are meant to be read: invoice imports (stock.invoices) and the
+# flow events behind the UX metrics (stockroom.analytics). Both go to stdout,
+# which is Railway's log stream in production.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"plain": {"format": "%(levelname)s %(name)s %(message)s"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
+    "loggers": {
+        "stockroom.analytics": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "stock.invoices": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
