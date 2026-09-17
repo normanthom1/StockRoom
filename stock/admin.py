@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Invoice, InvoiceLine, Item, OrderLine, StockEvent, Supplier
+from .models import (
+    Invoice,
+    InvoiceLine,
+    Item,
+    ItemAlias,
+    OrderLine,
+    StockEvent,
+    Supplier,
+)
 
 # Platform staff debugging only; see accounts/admin.py.
 
@@ -36,7 +44,7 @@ class OrderLineAdmin(admin.ModelAdmin):
 
 class InvoiceLineInline(admin.TabularInline):
     model = InvoiceLine
-    fields = ("sku", "description", "qty", "unit_price", "line_total")
+    fields = ("sku", "description", "qty", "unit_price", "line_total", "item")
     extra = 0
 
 
@@ -46,3 +54,10 @@ class InvoiceAdmin(admin.ModelAdmin):
     list_filter = ("organisation", "status")
     search_fields = ("supplier_name", "order_ref")
     inlines = [InvoiceLineInline]
+
+
+@admin.register(ItemAlias)
+class ItemAliasAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "raw_name", "item", "method", "confidence", "source", "reverted_at", "organisation")
+    list_filter = ("organisation", "method", "source")
+    search_fields = ("raw_name", "key", "item__name")

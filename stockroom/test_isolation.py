@@ -18,7 +18,14 @@ from django.urls import URLResolver, get_resolver, path, reverse
 
 from accounts.decorators import admin_required
 from accounts.models import Organisation, User
-from stock.models import CatalogueProduct, Item, OrderLine, StockEvent, Supplier
+from stock.models import (
+    CatalogueProduct,
+    Item,
+    ItemAlias,
+    OrderLine,
+    StockEvent,
+    Supplier,
+)
 
 
 class Case(NamedTuple):
@@ -63,6 +70,14 @@ def make_order_line(org):
     return OrderLine.objects.create(organisation=org, item=item, qty=1, ordered_by=user)
 
 
+def make_alias(org):
+    """A matched name in org, for Cases that need some existing alias's pk."""
+    item = make_item(org)
+    user = User.objects.create_user(f"aliasuser-{User.objects.count()}@{org.slug}.test", "pw", organisation=org)
+    return ItemAlias.objects.create(organisation=org, item=item, key="glove", raw_name="glove", method="exact",
+                                    confidence=1.0, source="import", created_by=user)
+
+
 # Objects a practice owns. Another practice's user gets a 404 for each.
 ORG_OBJECT_URLS: list[Case] = [
     Case("team_role", make=make_member, method="post"),
@@ -99,6 +114,7 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:reorder_decline", make=make_item, method="post"),
     Case("stock:delivery_submit", make=make_supplier, method="post"),
     Case("stock:supplier_apply_lead_days", make=make_supplier, method="post"),
+    Case("stock:merge_undo", make=make_alias, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -137,6 +153,8 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:item_import"),
     Case("stock:item_import_preview", method="post"),
     Case("stock:item_import_confirm", method="post"),
+    Case("stock:merges"),
+    Case("stock:merge_undo", make=make_alias, method="post"),
     Case("stock:reorder_mark_ordered", make=make_item, method="post"),
     Case("stock:reorder_mark_supplier_ordered", make=make_supplier, method="post"),
     Case("stock:reorder_undo", make=make_order_line, method="post"),

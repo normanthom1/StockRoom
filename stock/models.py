@@ -53,6 +53,9 @@ class Item(OrgOwned):
     barcode = models.CharField(max_length=64, blank=True)
     # The preferred supplier's product code, which is how an invoice line finds its item.
     supplier_sku = models.CharField(max_length=64, blank=True)
+    # {"key": normalised name, "values": [...]}: Gemini's embedding of the name, for
+    # matching (stock/matching.py). Rebuilt when the name no longer normalises to key.
+    name_embedding = models.JSONField(null=True, blank=True, editable=False)
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
@@ -162,9 +165,54 @@ class InvoiceLine(OrgOwned):
     qty = models.PositiveIntegerField(null=True, blank=True)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     line_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    item = models.ForeignKey(Item, on_delete=models.SET_NULL, null=True, blank=True, related_name="invoice_lines")
 
     def __str__(self):
         return f"{self.qty} × {self.description or self.sku}"
+
+
+class ItemAlias(OrgOwned):
+    """A name that turned out to be one of the practice's items, so the next
+    invoice or import matches it straight away (stock/matching.py). Undo sets
+    reverted_at and nothing is deleted, so this is also the merge history."""
+
+    class Method(models.TextChoices):
+        SKU = "sku", "Same supplier code"
+        ALIAS = "alias", "Matched before"
+        EXACT = "exact", "Same name"
+        SYNONYM = "synonym", "Another name for it"
+        FUZZY = "fuzzy", "Close spelling"
+        SEMANTIC = "semantic", "Similar meaning"
+        MANUAL = "manual", "Picked by hand"
+
+    class Source(models.TextChoices):
+        INVOICE = "invoice", "Invoice"
+        IMPORT = "import", "Import"
+        MANUAL = "manual", "By hand"
+
+    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="aliases")
+    key = models.CharField(max_length=200)
+    raw_name = models.CharField(max_length=200)
+    method = models.CharField(max_length=20, choices=Method)
+    confidence = models.FloatField()
+    source = models.CharField(max_length=20, choices=Source)
+    source_invoice = models.ForeignKey(Invoice, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(default=timezone.now)
+    reverted_at = models.DateTimeField(null=True, blank=True)
+    reverted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organisation", "key"], condition=Q(reverted_at__isnull=True), name="stock_itemalias_live_key_unique"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.raw_name} → {self.item}"
 
 
 # The shared catalogue: the same reference list for every practice, so not

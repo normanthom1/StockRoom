@@ -40,7 +40,8 @@ from .humanize import (
     phone_digits,
     pluralize_unit,
 )
-from .models import CatalogueProduct, Item, OrderLine, StockEvent, Supplier
+from .matching import UNDO_DAYS, Match, Matcher, normalize, record_merge, undo_merge
+from .models import CatalogueProduct, Item, ItemAlias, OrderLine, StockEvent, Supplier
 from .spending import PERIOD_WEEKS, period_bounds, previous_period_bounds
 
 CHART_WEEKS = 12
@@ -969,6 +970,14 @@ def import_preview(request, text):
         return redirect("stock:item_import")
 
     valid_rows = [r for r in rows if r.is_valid]
+    # A row that's already on the stock list isn't a new item: sure matches are
+    # skipped, and anything less is shown so the manager can say it's the same.
+    suppliers = {s.name.lower(): s for s in Supplier.objects.for_org(org).filter(is_active=True)}
+    matches = Matcher(org).match_all(
+        [{"name": r.name, "supplier": suppliers.get(r.supplier_name.lower()), "price": r.price} for r in valid_rows]
+    )
+    for index, (row, match) in enumerate(zip(valid_rows, matches, strict=True)):
+        row.index, row.match = index, match
     request.session["pending_import"] = [
         {
             "name": r.name,
@@ -977,10 +986,18 @@ def import_preview(request, text):
             "price": str(r.price) if r.price is not None else None,
             "order_size": r.order_size,
             "count": r.count,
+            "match": [r.match.item.pk, r.match.confidence, r.match.method] if r.match.item else None,
         }
         for r in valid_rows
     ]
-    context = {"rows": rows, "valid_count": len(valid_rows), "error_count": len(rows) - len(valid_rows)}
+    sure_count = sum(r.match.band == "sure" for r in valid_rows)
+    context = {
+        "rows": rows,
+        "valid_count": len(valid_rows) - sure_count,
+        "sure_count": sure_count,
+        "unsure_count": sum(r.match.band in ("likely", "check") for r in valid_rows),
+        "error_count": len(rows) - len(valid_rows),
+    }
     return render(request, "stock/item_import_preview.html", context)
 
 
@@ -993,8 +1010,15 @@ def item_import_confirm(request):
         messages.error(request, "Nothing to import. Upload a CSV first.")
         return redirect("stock:item_import")
 
-    created = 0
-    for row in pending:
+    created = merged = 0
+    for index, row in enumerate(pending):
+        if row.get("match"):
+            pk, confidence, method = row["match"]
+            match = Match(Item.objects.for_org(org).filter(pk=pk, is_active=True).first(), confidence, method)
+            if match.item and (match.band == "sure" or request.POST.get(f"same_{index}")):
+                record_merge(match, name=row["name"], user=request.user, source=ItemAlias.Source.IMPORT)
+                merged += 1
+                continue
         supplier = Supplier.objects.for_org(org).filter(name__iexact=row["supplier_name"]).first()
         if not supplier:
             continue
@@ -1010,12 +1034,13 @@ def item_import_confirm(request):
             StockEvent.objects.create(organisation=org, item=item, user=request.user, kind="count", qty=row["count"])
         created += 1
 
-    messages.success(request, f"Imported {created} item{'s' if created != 1 else ''}.")
+    already = f" {merged} {'was' if merged == 1 else 'were'} already on your list." if merged else ""
+    messages.success(request, f"Imported {created} item{'s' if created != 1 else ''}.{already}")
     return redirect("stock:items")
 
 
 def _stocked_names(org):
-    return {n.lower() for n in Item.objects.for_org(org).filter(is_active=True).values_list("name", flat=True)}
+    return {normalize(n) for n in Item.objects.for_org(org).filter(is_active=True).values_list("name", flat=True)}
 
 
 def _catalogue_product(pk):
@@ -1034,7 +1059,7 @@ def catalogue(request):
     stocked = _stocked_names(request.user.organisation)
     products = [
         p for p in CatalogueProduct.objects.prefetch_related("offers__supplier").order_by("position")
-        if p.name.lower() not in stocked
+        if normalize(p.name) not in stocked
     ]
     return render(request, "stock/catalogue.html", {"products": products})
 
@@ -1061,7 +1086,7 @@ def catalogue_add(request, pk):
     if chosen not in choices:
         messages.error(request, "Choose who you'll order it from.")
         return redirect("stock:catalogue")
-    if product.name.lower() in _stocked_names(org):
+    if normalize(product.name) in _stocked_names(org):
         messages.info(request, f"{product.name} is already on your stock list.")
         return redirect("stock:catalogue")
 
@@ -1090,6 +1115,28 @@ def catalogue_undo(request, pk):
     item.delete()
     messages.success(request, "Undone.")
     return _go(request, reverse("stock:catalogue"))
+
+
+@admin_required
+def merges(request):
+    """Names from invoices and imports matched to an existing item lately, each with Undo."""
+    since = timezone.now() - timedelta(days=UNDO_DAYS)
+    aliases = (
+        ItemAlias.objects.for_org(request.user.organisation)
+        .filter(created_at__gte=since)
+        .select_related("item", "source_invoice", "created_by")
+        .order_by("-created_at")
+    )
+    return render(request, "stock/merges.html", {"aliases": aliases, "undo_days": UNDO_DAYS})
+
+
+@require_POST
+@admin_required
+def merge_undo(request, pk):
+    alias = get_object_or_404(ItemAlias.objects.for_org(request.user.organisation).select_related("item"), pk=pk)
+    if not undo_merge(alias, request.user):
+        raise PermissionDenied  # already undone, or older than UNDO_DAYS
+    return _toast_response(request, f"Undone. {alias.raw_name} won't be matched to {alias.item.name} again.")
 
 
 def _median_lead_days(supplier):
