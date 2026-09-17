@@ -13,12 +13,13 @@ import logging
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from assistant import gemini
 
@@ -29,6 +30,7 @@ from .models import (
     InvoiceLine,
     ItemAlias,
     OrderLine,
+    StockEvent,
     Supplier,
 )
 
@@ -250,6 +252,9 @@ def price_needs_confirming(current_price, new_price):
     return current_price is not None and new_price is not None and new_price > current_price * PRICE_RISE_THRESHOLD
 
 
+UNDO_WINDOW = timedelta(seconds=30)
+
+
 def receive(invoice, lines, user):
     """Receive each of a saved invoice's lines against its order (line.order),
     the same way a tap on Deliveries does, if the order's still open. The
@@ -257,9 +262,13 @@ def receive(invoice, lines, user):
     month. Then the invoice is received, partly received or nothing received yet.
 
     A line's unit price flows onto the item, unless it's a rise of more than
-    10% that the preview wasn't ticked to confirm (line.price_confirmed)."""
+    10% that the preview wasn't ticked to confirm (line.price_confirmed).
+
+    Records what changed on the invoice (undo_snapshot), so undo_ingest can put
+    it all back for a short window after - stock events, order status, price."""
     match_orders(invoice, lines)
     with transaction.atomic():
+        snapshot = list(invoice.undo_snapshot or [])
         for line in lines:
             if line.order_line_id or not (line.order and line.qty):
                 continue
@@ -268,10 +277,20 @@ def receive(invoice, lines, user):
                              received_at=None, cancelled_at=None).first())
             if order is None:
                 continue
+            unit_price_before, item_price_before, item_before_id = order.unit_price, order.item.price, line.item_id
             update_item_price = (getattr(line, "price_confirmed", False)
                                  or not price_needs_confirming(order.item.price, line.unit_price))
-            order.receive(line.qty, user, line.unit_price, update_item_price=update_item_price)
+            event, remainder = order.receive(line.qty, user, line.unit_price, update_item_price=update_item_price)
             line.order_line, line.item = order, order.item
+            snapshot.append({
+                "order_line_id": order.pk,
+                "invoice_line_id": line.pk,
+                "unit_price": str(unit_price_before) if unit_price_before is not None else None,
+                "item_price": str(item_price_before) if item_price_before is not None else None,
+                "item_before_id": item_before_id,
+                "stock_event_id": event.pk,
+                "remainder_id": remainder.pk if remainder else None,
+            })
             if line.sku and not order.item.supplier_sku and order.item.supplier_id == invoice.supplier_id:
                 order.item.supplier_sku = line.sku
                 order.item.save(update_fields=["supplier_sku"])
@@ -279,7 +298,43 @@ def receive(invoice, lines, user):
         received, total = invoice.lines.exclude(order_line=None).count(), invoice.lines.count()
         invoice.status = (Invoice.Status.COMPLETE if received == total
                           else Invoice.Status.PARTIAL if received else Invoice.Status.PARSED)
-        invoice.save(update_fields=["status"])
+        invoice.undo_snapshot = snapshot
+        invoice.undo_until = timezone.now() + UNDO_WINDOW
+        invoice.save(update_fields=["status", "undo_snapshot", "undo_until"])
+
+
+def undo_ingest(invoice):
+    """Put back everything receive() changed for this invoice: delete the stock
+    events and any back-order split it made, and restore each order line and
+    item price to what they were just before. Only valid while undo_until
+    hasn't passed - the view checks that."""
+    snapshot = invoice.undo_snapshot or []
+    with transaction.atomic():
+        orders = {
+            order.pk: order for order in
+            OrderLine.objects.select_for_update().select_related("item")
+            .filter(pk__in=[entry["order_line_id"] for entry in snapshot])
+        }
+        for entry in snapshot:
+            order = orders.get(entry["order_line_id"])
+            if order is None:
+                continue
+            if entry["remainder_id"]:
+                OrderLine.objects.filter(pk=entry["remainder_id"]).delete()
+            StockEvent.objects.filter(pk=entry["stock_event_id"]).delete()
+            order.received_qty = order.received_at = order.received_by = order.price_before = None
+            order.unit_price = Decimal(entry["unit_price"]) if entry["unit_price"] is not None else None
+            order.save()
+            item_price = Decimal(entry["item_price"]) if entry["item_price"] is not None else None
+            if order.item.price != item_price:
+                order.item.price = item_price
+                order.item.save(update_fields=["price"])
+            InvoiceLine.objects.filter(pk=entry["invoice_line_id"]).update(
+                order_line=None, item_id=entry["item_before_id"]
+            )
+        invoice.status = Invoice.Status.PARSED
+        invoice.undo_snapshot, invoice.undo_until = None, None
+        invoice.save(update_fields=["status", "undo_snapshot", "undo_until"])
 
 
 def find_original(invoice):

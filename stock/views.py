@@ -1194,12 +1194,13 @@ def invoice_confirm(request):
 
     invoice = invoices.ingest(invoice, lines, request.user, force_reason)
     received = sum(1 for line in lines if line.order_line_id)
+    undo_url = reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
     if invoice.status == Invoice.Status.CONFLICT:
         messages.error(request, "Saved, but it needs checking before it counts.")
     elif invoice.status == Invoice.Status.COMPLETE:
-        messages.success(request, "Received everything on the invoice.")
+        messages.success(request, "Received everything on the invoice.", extra_tags=undo_url)
     elif invoice.status == Invoice.Status.PARTIAL:
-        messages.success(request, f"Received {received} of {len(lines)} lines.")
+        messages.success(request, f"Received {received} of {len(lines)} lines.", extra_tags=undo_url)
     elif invoice.status == Invoice.Status.PARSED:  # an ignored repeat says so on its own page
         messages.success(request, "Invoice added. Nothing on it matched what's on order.")
     return redirect("stock:invoice_detail", invoice.pk)
@@ -1225,10 +1226,24 @@ def invoice_line_receive(request, pk):
     if line.order and not line.order_line_id and invoice.status in RECEIVABLE:
         invoices.receive(invoice, [line], request.user)
     if line.order_line_id:
-        messages.success(request, f"Received {format_qty(line.qty, line.item.unit)} of {line.item.name}.")
+        undo_url = reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
+        messages.success(request, f"Received {format_qty(line.qty, line.item.unit)} of {line.item.name}.",
+                         extra_tags=undo_url)
     else:
         messages.error(request, "Nothing was received. Choose what it was delivered against, and check it has a quantity.")
     return redirect("stock:invoice_detail", invoice.pk)
+
+
+@require_POST
+@admin_required
+def invoice_undo(request, pk):
+    """Put a just-confirmed invoice back to how it was: no stock received, no
+    order lines touched, no item prices changed. Only within undo_until."""
+    invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
+    if not invoice.undo_snapshot or invoice.undo_until < timezone.now():
+        raise PermissionDenied
+    invoices.undo_ingest(invoice)
+    return _toast_response(request, "Undone.")
 
 
 @admin_required
