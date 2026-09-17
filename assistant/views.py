@@ -26,7 +26,12 @@ MAX_UPLOAD = 5 * 1024 * 1024
 LIMITED = f"That's the limit for now ({AI_PER_HOUR} an hour each). Try again a bit later."
 
 SUGGESTIONS = ["What's running low?", "How do I receive a delivery?"]
-MANAGER_SUGGESTIONS = ["What should I order this week?", "What did we spend this month?"]
+MANAGER_SUGGESTIONS = [
+    "What should I order this week?",
+    "What did we spend this month?",
+    "What arrived this week?",
+    "Anything still to come?",
+]
 
 CHAT_RULES = """You are Ask StockRoom, the help inside StockRoom, a stock-ordering app for a New Zealand dental practice.
 Answer questions about how to use StockRoom (from the guide below) and about this practice's stock (from the data below).
