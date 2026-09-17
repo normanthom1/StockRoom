@@ -39,6 +39,12 @@
     {% endif %}
     {% if line.order %}
       <span class="text-sm font-medium text-gray-900">On order: {{ line.order.item.name }} &middot; {{ line.order.qty }} {{ line.order.item.unit|plural:line.order.qty }}</span>
+      {% if line.price_rise %}
+        <label class="flex items-start gap-2 text-sm font-medium text-status-week">
+          <input type="checkbox" name="price_confirm_{{ line.index }}" value="1">
+          <span>{{ line.price_rise }}. Tick to update the item's price.</span>
+        </label>
+      {% endif %}
     {% else %}
       {% if line.match.band == "sure" %}
         <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-gray-900">

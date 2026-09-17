@@ -242,11 +242,22 @@ def match_orders(invoice, lines):
             taken.add(line.order.pk)
 
 
+PRICE_RISE_THRESHOLD = Decimal("1.10")
+
+
+def price_needs_confirming(current_price, new_price):
+    """True when a new unit price is a rise of more than 10% on the item's price now."""
+    return current_price is not None and new_price is not None and new_price > current_price * PRICE_RISE_THRESHOLD
+
+
 def receive(invoice, lines, user):
     """Receive each of a saved invoice's lines against its order (line.order),
     the same way a tap on Deliveries does, if the order's still open. The
     supplier's product code goes onto the item, so it matches first time next
-    month. Then the invoice is received, partly received or nothing received yet."""
+    month. Then the invoice is received, partly received or nothing received yet.
+
+    A line's unit price flows onto the item, unless it's a rise of more than
+    10% that the preview wasn't ticked to confirm (line.price_confirmed)."""
     match_orders(invoice, lines)
     with transaction.atomic():
         for line in lines:
@@ -257,7 +268,9 @@ def receive(invoice, lines, user):
                              received_at=None, cancelled_at=None).first())
             if order is None:
                 continue
-            order.receive(line.qty, user)
+            update_item_price = (getattr(line, "price_confirmed", False)
+                                 or not price_needs_confirming(order.item.price, line.unit_price))
+            order.receive(line.qty, user, line.unit_price, update_item_price=update_item_price)
             line.order_line, line.item = order, order.item
             if line.sku and not order.item.supplier_sku and order.item.supplier_id == invoice.supplier_id:
                 order.item.supplier_sku = line.sku
