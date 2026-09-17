@@ -47,23 +47,41 @@ MAPPING = {
     "qty": "qty",
     "unit": "unit_price",
     "line_total": "line_total",
+    "kind": "kind",
 }
 HEADER_FIELDS = ("date", "supplier", "order_id", "invoice_number")
 CSV_TYPES = ("text/csv", "application/vnd.ms-excel")  # Excel on Windows labels CSVs as the latter
 ONE_CENT = Decimal("0.01")
 DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d %b %Y", "%d %B %Y")
 
-# ponytail: a keyword match on the code, or the description when there's no code.
-# So a codeless "Total Etch" is dropped and freight with a numeric code is kept;
-# add a "kind" to the AI schema if either turns up.
+# What a line is. Gemini labels every line it reads and a CSV can carry a
+# `kind` column, so the extras are dropped by what they are rather than by
+# what they happen to be called.
+PRODUCT = "product"
+LINE_KINDS = (PRODUCT, "freight", "gst", "discount", "subtotal", "total", "other")
+
+# The fallback, for a CSV with no `kind` column and for a line a reading left
+# unlabelled. It matches the code, or the description when there's no code, so
+# it drops a codeless "Total Etch" and keeps freight that carries a product
+# code. Those two are exactly what `kind` above exists to get right.
 NOT_A_PRODUCT = re.compile(r"\s*(sub[- ]?total|total|gst|freight|shipping|courier|discount|rounding)\b", re.IGNORECASE)
+
+
+def is_product(kind, sku, description):
+    """Whether a line is something supplied, and so worth keeping. A kind we
+    recognise decides on its own; anything else falls back to the word match."""
+    kind = str(kind or "").strip().lower()
+    if kind in LINE_KINDS:
+        return kind == PRODUCT
+    return not NOT_A_PRODUCT.match(sku or description)
 
 INVOICE_RULES = """You read a supplier invoice for a New Zealand dental practice into its details and product lines.
 - invoice_date: the date it was issued, as YYYY-MM-DD. New Zealand writes dates day first.
 - vendor: the supplier that sent it. If it's one of this practice's suppliers, use that name exactly as written here: {suppliers}.
 - po_number: the practice's order or purchase order number, if shown.
 - invoice_number: the supplier's own number for this invoice, if shown. Not the order number.
-- lines: one per product, in order. Skip freight, GST, discounts, subtotals and totals.
+- lines: every line the invoice charges for, in order, including freight, GST, discounts, subtotals and totals.
+- kind: what the line is. "product" for something supplied, otherwise "freight", "gst", "discount", "subtotal", "total" or "other". Judge it by what the line is for, not by its wording: "Total Etch" is a product, and a freight charge is freight even when it carries a product code.
 - sku: the supplier's product code. description: the product as written.
 - qty: how many were supplied. unit: the price for one. line_total: the line's amount.
 - Copy numbers exactly as printed, without currency symbols. Never work one out or invent it; leave it out instead.
@@ -81,6 +99,7 @@ INVOICE_SCHEMA = {
             "items": {
                 "type": "OBJECT",
                 "properties": {
+                    "kind": {"type": "STRING", "enum": list(LINE_KINDS)},
                     "sku": {"type": "STRING"},
                     "description": {"type": "STRING"},
                     "qty": {"type": "NUMBER", "nullable": True},
@@ -159,7 +178,7 @@ def _build(organisation, header, raw_lines):
     lines = []
     for raw in raw_lines:
         sku, description = _text(raw.get("sku"), 64), _text(raw.get("description"), 200)
-        if not (sku or description) or NOT_A_PRODUCT.match(sku or description):
+        if not (sku or description) or not is_product(raw.get("kind"), sku, description):
             continue
         qty, unit_price, line_total = _number(raw.get("qty")), _number(raw.get("unit_price")), _number(raw.get("line_total"))
         if qty is not None:
