@@ -95,7 +95,12 @@
 {% else %}
   <div class="blueprint mt-2 flex flex-col gap-3 p-5 text-center">
     <p class="text-gray-700">Nothing to check. Every product on your invoices is already one of your items, so there's no draft waiting.</p>
-    <a href="{% url 'stock:invoice_upload' %}" class="btn-primary">Upload more invoices</a>
+    {# Invoice upload is @ai_required: without a key it 404s, so offer the catalogue instead. #}
+    {% if ai_enabled %}
+      <a href="{% url 'stock:invoice_upload' %}" class="btn-primary">Upload more invoices</a>
+    {% else %}
+      <a href="{% url 'stock:catalogue' %}" class="btn-primary">Pick from the catalogue</a>
+    {% endif %}
     <a href="{% url 'stock:setup' %}" class="link self-center">Back to setup</a>
   </div>
 {% endif %}

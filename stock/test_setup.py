@@ -155,15 +155,16 @@ class SetupPageTests(TestCase):
         self.assertRedirects(response, reverse("stock:setup"), fetch_redirect_response=False)
 
     def test_checklist_ticks_itself_off_from_the_practices_own_data(self):
-        response = self.client.get(reverse("stock:setup"))
-        self.assertEqual(response.context["done_count"], 0)
+        with self.settings(AI_API_KEY="test-key"):
+            response = self.client.get(reverse("stock:setup"))
+            self.assertEqual(response.context["done_count"], 0)
 
-        supplier = Supplier.objects.create(organisation=self.org, name="Henry Schein")
-        item = Item.objects.create(organisation=self.org, name="Gloves", unit="box", supplier=supplier)
-        StockEvent.objects.create(organisation=self.org, item=item, user=self.user, kind="count", qty=3)
+            supplier = Supplier.objects.create(organisation=self.org, name="Henry Schein")
+            item = Item.objects.create(organisation=self.org, name="Gloves", unit="box", supplier=supplier)
+            StockEvent.objects.create(organisation=self.org, item=item, user=self.user, kind="count", qty=3)
 
-        response = self.client.get(reverse("stock:setup"))
-        self.assertEqual(response.context["done_count"], 3)  # all but the team step
+            response = self.client.get(reverse("stock:setup"))
+            self.assertEqual(response.context["done_count"], 3)  # all but the team step
 
     def test_finishing_every_step_puts_the_checklist_away(self):
         supplier = Supplier.objects.create(organisation=self.org, name="Henry Schein")
@@ -175,6 +176,42 @@ class SetupPageTests(TestCase):
 
         self.org.refresh_from_db()
         self.assertIsNotNone(self.org.setup_dismissed_at)
+
+    def test_every_link_on_the_checklist_goes_somewhere_without_an_ai_key(self):
+        """UX-01. The checklist used to point step 1 at /invoices/, which is
+        @ai_required and so 404s without a key: a brand-new practice tapped the
+        one big blue button and got an error page."""
+        with self.settings(AI_API_KEY=""):
+            response = self.client.get(reverse("stock:setup"))
+            for step in response.context["steps"]:
+                # follow=True so a step that redirects (stocktake with nothing
+                # to count) still has to land on a real page.
+                landed = self.client.get(reverse(step["url"]), follow=True)
+                self.assertEqual(landed.status_code, 200, f"{step['title']} -> {step['url']}")
+
+    def test_without_an_ai_key_the_checklist_offers_the_catalogue_not_invoices(self):
+        with self.settings(AI_API_KEY=""):
+            response = self.client.get(reverse("stock:setup"))
+
+        steps = response.context["steps"]
+        self.assertEqual(len(steps), 3)
+        self.assertEqual(response.context["next_step"]["url"], "stock:catalogue")
+        wording = " ".join(f"{s['title']} {s['blurb']} {s['cta']}" for s in steps).lower()
+        self.assertNotIn("invoice", wording)
+
+    def test_with_an_ai_key_the_checklist_still_starts_with_invoices(self):
+        with self.settings(AI_API_KEY="test-key"):
+            response = self.client.get(reverse("stock:setup"))
+
+        self.assertEqual(len(response.context["steps"]), 4)
+        self.assertEqual(response.context["next_step"]["url"], "stock:invoice_upload")
+
+    def test_the_empty_draft_page_does_not_offer_an_upload_without_an_ai_key(self):
+        with self.settings(AI_API_KEY=""):
+            response = self.client.get(reverse("stock:setup_draft"))
+
+        self.assertNotContains(response, reverse("stock:invoice_upload"))
+        self.assertContains(response, reverse("stock:catalogue"))
 
     def test_skip_puts_it_away_and_leaves_everything_else_alone(self):
         response = self.client.post(reverse("stock:setup_skip"))

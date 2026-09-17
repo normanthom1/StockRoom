@@ -4,7 +4,11 @@
 
 {% block content %}
 <h1 class="mb-1">Set up your practice</h1>
-<p class="mb-4 text-sm text-gray-600">Four things to do once. The quickest way through is a batch of invoices: StockRoom reads your stock list, suppliers and prices straight off them.</p>
+{% if ai_enabled %}
+  <p class="mb-4 text-sm text-gray-600">{{ steps|length }} things to do once. The quickest way through is a batch of invoices: StockRoom reads your stock list, suppliers and prices straight off them.</p>
+{% else %}
+  <p class="mb-4 text-sm text-gray-600">{{ steps|length }} things to do once. Start by picking what you order from the shared catalogue, and the rest follows from there.</p>
+{% endif %}
 
 <div class="mb-6">
   <div class="mb-1.5 flex items-baseline justify-between gap-3">
@@ -42,12 +46,20 @@
 </ol>
 
 <div class="blueprint mt-6 p-4">
-  <p class="kicker mb-1.5 text-primary-dark">No invoices handy?</p>
-  <p class="mb-3 text-sm leading-relaxed text-gray-700">You can pick what you stock from the shared catalogue of products NZ practices order, or bring in a list you already keep as a CSV. Prices and counts can come later.</p>
-  <div class="flex flex-wrap gap-2.5">
-    <a href="{% url 'stock:catalogue' %}" class="btn btn-tonal">Pick from the catalogue</a>
-    <a href="{% url 'stock:item_import' %}" class="btn btn-line">Bring in a list</a>
-  </div>
+  {# Without invoice reading step 1 is already the catalogue, so this offers only the other way in. #}
+  <p class="kicker mb-1.5 text-primary-dark">{% if ai_enabled %}No invoices handy?{% else %}Already keep a list?{% endif %}</p>
+  {% if ai_enabled %}
+    <p class="mb-3 text-sm leading-relaxed text-gray-700">You can pick what you stock from the shared catalogue of products NZ practices order, or bring in a list you already keep as a CSV. Prices and counts can come later.</p>
+    <div class="flex flex-wrap gap-2.5">
+      <a href="{% url 'stock:catalogue' %}" class="btn btn-tonal">Pick from the catalogue</a>
+      <a href="{% url 'stock:item_import' %}" class="btn btn-line">Bring in a list</a>
+    </div>
+  {% else %}
+    <p class="mb-3 text-sm leading-relaxed text-gray-700">If you already keep your stock list as a spreadsheet, bring it in as a CSV instead of picking from the catalogue. Prices and counts can come later.</p>
+    <div class="flex flex-wrap gap-2.5">
+      <a href="{% url 'stock:item_import' %}" class="btn btn-tonal">Bring in a list</a>
+    </div>
+  {% endif %}
 </div>
 
 <form method="post" action="{% url 'stock:setup_skip' %}" class="mt-6 text-center">

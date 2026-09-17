@@ -19,6 +19,7 @@ from datetime import date
 from decimal import Decimal
 from statistics import median
 
+from django.conf import settings
 from django.db import transaction
 
 from accounts.models import User
@@ -175,36 +176,60 @@ def create_drafts(org, user, drafts):
     return created
 
 
+def reads_invoices():
+    """Whether this install can read an invoice at all. Every invoice view is
+    @ai_required, so without a key they 404: the checklist must not send a
+    manager to one."""
+    return bool(settings.AI_API_KEY)
+
+
 def steps(org, drafts_waiting):
     """The setup checklist: what's done, what's next, and where each one goes.
 
     Deliberately not stored. Every step is answered by the data itself, so a
     practice that sets up some other way (the catalogue, a CSV, by hand) sees
     the checklist tick itself off rather than nagging about a path it didn't take.
+
+    Without an AI key there is no invoice reading, so the first step becomes the
+    catalogue and the draft step drops out: every step left is one the practice
+    can actually do.
     """
     has_stock = Item.objects.for_org(org).filter(is_active=True).exists()
     counted = StockEvent.objects.for_org(org).filter(kind="count").exists()
     team = User.objects.for_org(org).filter(is_practice_login=False, is_active=True).count()
+    if not reads_invoices():
+        first = [{
+            "title": "Pick what you stock",
+            "blurb": "Choose what you order from the shared catalogue of products NZ practices use, "
+                     "or bring in a list you already keep as a CSV. Prices and counts can come later.",
+            "done": has_stock,
+            "url": "stock:catalogue",
+            "cta": "Pick from the catalogue",
+        }]
+    else:
+        first = [
+            {
+                "title": "Bring in what you order",
+                "blurb": "Upload a batch of invoices or receipts and StockRoom drafts your stock list, "
+                         "suppliers and prices from them. Or pick from the catalogue if you'd rather start fresh.",
+                # Invoices read and waiting count: the next thing to do is check them,
+                # not upload more, so this step shouldn't still be the one highlighted.
+                "done": has_stock or bool(drafts_waiting),
+                "url": "stock:invoice_upload",
+                "cta": "Upload invoices",
+            },
+            {
+                "title": "Check the draft",
+                "blurb": "Read down what StockRoom found, fix anything it got wrong, and untick what you don't stock. "
+                         "Nothing is added until you say so.",
+                "done": has_stock and not drafts_waiting,
+                "url": "stock:setup_draft",
+                "cta": f"Check {drafts_waiting} item{'s' if drafts_waiting != 1 else ''}" if drafts_waiting else "Check the draft",
+                "waiting": drafts_waiting,
+            },
+        ]
     return [
-        {
-            "title": "Bring in what you order",
-            "blurb": "Upload a batch of invoices or receipts and StockRoom drafts your stock list, "
-                     "suppliers and prices from them. Or pick from the catalogue if you'd rather start fresh.",
-            # Invoices read and waiting count: the next thing to do is check them,
-            # not upload more, so this step shouldn't still be the one highlighted.
-            "done": has_stock or bool(drafts_waiting),
-            "url": "stock:invoice_upload",
-            "cta": "Upload invoices",
-        },
-        {
-            "title": "Check the draft",
-            "blurb": "Read down what StockRoom found, fix anything it got wrong, and untick what you don't stock. "
-                     "Nothing is added until you say so.",
-            "done": has_stock and not drafts_waiting,
-            "url": "stock:setup_draft",
-            "cta": f"Check {drafts_waiting} item{'s' if drafts_waiting != 1 else ''}" if drafts_waiting else "Check the draft",
-            "waiting": drafts_waiting,
-        },
+        *first,
         {
             "title": "Count what's on the shelf",
             "blurb": "One pass through the stockroom to set the starting numbers. "
