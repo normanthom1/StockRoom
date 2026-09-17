@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db.models import Count, Q
+from django.db.models import Count, Min, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -31,6 +31,7 @@ from .forms import ItemForm, SupplierForm
 from .humanize import (
     CONFIDENCE_LABEL,
     arriving_text,
+    back_order_text,
     build_caveat,
     build_sentence,
     format_qty,
@@ -100,6 +101,7 @@ def _earliest_expected(item):
 
 
 def _row(item, f, today):
+    back_ordered = sum(o.qty for o in item.order_lines.all() if o.is_open and o.split_from_id)
     if f.status == Status.ON_ORDER:
         expected = _earliest_expected(item)
         days_label = arriving_text(expected, today) if expected else "On order"
@@ -122,7 +124,8 @@ def _row(item, f, today):
         "status_color": STATUS_COLOR[f.status],
         "solid": f.status in SOLID_STATUSES,
         "days_label": days_label,
-        "order_by": "" if f.status == Status.ON_ORDER else order_by_text(f.order_by, today),
+        "order_by": back_order_text(f.run_out, back_ordered, today) if back_ordered
+        else "" if f.status == Status.ON_ORDER else order_by_text(f.order_by, today),
         "sort_key": f.days_left if f.days_left is not None else 9999,
         "fine_label": humanize_run_out(f.days_left),
     }
@@ -1350,11 +1353,24 @@ def merge_undo(request, pk):
 
 
 def _median_lead_days(supplier):
-    """Actual ordered -> received time over the last 10 deliveries, or None
-    with fewer than 1. A suggestion only - it never changes lead_days itself."""
-    lines = OrderLine.objects.filter(supplier=supplier, received_at__isnull=False).order_by("-received_at")[:10]
-    diffs = [(line.received_at - line.ordered_at).days for line in lines]
-    return round(median(diffs)) if diffs else None
+    """Median days from ordering to delivery over the supplier's last 10 orders,
+    or None with none delivered. Delivery is the invoice date when an invoice
+    received the order, otherwise the day it was ticked off on Deliveries. An
+    order is what was ordered on one day; a back-order's later delivery doesn't
+    count. A suggestion only - it never changes lead_days itself."""
+    lines = (
+        OrderLine.objects.filter(supplier=supplier, received_at__isnull=False, split_from=None)
+        .annotate(invoiced_on=Min("invoice_lines__invoice__issued_on"))
+        .order_by("-ordered_at")
+    )
+    orders = {}
+    for line in lines.iterator():
+        ordered_on = timezone.localdate(line.ordered_at)
+        delivered_on = line.invoiced_on or timezone.localdate(line.received_at)
+        orders.setdefault(ordered_on, max(0, (delivered_on - ordered_on).days))
+        if len(orders) == 10:
+            break
+    return round(median(orders.values())) if orders else None
 
 
 def _suppliers_context(org, form=None):
