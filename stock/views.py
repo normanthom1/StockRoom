@@ -23,7 +23,7 @@ from accounts.decorators import admin_required, ai_required
 from accounts.mailto import build_mailto_link
 from accounts.models import User
 
-from . import invoices
+from . import invoices, nztax, taxreport
 from . import setup as setup_module  # `setup` on its own would shadow the view below
 from .chart import usage_chart_svg
 from .csv_import import parse_csv
@@ -51,6 +51,7 @@ from .models import (
     Invoice,
     InvoiceBatch,
     InvoiceBatchFile,
+    InvoiceDocument,
     InvoiceLine,
     Item,
     ItemAlias,
@@ -1281,6 +1282,9 @@ def invoice_detail(request, pk):
         "not_received": [line for line in lines if not line.is_received],
         "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier) if receivable else None,
         "original": invoices.find_original(invoice) if invoice.status == Invoice.Status.IGNORED else None,
+        "documents": invoice.documents.all(),
+        "gst_number": nztax.format_gst_number(invoice.supplier_gst_number),
+        "income_year_label": nztax.income_year_label(nztax.income_year(invoice.issued_on)) if invoice.issued_on else "",
     })
 
 
@@ -1821,3 +1825,82 @@ def setup_draft_confirm(request):
     left_out = f" {no_supplier} needed a supplier and {'was' if no_supplier == 1 else 'were'} left." if no_supplier else ""
     messages.success(request, f"Added {len(items)} item{'s' if len(items) != 1 else ''}.{left_out}")
     return redirect("stock:setup")
+
+
+# --- Expenses by income year, and the documents behind them ---------------
+
+
+@admin_required
+def tax_year(request):
+    """What the practice spent on stock in an income year, from its invoices.
+
+    Manager-only, like every other page that carries prices. The figures and
+    every caveat on them come from stock/taxreport.py.
+    """
+    org = request.user.organisation
+    today = timezone.localtime().date()
+    years = taxreport.years_with_invoices(org, today)
+    year = _parse_nonneg_int(request.GET.get("year", "")) or nztax.income_year(today)
+    if year not in years:
+        year = years[0]
+    return render(request, "stock/tax_year.html", {
+        "total": taxreport.year_total(org, year),
+        "years": years,
+        "year": year,
+        "current_year": nztax.income_year(today),
+        "undated": taxreport.undated(org),
+        "disclaimer": taxreport.DISCLAIMER,
+        "basis_note": taxreport.BASIS_NOTE,
+        "undated_note": taxreport.UNDATED_NOTE,
+        "retention_years": nztax.RETENTION_YEARS,
+    })
+
+
+@admin_required
+def export_tax_year(request):
+    """One income year's invoices, a row each, for the accountant.
+
+    Every row carries the checksum of the file it was read from, so a figure in
+    the return can be traced to the document StockRoom holds for it.
+    """
+    org = request.user.organisation
+    year = _parse_nonneg_int(request.GET.get("year", "")) or nztax.income_year(timezone.localtime().date())
+    start, end = nztax.income_year_bounds(year)
+    rows = []
+    for invoice in (Invoice.objects.for_org(org)
+                    .filter(issued_on__gte=start, issued_on__lt=end)
+                    .select_related("supplier").prefetch_related("lines", "documents")
+                    .order_by("issued_on", "pk")):
+        amounts = taxreport.amounts_for(invoice)
+        document = next(iter(invoice.documents.all()), None)
+        rows.append([
+            invoice.issued_on.isoformat() if invoice.issued_on else "",
+            invoice.supplier.name if invoice.supplier else invoice.supplier_name,
+            nztax.format_gst_number(invoice.supplier_gst_number),
+            invoice.invoice_number,
+            invoice.order_ref,
+            "" if amounts is None else amounts.excl_gst,
+            "" if amounts is None else amounts.gst,
+            "" if amounts is None else amounts.incl_gst,
+            "off the invoice" if amounts and amounts.gst_printed else "worked out at 15%",
+            invoice.get_status_display(),
+            "excluded: already counted" if invoice.status == Invoice.Status.IGNORED else "counted",
+            document.filename if document else "",
+            invoice.checksum,
+        ])
+    return _csv_response(
+        f"stock-expenses-{nztax.income_year_label(year)}.csv",
+        ["issued_on", "supplier", "supplier_gst_number", "invoice_number", "order_ref",
+         "excl_gst", "gst", "incl_gst", "gst_source", "status", "counted", "document", "file_sha256"],
+        rows,
+    )
+
+
+@admin_required
+def invoice_document(request, pk):
+    """Download the original file an invoice was read from, as held for IRD."""
+    document = get_object_or_404(InvoiceDocument.objects.for_org(request.user.organisation), pk=pk)
+    response = HttpResponse(bytes(document.data), content_type=document.content_type)
+    # inline: a manager checking a figure wants to look at it, not save it.
+    response["Content-Disposition"] = f'inline; filename="{document.filename}"'
+    return response

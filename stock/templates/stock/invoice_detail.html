@@ -7,6 +7,39 @@
 <h1 class="mb-1">{{ invoice.supplier_name|default:"Invoice or receipt" }}</h1>
 <p class="mb-4 text-sm text-gray-600">{% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</p>
 
+{# The tax record: what was charged, and the file it was read from. #}
+<div class="blueprint mb-5 p-4">
+  <p class="kicker mb-2 text-primary-dark">For your records</p>
+  <dl class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+    <dt class="text-gray-600">Supplier GST number</dt>
+    <dd class="text-right {% if not gst_number %}text-status-week{% endif %}">{{ gst_number|default:"Not shown" }}</dd>
+    {% if invoice.total_excl_gst is not None %}
+      <dt class="text-gray-600">Excluding GST</dt>
+      <dd class="text-right">${{ invoice.total_excl_gst|floatformat:2 }}</dd>
+    {% endif %}
+    {% if invoice.gst_amount is not None %}
+      <dt class="text-gray-600">GST</dt>
+      <dd class="text-right">${{ invoice.gst_amount|floatformat:2 }}</dd>
+    {% endif %}
+    {% if invoice.total_incl_gst is not None %}
+      <dt class="text-gray-600">Total</dt>
+      <dd class="text-right font-heading font-semibold">${{ invoice.total_incl_gst|floatformat:2 }}</dd>
+    {% endif %}
+    {% if invoice.issued_on %}
+      <dt class="text-gray-600">Tax year</dt>
+      <dd class="text-right">{{ income_year_label }}</dd>
+    {% endif %}
+  </dl>
+  {% for document in documents %}
+    <a href="{% url 'stock:invoice_document' document.pk %}" class="btn btn-line mt-3 w-full">
+      Open the original file
+    </a>
+    <p class="mt-1.5 text-xs text-gray-600">{{ document.filename }} &middot; kept until at least {{ document.retain_until|date:"j F Y" }}</p>
+  {% empty %}
+    <p class="mt-3 text-sm text-status-week">No file kept for this one. Keep your own copy of the paperwork.</p>
+  {% endfor %}
+</div>
+
 {% if invoice.status == "ignored" %}
   <div class="blueprint mb-5 px-4 pt-3">
     <p class="font-heading text-lg font-semibold text-gray-900">Already imported{% if original %} on {{ original.created_at|date:"j M" }}{% endif %} - nothing changed</p>

@@ -28,9 +28,9 @@ class DesktopNavTests(TestCase):
     def test_admin_gets_every_page_directly_no_more_dropdown_needed(self):
         self.sign_in(self.admin)
         content = self.client.get("/").content.decode()
-        self.assertEqual(content.count(NAV_LINK), 9)
+        self.assertEqual(content.count(NAV_LINK), 10)
         for label in ("Home", "Log usage", "Reorder list", "Deliveries",
-                      "Stock", "Suppliers", "Spending", "Activity", "Team"):
+                      "Stock", "Suppliers", "Spending", "Tax", "Activity", "Team"):
             self.assertIn(f">{label}</a>", content)
         # The phone's bottom tabs are still there too, hidden by lg:hidden not removed.
         self.assertIn('class="nav-tab"', content)

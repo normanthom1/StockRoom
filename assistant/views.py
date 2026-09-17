@@ -173,8 +173,12 @@ def invoice_upload(request):
         messages.error(request, LIMITED)
         return redirect("stock:invoice_upload")
 
+    data = upload.read()
+    # Kept before it's read, not after, so an invoice can never be parsed into
+    # the practice's records without the original behind it (stock/nztax.py).
+    invoices.keep_document(request.user.organisation, request.user, upload.name, mime_type, data)
     try:
-        invoice, lines = invoices.parse_invoice(request.user.organisation, upload.read(), mime_type, upload.name)
+        invoice, lines = invoices.parse_invoice(request.user.organisation, data, mime_type, upload.name)
     except gemini.GeminiError:
         messages.error(request, "Couldn't read that invoice. Try a clearer photo, or import a CSV instead.")
         return redirect("stock:invoice_upload")

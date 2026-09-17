@@ -2,8 +2,10 @@
 
 Photos and PDFs go through Gemini; a CSV is read directly. Both come out in
 the same shape, keyed by MAPPING, so the checks below run once. Only the
-parsed lines are saved, never the file. ingest() is the one way a read
-invoice is saved, and where repeats and conflicts are settled.
+parsed lines are saved here; the file itself is kept as an InvoiceDocument,
+because a GST-registered practice has to hold the original for seven years
+(see stock/nztax.py). ingest() is the one way a read invoice is saved, and
+where repeats and conflicts are settled.
 """
 
 import csv
@@ -23,10 +25,12 @@ from django.utils import timezone
 
 from assistant import gemini
 
+from . import nztax
 from .matching import Matcher, record_merge
 from .models import (
     Invoice,
     InvoiceBatchFile,
+    InvoiceDocument,
     InvoiceLine,
     ItemAlias,
     OrderLine,
@@ -48,8 +52,13 @@ MAPPING = {
     "unit": "unit_price",
     "line_total": "line_total",
     "kind": "kind",
+    "gst_number": "gst_number",
+    "total_excl_gst": "total_excl_gst",
+    "gst_amount": "gst_amount",
+    "total_incl_gst": "total_incl_gst",
 }
-HEADER_FIELDS = ("date", "supplier", "order_id", "invoice_number")
+HEADER_FIELDS = ("date", "supplier", "order_id", "invoice_number",
+                 "gst_number", "total_excl_gst", "gst_amount", "total_incl_gst")
 CSV_TYPES = ("text/csv", "application/vnd.ms-excel")  # Excel on Windows labels CSVs as the latter
 ONE_CENT = Decimal("0.01")
 DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d %b %Y", "%d %B %Y")
@@ -75,11 +84,22 @@ def is_product(kind, sku, description):
         return kind == PRODUCT
     return not NOT_A_PRODUCT.match(sku or description)
 
+
+def _gst_number(raw):
+    """The supplier's GST number, kept only when IRD's check digit says it's a
+    real one. A misread digit is worse than a blank: blank is visibly missing,
+    but a wrong number looks like it was checked when it wasn't."""
+    digits = nztax.normalise_gst_number(raw)
+    return digits if nztax.is_valid_gst_number(digits) else ""
+
+
 INVOICE_RULES = """You read a supplier invoice for a New Zealand dental practice into its details and product lines.
 - invoice_date: the date it was issued, as YYYY-MM-DD. New Zealand writes dates day first.
 - vendor: the supplier that sent it. If it's one of this practice's suppliers, use that name exactly as written here: {suppliers}.
 - po_number: the practice's order or purchase order number, if shown.
 - invoice_number: the supplier's own number for this invoice, if shown. Not the order number.
+- gst_number: the supplier's GST number, if shown. Digits only, no dashes. It is the supplier's, never the practice's.
+- total_excl_gst, gst_amount, total_incl_gst: the invoice's own totals, exactly as printed. Leave out any the invoice doesn't show; never work one out from the others.
 - lines: every line the invoice charges for, in order, including freight, GST, discounts, subtotals and totals.
 - kind: what the line is. "product" for something supplied, otherwise "freight", "gst", "discount", "subtotal", "total" or "other". Judge it by what the line is for, not by its wording: "Total Etch" is a product, and a freight charge is freight even when it carries a product code.
 - sku: the supplier's product code. description: the product as written.
@@ -94,6 +114,10 @@ INVOICE_SCHEMA = {
         "vendor": {"type": "STRING"},
         "po_number": {"type": "STRING"},
         "invoice_number": {"type": "STRING"},
+        "gst_number": {"type": "STRING"},
+        "total_excl_gst": {"type": "NUMBER", "nullable": True},
+        "gst_amount": {"type": "NUMBER", "nullable": True},
+        "total_incl_gst": {"type": "NUMBER", "nullable": True},
         "lines": {
             "type": "ARRAY",
             "items": {
@@ -138,7 +162,8 @@ def _imported(organisation):
 
 
 def _copy(earlier):
-    fields = ("supplier_name", "supplier", "issued_on", "order_ref", "invoice_number")
+    fields = ("supplier_name", "supplier", "issued_on", "order_ref", "invoice_number",
+              "supplier_gst_number", "total_excl_gst", "gst_amount", "total_incl_gst")
     invoice = Invoice(organisation=earlier.organisation, **{name: getattr(earlier, name) for name in fields})
     lines = [
         InvoiceLine(organisation=line.organisation, sku=line.sku, description=line.description, qty=line.qty,
@@ -156,7 +181,10 @@ def _read_with_ai(organisation, data, mime_type):
                             attachment=(mime_type, data))
     if not isinstance(reply, dict):
         reply = {}
-    header = {MAPPING[key]: reply.get(key) for key in ("invoice_date", "vendor", "po_number", "invoice_number")}
+    header = {MAPPING[key]: reply.get(key) for key in (
+        "invoice_date", "vendor", "po_number", "invoice_number",
+        "gst_number", "total_excl_gst", "gst_amount", "total_incl_gst",
+    )}
     lines = [_rename(line) for line in reply.get("lines") or [] if isinstance(line, dict)]
     return header, lines
 
@@ -194,6 +222,10 @@ def _build(organisation, header, raw_lines):
         issued_on=_date(header.get("date")),
         order_ref=_text(header.get("order_id"), 64),
         invoice_number=_text(header.get("invoice_number"), 64),
+        supplier_gst_number=_gst_number(header.get("gst_number")),
+        total_excl_gst=cents(_number(header.get("total_excl_gst"))),
+        gst_amount=cents(_number(header.get("gst_amount"))),
+        total_incl_gst=cents(_number(header.get("total_incl_gst"))),
     )
     check_invoice(invoice, lines)
     for line in lines:  # checked above at full precision; stored to the cent
@@ -460,7 +492,11 @@ def run_batch(batch):
             tried.append(file.pk)
             try:
                 with transaction.atomic():
-                    invoice, lines = parse_invoice(batch.organisation, bytes(file.data), file.content_type, file.name)
+                    data = bytes(file.data)
+                    # Kept before the batch file's own copy is cleared below, so
+                    # the original survives as the record behind the lines.
+                    keep_document(batch.organisation, batch.created_by, file.name, file.content_type, data)
+                    invoice, lines = parse_invoice(batch.organisation, data, file.content_type, file.name)
                     match_lines(invoice, lines)
                     invoice = ingest(invoice, lines, batch.created_by)
             except Exception as error:  # one unreadable file mustn't stop the rest
@@ -481,7 +517,66 @@ def save_invoice(invoice, lines):
         for line in lines:
             line.pk, line.invoice = None, invoice
         InvoiceLine.objects.bulk_create(lines)
+        link_documents(invoice)
     return invoice
+
+
+def keep_document(organisation, user, filename, content_type, data, issued_on=None):
+    """Keep the uploaded file itself, as the record behind the parsed lines.
+
+    A GST-registered practice has to hold the original for seven years after
+    the end of the income year (TAA 1994 s 22(2), GST Act 1985 s 75(3)), and
+    the parsed lines are only StockRoom's reading of it. Called on the way in,
+    before anything is confirmed, so a file is never read and then lost.
+
+    The same bytes are kept once per practice: uploading a duplicate returns
+    the copy already held rather than storing it twice.
+    """
+    checksum = hashlib.sha256(data).hexdigest()
+    held = InvoiceDocument.objects.for_org(organisation).filter(checksum=checksum).first()
+    if held is not None:
+        return held
+    # Dated from the invoice where it says so, otherwise today, which is the
+    # later of the two and so never shortens how long it's kept for.
+    document = InvoiceDocument(
+        organisation=organisation,
+        filename=(filename or "invoice")[:255],
+        content_type=content_type or "application/octet-stream",
+        data=data,
+        byte_size=len(data),
+        checksum=checksum,
+        uploaded_by=user,
+        retain_until=nztax.retain_until(issued_on or timezone.localdate()),
+    )
+    try:
+        document.save()
+    except IntegrityError:
+        # Two uploads of the same file at once; the other one won.
+        return InvoiceDocument.objects.for_org(organisation).filter(checksum=checksum).first()
+    return document
+
+
+def link_documents(invoice):
+    """Point the kept file at the invoice it was read into, matched on the
+    checksum of the same bytes. Also puts `retain_until` onto the invoice's own
+    income year, now that the issue date is known."""
+    if not invoice.checksum:
+        return
+    document = (InvoiceDocument.objects.for_org(invoice.organisation)
+                .filter(checksum=invoice.checksum).first())
+    if document is None:
+        return
+    fields = []
+    if document.invoice_id is None:
+        document.invoice = invoice
+        fields.append("invoice")
+    if invoice.issued_on:
+        wanted = nztax.retain_until(invoice.issued_on)
+        if wanted > document.retain_until:  # never shorten a retention period
+            document.retain_until = wanted
+            fields.append("retain_until")
+    if fields:
+        document.save(update_fields=fields)
 
 
 def _text(value, max_length):

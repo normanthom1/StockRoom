@@ -7,6 +7,7 @@ same PR that adds it. See docs/org-scoped-views.md.
 
 import re
 from collections.abc import Callable
+from datetime import date
 from typing import NamedTuple
 
 from django.conf import settings
@@ -22,6 +23,7 @@ from stock.models import (
     CatalogueProduct,
     Invoice,
     InvoiceBatch,
+    InvoiceDocument,
     InvoiceLine,
     Item,
     ItemAlias,
@@ -83,6 +85,15 @@ def make_invoice_line(org):
     """A line on an imported invoice in org, for Cases that need some existing invoice line's pk."""
     invoice = Invoice.objects.create(organisation=org, supplier=make_supplier(org), status=Invoice.Status.PARSED)
     return InvoiceLine.objects.create(organisation=org, invoice=invoice, description="Gloves", qty=1)
+
+
+def make_invoice_document(org):
+    """A kept invoice file in org, for Cases that need some existing document's pk."""
+    return InvoiceDocument.objects.create(
+        organisation=org, invoice=make_invoice(org), filename="invoice.pdf", content_type="application/pdf",
+        data=b"%PDF-1.4 fake", byte_size=12, checksum=f"{InvoiceDocument.objects.count():064d}",
+        uploaded_by=make_member(org), retain_until=date(2033, 3, 31),
+    )
 
 
 def make_batch(org):
@@ -207,6 +218,9 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:setup_skip", method="post"),
     Case("stock:setup_draft"),
     Case("stock:setup_draft_confirm", method="post"),
+    Case("stock:tax_year"),
+    Case("stock:export_tax_year"),
+    Case("stock:invoice_document", make=make_invoice_document),
 ]
 
 # Pages an assistant can open. None of them may show a price.

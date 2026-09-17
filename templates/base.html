@@ -66,6 +66,7 @@
       {% url 'stock:suppliers' as url_suppliers %}
       {% url 'stock:spending' as url_spending %}
       {% url 'stock:activity_log' as url_activity %}
+      {% url 'stock:tax_year' as url_tax %}
       {% url 'team' as url_team %}
       {% url 'stock:setup' as url_setup %}
     {% endif %}
@@ -120,6 +121,7 @@
               <a href="{{ url_items }}" class="nav-link" {% if url_items in request.path or url_stocktake in request.path %}aria-current="page"{% endif %}>Stock</a>
               <a href="{{ url_suppliers }}" class="nav-link" {% if url_suppliers in request.path %}aria-current="page"{% endif %}>Suppliers</a>
               <a href="{{ url_spending }}" class="nav-link" {% if url_spending in request.path %}aria-current="page"{% endif %}>Spending</a>
+              <a href="{{ url_tax }}" class="nav-link" {% if url_tax in request.path %}aria-current="page"{% endif %}>Tax</a>
               <a href="{{ url_activity }}" class="nav-link" {% if url_activity in request.path %}aria-current="page"{% endif %}>Activity</a>
               <a href="{{ url_team }}" class="nav-link" {% if url_team in request.path %}aria-current="page"{% endif %}>Team</a>
               {# Setup stays in the nav until the practice finishes it or puts it away. #}{% if not user.organisation.setup_dismissed_at %}<a href="{{ url_setup }}" class="nav-link" {% if url_setup in request.path %}aria-current="page"{% endif %}>Set up</a>{% endif %}
@@ -188,11 +190,12 @@
           {# The More pages (and the pages under them) light up More, so you can see where you are. #}
           <div class="relative flex min-w-0 flex-1" x-data="dropdown" @click.outside="close">
             <button type="button" class="nav-tab" @click="toggle" :aria-expanded="open" aria-haspopup="true"
-                    {% if url_items in request.path or url_stocktake in request.path or url_suppliers in request.path or url_spending in request.path or url_activity in request.path or url_team in request.path or url_setup in request.path %}data-current{% endif %}>More</button>
+                    {% if url_items in request.path or url_stocktake in request.path or url_suppliers in request.path or url_spending in request.path or url_activity in request.path or url_team in request.path or url_setup in request.path or url_tax in request.path %}data-current{% endif %}>More</button>
             <div x-show="open" x-cloak class="absolute right-0 bottom-full mb-1 w-52 border border-gray-300 bg-app-bg py-1 shadow-lg">
               <a href="{{ url_items }}" class="menu-item" {% if url_items in request.path or url_stocktake in request.path %}aria-current="page"{% endif %}>Stock</a>
               <a href="{{ url_suppliers }}" class="menu-item" {% if url_suppliers in request.path %}aria-current="page"{% endif %}>Suppliers</a>
               <a href="{{ url_spending }}" class="menu-item" {% if url_spending in request.path %}aria-current="page"{% endif %}>Spending</a>
+              <a href="{{ url_tax }}" class="menu-item" {% if url_tax in request.path %}aria-current="page"{% endif %}>Stock expenses</a>
               <a href="{{ url_activity }}" class="menu-item" {% if url_activity in request.path %}aria-current="page"{% endif %}>Activity</a>
               <a href="{{ url_team }}" class="menu-item" {% if url_team in request.path %}aria-current="page"{% endif %}>Team</a>
               {# Setup stays in the nav until the practice finishes it or puts it away. #}{% if not user.organisation.setup_dismissed_at %}<a href="{{ url_setup }}" class="menu-item" {% if url_setup in request.path %}aria-current="page"{% endif %}>Set up</a>{% endif %}
