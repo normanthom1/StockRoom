@@ -186,6 +186,15 @@ USE_I18N = True
 
 USE_TZ = True
 
+# Django ships no en_NZ locale - only en, en_AU, en_CA, en_GB and en_IE - so
+# "en-nz" falls back to "en", whose DATE_FORMAT is the American "N j, Y"
+# ("Sept. 18, 2026"). This points Django at our own en_NZ formats so dates read
+# day-first everywhere, including anywhere that renders one without an explicit
+# format filter. Setting DATE_FORMAT here instead would do nothing: get_format()
+# reads the active locale's module first and only falls back to the setting if
+# no module defines it.
+FORMAT_MODULE_PATH = "stockroom.formats"
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
