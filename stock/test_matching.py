@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from accounts.models import Organisation, User
 
-from .invoices import parse_invoice
+from .invoices import parse_invoice, save_invoice
 from .matching import Matcher, match_invoice_lines, normalize, synonym_key
 from .models import Item, ItemAlias, Supplier
 
@@ -67,7 +67,7 @@ class MatcherTests(TestCase):
 
     def invoice(self, description="glove"):
         csv = f"vendor,sku,description,qty,unit\nHenry Schein,,{description},2,8.50\n".encode()
-        return parse_invoice(self.org, csv, "text/csv")
+        return save_invoice(*parse_invoice(self.org, csv, "text/csv"))
 
     def match(self, name, **kwargs):
         return Matcher(self.org).match(name, **kwargs)

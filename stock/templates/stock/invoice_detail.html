@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}{{ invoice.supplier_name|default:"Invoice" }} · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">{{ invoice.supplier_name|default:"Invoice" }}</h1>
+<p class="mb-4 text-sm text-gray-600">{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</p>
+
+<div class="border-t border-gray-300">
+  {% for line in lines %}
+    <div class="flex flex-col gap-1 border-b border-gray-200 py-3">
+      <span class="flex items-baseline gap-2">
+        <span class="text-xs text-gray-500">{{ line.sku|default:"" }}</span>
+        <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ line.description|default:"(no description)" }}</span>
+      </span>
+      <span class="text-sm text-gray-600">
+        {{ line.qty|default_if_none:"?" }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.item %} &middot; {{ line.item.name }}{% endif %}
+      </span>
+    </div>
+  {% empty %}
+    <p class="blueprint p-5 text-center text-gray-600">No lines on this invoice.</p>
+  {% endfor %}
+</div>
+{% endblock %}

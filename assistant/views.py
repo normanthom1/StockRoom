@@ -1,20 +1,19 @@
 import csv
 import io
-from functools import wraps
 
-from django.conf import settings
 from django.contrib import messages
-from django.http import Http404, HttpResponse
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.decorators import admin_required
+from accounts.decorators import admin_required, ai_required
 from accounts.ratelimit import AI_PER_HOUR, ai_limited
+from stock import invoices
 from stock.csv_import import REQUIRED_COLUMNS
 from stock.models import Supplier
-from stock.views import import_preview
+from stock.views import import_preview, invoice_preview
 
 from . import gemini
 from .snapshot import practice_snapshot
@@ -39,18 +38,6 @@ Answer questions about how to use StockRoom (from the guide below) and about thi
 MANAGER_ROLE = "a manager, who can see prices and spending"
 ASSISTANT_ROLE = "a dental assistant"
 ASSISTANT_PRICE_RULE = " Assistants can't see prices or spending in StockRoom, and you don't have them; say it's one for the manager."
-
-
-def ai_required(view):
-    """Every AI view 404s unless AI_API_KEY is set, so nothing half-works without one."""
-
-    @wraps(view)
-    def wrapped(request, *args, **kwargs):
-        if not settings.AI_API_KEY:
-            raise Http404
-        return view(request, *args, **kwargs)
-
-    return wrapped
 
 
 def _system_prompt(user):
@@ -159,3 +146,29 @@ def import_with_ai(request):
     for row in rows:
         writer.writerow({column: "" if row.get(column) is None else row[column] for column in REQUIRED_COLUMNS})
     return import_preview(request, out.getvalue())
+
+
+@require_POST
+@ai_required
+@admin_required
+def invoice_upload(request):
+    """A PDF, photo or CSV read into a preview; nothing is saved until confirmed."""
+    upload = request.FILES.get("invoice_file")
+    if not upload:
+        messages.error(request, "Choose an invoice first.")
+        return redirect("stock:invoice_upload")
+    mime_type = upload.content_type or ""
+    is_csv = mime_type in invoices.CSV_TYPES
+    if upload.size > MAX_UPLOAD or not (is_csv or mime_type.startswith(("image/", "application/pdf"))):
+        messages.error(request, "Choose a PDF, photo or CSV under 5 MB.")
+        return redirect("stock:invoice_upload")
+    if not is_csv and ai_limited(request):
+        messages.error(request, LIMITED)
+        return redirect("stock:invoice_upload")
+
+    try:
+        invoice, lines = invoices.parse_invoice(request.user.organisation, upload.read(), mime_type)
+    except gemini.GeminiError:
+        messages.error(request, "Couldn't read that just now. Try again, or a CSV instead.")
+        return redirect("stock:invoice_upload")
+    return invoice_preview(request, invoice, lines)
