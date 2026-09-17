@@ -4,7 +4,7 @@ from django.test import TestCase
 from accounts.models import Organisation, User
 from stockroom.demo import DEMO_ORG
 
-from .humanize import build_caveat, build_sentence, format_rate_sentence, order_by_text
+from .humanize import build_caveat, build_sentence, format_rate_sentence
 from .models import Item, OrderLine, StockEvent, Supplier
 from .test_forecast import NOW, TODAY, run, weekly_counts
 
@@ -20,7 +20,7 @@ class BuildSentenceTests(TestCase):
 
     def test_high_confidence_sentence_matches_the_issues_style(self):
         # Mirrors the issue's own example: "You use ~12 boxes a week. There
-        # are 18 boxes. Henry Schein takes ~5 days. Order by today."
+        # are 18 boxes. Henry Schein takes ~5 days. Order by today.", ending on #102's runway line.
         item = self.make_item("box")
         events = weekly_counts([12, 12, 12, 12], start=90 - 42 + 18)  # -> 18 on hand
         f = run(events, lead=5)
@@ -29,7 +29,8 @@ class BuildSentenceTests(TestCase):
         sentence = build_sentence(item, f, TODAY)
         self.assertEqual(
             sentence,
-            f"You use ~12 boxes a week. There are 18 boxes. Henry Schein takes ~5 days. {order_by_text(f.order_by, TODAY)}.",
+            "You use ~12 boxes a week. There are 18 boxes. Henry Schein takes ~5 days. "
+            "Enough for about 10 days. Order again by Tuesday 15 Sep.",
         )
 
     def test_out_of_stock_sentence(self):

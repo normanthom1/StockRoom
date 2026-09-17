@@ -140,10 +140,35 @@ def part_delivered_text(remainder_line):
     return f"{original.received_qty} of {original.qty} arrived, {remainder_line.qty} still coming"
 
 
+def back_order_text(run_out, remaining, today):
+    """For an item waiting on a back-order: "Runs out Tue, 2 still coming"."""
+    coming = f"{remaining} still coming"
+    if run_out is None:
+        return coming
+    delta, weekday, day_month = _day_bucket(run_out, today)
+    return f"Runs out {'today' if delta <= 0 else weekday if delta <= 6 else day_month}, {coming}"
+
+
+def runway_text(f, today):
+    """"Enough for about 3 weeks. Order again by Friday 26 Sep." Days under 2
+    weeks, weeks under 9, months after that."""
+    days = max(1, round(f.days_left))
+    if days < 14:
+        amount, unit = days, "day"
+    elif days < 63:
+        amount, unit = round(days / 7), "week"
+    else:
+        amount, unit = round(days / 30), "month"
+    enough = f"Enough for about {amount} {unit}{'' if amount == 1 else 's'}."
+    if f.order_by <= today:
+        return f"{enough} Order again today."
+    return f"{enough} Order again by {f.order_by:%A} {f.order_by.day} {f.order_by:%b}."
+
+
 def build_sentence(item, f, today):
     """The item detail page's plain-language forecast summary, e.g.
     "You use ~12 boxes a week. There are 18 boxes. Henry Schein takes
-    ~5 days. Order by today."
+    ~5 days. Enough for about 1 week. Order again today."
     """
     lead_text = f"{item.supplier.name} takes ~{item.supplier.lead_days} days"
 
@@ -156,7 +181,7 @@ def build_sentence(item, f, today):
         when = when[0].lower() + when[1:]  # mid-sentence, but keep e.g. "Mon" capitalised
         return f"Not enough history yet to be precise. Best guess: you run out in {run_out_text}. {lead_text}, so {when}."
 
-    when = f"{order_by_text(f.order_by, today)}." if f.order_by else ""
+    when = runway_text(f, today) if f.order_by else ""
     return f"You use {format_rate_sentence(f.weekly_usage, item.unit)}. There are {format_qty(f.on_hand, item.unit)}. {lead_text}. {when}"
 
 
