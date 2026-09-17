@@ -119,6 +119,8 @@ class OrderLine(OrgOwned):
     split_from = models.OneToOneField(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="remainder"
     )
+    # The item's price just before this receipt changed it, for the activity log.
+    price_before = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     def __str__(self):
         return f"{self.qty} × {self.item}"
@@ -138,19 +140,26 @@ class OrderLine(OrgOwned):
             self.expected_at = self.ordered_at + timedelta(days=self.supplier.lead_days)
         super().save(*args, **kwargs)
 
-    def receive(self, qty, user, unit_price=None):
+    def receive(self, qty, user, unit_price=None, update_item_price=True):
         """Receive this open line, from Deliveries or an invoice. Less than was
         ordered splits the rest off into a new open line, so it stays tracked
         as back-ordered. More is an over-delivery: all of it is received and
-        the line closes with received_qty above qty."""
+        the line closes with received_qty above qty.
+
+        unit_price always becomes this line's own record of what was paid, for
+        spending reports. update_item_price=False (a price rise the invoice
+        preview wasn't ticked to confirm) still records that, but leaves the
+        item's catalogue price alone."""
         remainder = self.qty - qty
         self.received_qty = qty
         self.received_at = timezone.now()
         self.received_by = user
         if unit_price is not None:
             self.unit_price = unit_price
-            self.item.price = unit_price
-            self.item.save(update_fields=["price"])
+            if update_item_price and self.item.price != unit_price:
+                self.price_before = self.item.price
+                self.item.price = unit_price
+                self.item.save(update_fields=["price"])
         self.save()
         StockEvent.objects.create(organisation=self.organisation, item=self.item, user=user, kind="received", qty=qty)
         if remainder > 0:

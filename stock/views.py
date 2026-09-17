@@ -41,6 +41,7 @@ from .humanize import (
     part_delivered_text,
     phone_digits,
     pluralize_unit,
+    price_rise_text,
 )
 from .matching import UNDO_DAYS, Match, Matcher, normalize, record_merge, undo_merge
 from .models import (
@@ -1082,6 +1083,10 @@ def invoice_preview(request, invoice, lines):
     invoices.match_orders(invoice, lines)
     for index, line in enumerate(lines):
         line.index, line.adds_up = index, invoices.adds_up(line)
+        line.price_rise = (
+            price_rise_text(line.order.item.name, line.order.item.price, line.unit_price)
+            if line.order and invoices.price_needs_confirming(line.order.item.price, line.unit_price) else ""
+        )
     request.session["pending_invoice"] = {
         "invoice_id": invoice.pk,
         "supplier_id": invoice.supplier_id,
@@ -1176,6 +1181,7 @@ def invoice_confirm(request):
         line = InvoiceLine(organisation=org, sku=row["sku"], description=row["description"],
                            qty=qty, unit_price=unit_price, line_total=line_total)
         line.order = orders.get(picked[index])
+        line.price_confirmed = bool(request.POST.get(f"price_confirm_{index}"))
         if row["match"]:
             pk, confidence, method = row["match"]
             match = Match(Item.objects.for_org(org).filter(pk=pk, is_active=True).first(), confidence, method)
@@ -1547,7 +1553,8 @@ def _toast_response(request, message):
 
 def _activity_entries(org, item_id, user_id):
     events = StockEvent.objects.for_org(org).select_related("item", "user")
-    orders = OrderLine.objects.for_org(org).select_related("item", "supplier", "ordered_by", "received_by")
+    orders = (OrderLine.objects.for_org(org).select_related("item", "supplier", "ordered_by", "received_by")
+              .prefetch_related("invoice_lines__invoice"))
 
     if item_id:
         events = events.filter(item_id=item_id)
@@ -1569,12 +1576,17 @@ def _activity_entries(org, item_id, user_id):
             }
         )
         if order.received_at:
+            what = f"Received {format_qty(order.received_qty, order.item.unit)} of {order.item.name}"
+            if order.price_before is not None:
+                invoice_line = next(iter(order.invoice_lines.all()), None)
+                source = f" from {invoice_line.invoice}" if invoice_line else ""
+                what += f". Price updated from ${order.price_before} to ${order.unit_price}{source}."
             entries.append(
                 {
                     "when": order.received_at,
                     "who_id": order.received_by_id,
                     "who": (order.received_by.name or order.received_by.email) if order.received_by else "someone",
-                    "what": f"Received {format_qty(order.received_qty, order.item.unit)} of {order.item.name}",
+                    "what": what,
                 }
             )
 

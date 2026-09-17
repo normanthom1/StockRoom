@@ -126,6 +126,13 @@ def arriving_text(expected, today):
 CONFIDENCE_LABEL = {"low": "Low confidence", "high": "Confident"}
 
 
+def price_rise_text(name, old, new):
+    """"Gloves went from $18.50 to $21.00 - up 13%."."""
+    pct = round(abs(new - old) / old * 100)
+    direction = "up" if new > old else "down"
+    return f"{name} went from ${old:.2f} to ${new:.2f} - {direction} {pct}%"
+
+
 def part_delivered_text(remainder_line):
     """For an open back-order split off a partial delivery: "3 of 5 arrived,
     2 still coming". remainder_line.split_from is the closed original line."""

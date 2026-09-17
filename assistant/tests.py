@@ -253,6 +253,46 @@ class InvoiceUploadTests(Practice):
         line = invoice.lines.get()
         self.assertEqual((line.qty, str(line.unit_price), line.item), (2, "8.50", self.gloves))
 
+    def test_a_price_rise_over_10_percent_needs_a_tick_before_it_applies(self):
+        self.client.force_login(self.admin)
+        csv = b"vendor,sku,description,qty,unit\nHenry Schein,,Gloves,10,10.00\n"
+        response = self.upload(content=csv)
+        self.assertContains(response, "Gloves went from $8.50 to $10.00 - up 18%")
+
+        self.client.post("/invoices/confirm/", {"qty_0": "10", "price_0": "10.00"})
+        self.gloves.refresh_from_db()
+        self.assertEqual(str(self.gloves.price), "8.50")  # unticked: the price is left alone
+        order = OrderLine.objects.get(item=self.gloves)
+        self.assertEqual(str(order.unit_price), "10.00")  # still recorded, for spending reports
+
+    def test_ticking_a_price_rise_applies_it_and_logs_the_old_value(self):
+        self.client.force_login(self.admin)
+        csv = b"vendor,sku,description,qty,unit\nHenry Schein,,Gloves,10,10.00\n"
+        self.upload(content=csv)
+        self.client.post("/invoices/confirm/", {"qty_0": "10", "price_0": "10.00", "price_confirm_0": "1"})
+        self.gloves.refresh_from_db()
+        self.assertEqual(str(self.gloves.price), "10.00")
+
+        activity = self.client.get("/activity/")
+        self.assertContains(activity, "Price updated from $8.50 to $10.00")
+        self.assertContains(activity, "Henry Schein")
+
+    def test_a_modest_price_change_applies_without_a_tick(self):
+        self.client.force_login(self.admin)
+        csv = b"vendor,sku,description,qty,unit\nHenry Schein,,Gloves,10,9.00\n"
+        response = self.upload(content=csv)
+        self.assertNotContains(response, "Tick to update")
+        self.client.post("/invoices/confirm/", {"qty_0": "10", "price_0": "9.00"})
+        self.gloves.refresh_from_db()
+        self.assertEqual(str(self.gloves.price), "9.00")
+
+    def test_no_price_or_price_change_is_shown_to_an_assistant(self):
+        self.client.force_login(self.assistant)
+        csv = b"vendor,sku,description,qty,unit\nHenry Schein,,Gloves,10,10.00\n"
+        self.assertEqual(self.upload(content=csv).status_code, 403)
+        self.assertEqual(self.client.get("/invoices/").status_code, 403)
+        self.assertEqual(self.client.get("/activity/").status_code, 403)
+
     def test_editing_a_line_before_confirming_changes_what_is_saved(self):
         self.client.force_login(self.admin)
         self.upload()
