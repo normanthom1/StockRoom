@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}StockRoom · Stock ordering for New Zealand dental practices{% endblock %}
-{% block meta %}<meta name="description" content="Your assistants tap what they use as they go. StockRoom works out when each item is likely to run out and puts it on one reorder list, sorted by supplier.">{% endblock %}
+{% block meta %}<meta name="description" content="Your assistants tap what they use as they go. StockRoom works out when each item runs out, puts it on one reorder list by supplier, and reads your invoices back in so stock, prices and your GST records keep up by themselves.">{% endblock %}
 
 {% block main %}
 {% partialdef actions %}
@@ -33,7 +33,10 @@
     <div>
       <p class="kicker text-primary-dark">Stock ordering for New Zealand dental practices</p>
       <h1 class="mt-3 text-[2.5rem] leading-[1.02] sm:text-[3.25rem]">Know what to order before the shelf is empty.</h1>
-      <p class="mt-5 max-w-xl text-lg leading-relaxed text-gray-700">Your assistants tap what they use as they go. It takes a second or two, gloves on. StockRoom works out when each item is likely to run out and puts it on one reorder list, sorted by supplier, for whoever does the ordering.</p>
+      <p class="mt-5 max-w-xl text-lg leading-relaxed text-gray-700">Your assistants tap what they use as they go. It takes a second or two, gloves on. StockRoom works out when each item will run out and puts it on one reorder list, sorted by supplier.</p>
+      {% if ai_enabled %}
+        <p class="mt-3 max-w-xl text-lg leading-relaxed text-gray-700">Then the invoice closes the loop. Upload it and the delivery is ticked off, the prices update, and the file is kept as your tax record.</p>
+      {% endif %}
       <div class="mt-8">{% partial actions %}</div>
       {% if demo_mode %}
         <p class="mt-4 text-sm text-gray-600">The demo is a made-up practice called NZ Dentist. Poke around as much as you like. It resets every night.</p>
@@ -87,10 +90,31 @@
     </figure>
   </section>
 
+  {% if ai_enabled %}
+    {# Setting up is the thing that stops a practice adopting anything, so it goes first. #}
+    <section class="border-t border-gray-300 bg-gray-50">
+      <div class="mx-auto grid max-w-5xl gap-8 px-4 py-14 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:gap-12 lg:py-20">
+        <div>
+          <p class="kicker text-primary-dark">Setting up</p>
+          <h2 class="mt-3 text-[1.75rem] sm:text-[2rem]">Start with the paperwork you already have.</h2>
+        </div>
+        <div>
+          <p class="text-lg leading-relaxed text-gray-800">Typing in a stock list is the bit that stops most practices before they start. So don't. Upload a folder of invoices or receipts, photos, PDFs or CSVs, and StockRoom reads them into a draft of what you order, who you buy it from, what you pay and how much you get at a time.</p>
+          <p class="mt-4 leading-relaxed text-gray-700">Read down the draft, fix anything it has misread, untick what you don't keep on the shelf, and that's your stock list built. Nothing is added until you say so.</p>
+          <ul class="mt-6 divide-y divide-gray-300 border-y border-gray-300">
+            <li class="py-3 text-[0.9375rem] leading-relaxed text-gray-800">Products you buy more than once are ticked for you; one-offs are folded away.</li>
+            <li class="py-3 text-[0.9375rem] leading-relaxed text-gray-800">Suppliers and prices come off the invoices, so there's no separate setup step.</li>
+            <li class="py-3 text-[0.9375rem] leading-relaxed text-gray-800">Upload the same invoice twice and the repeat is skipped, not counted again.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
   <section class="border-t border-gray-300">
     <div class="mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:py-20">
       <h2 class="text-[1.75rem] sm:text-[2rem]">How it works</h2>
-      <ol class="mt-8 grid gap-10 md:grid-cols-3">
+      <ol class="mt-8 grid gap-10 sm:grid-cols-2 {% if ai_enabled %}lg:grid-cols-4{% else %}lg:grid-cols-3{% endif %}">
         <li class="border-t-2 border-primary pt-4">
           <p class="font-heading text-sm font-semibold tracking-[0.12em] text-primary-dark" aria-hidden="true">01</p>
           <h3 class="mt-2 text-xl">Assistants tap what they use</h3>
@@ -104,21 +128,66 @@
         <li class="border-t-2 border-primary pt-4">
           <p class="font-heading text-sm font-semibold tracking-[0.12em] text-primary-dark" aria-hidden="true">03</p>
           <h3 class="mt-2 text-xl">You order from one list</h3>
-          <p class="mt-2 leading-relaxed text-gray-700">Everything that needs ordering sits on one list, sorted by supplier. You can ring or email the supplier from there (StockRoom writes the email), then mark it ordered. When the delivery turns up, whoever unpacks it ticks it off.</p>
+          <p class="mt-2 leading-relaxed text-gray-700">Everything that needs ordering sits on one list, sorted by supplier. Ring or email them from there (StockRoom writes the email), then mark it ordered.</p>
         </li>
+        {% if ai_enabled %}
+          <li class="border-t-2 border-primary pt-4">
+            <p class="font-heading text-sm font-semibold tracking-[0.12em] text-primary-dark" aria-hidden="true">04</p>
+            <h3 class="mt-2 text-xl">The invoice closes the loop</h3>
+            <p class="mt-2 leading-relaxed text-gray-700">Upload the invoice when the delivery lands. It ticks off what arrived and says "3 of 5 came, 2 still coming" for the rest, updates the prices, moves the runout dates, and keeps the file as your tax record.</p>
+          </li>
+        {% endif %}
       </ol>
     </div>
   </section>
 
   <section class="border-t border-gray-300 bg-gray-50">
+    <div class="mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:py-20">
+      <h2 class="text-[1.75rem] sm:text-[2rem]">What else is in there</h2>
+{# 6 cards with AI on, 4 without, so neither leaves a stranded last row. #}
+      <div class="mt-8 grid gap-6 sm:grid-cols-2 {% if ai_enabled %}lg:grid-cols-3{% else %}lg:grid-cols-2{% endif %}">
+        {% if ai_enabled %}
+          <div class="blueprint p-5">
+            <p class="kicker mb-1.5 text-primary-dark">Ask StockRoom</p>
+            <p class="leading-relaxed text-gray-800">Ask "what's running low?" or "what did we spend this month?" in plain English and get an answer from your own stock. Assistants get the how-to answers without the prices.</p>
+          </div>
+          <div class="blueprint p-5">
+            <p class="kicker mb-1.5 text-primary-dark">GST and tax records</p>
+            <p class="leading-relaxed text-gray-800">What you spent on stock, by New Zealand tax year, with GST split out and a CSV for your accountant. The invoice file itself is kept for seven years, which is what the Tax Administration Act asks for.</p>
+          </div>
+        {% endif %}
+        <div class="blueprint p-5">
+          <p class="kicker mb-1.5 text-primary-dark">A code each</p>
+          <p class="leading-relaxed text-gray-800">The practice has one login that every device signs in with. After that each person taps their own code, 2 digits for an assistant and 4 for a manager, so you know who logged what without anyone stopping to sign in properly.</p>
+        </div>
+        <div class="blueprint p-5">
+          <p class="kicker mb-1.5 text-primary-dark">Works on the shelf</p>
+          <p class="leading-relaxed text-gray-800">Install it on the phone or tablet like an app. Big buttons, made for gloves, and taps still log when the Wi-Fi drops out in the back room. They sync when it comes back.</p>
+        </div>
+        <div class="blueprint p-5">
+          <p class="kicker mb-1.5 text-primary-dark">A shared NZ catalogue</p>
+          <p class="leading-relaxed text-gray-800">A ready-made list of what New Zealand practices order and who sells it, so you can pick your stock rather than type it. Each item keeps a backup supplier for when the usual one is out.</p>
+        </div>
+        <div class="blueprint p-5">
+          <p class="kicker mb-1.5 text-primary-dark">Spending</p>
+          <p class="leading-relaxed text-gray-800">What you've spent this week, month or year, broken down by supplier, with the items costing you most. Enough to notice a price rise without going through the filing cabinet.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-t border-gray-300">
     <div class="mx-auto grid max-w-5xl gap-8 px-4 py-14 sm:px-6 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 lg:py-20">
       <h2 class="text-[1.75rem] sm:text-[2rem]">What it changes for a practice manager</h2>
       <ul class="divide-y divide-gray-300 border-y border-gray-300 text-[1.0625rem] leading-relaxed text-gray-800">
         <li class="py-4">You hear about the gloves running low while there's still time to get more in.</li>
         <li class="py-4">You count less. There's a full stocktake for when you want one, but day to day the numbers come from the people using the stock.</li>
+        {% if ai_enabled %}
+          <li class="py-4">Invoices stop being a filing job. The one document does the receiving, updates your prices and becomes the record you have to keep anyway.</li>
+        {% endif %}
         <li class="py-4">You get a rough idea of spend: what you've ordered this week, month or year, by supplier, without digging through invoices.</li>
         <li class="py-4">The practice has one login. Each device signs in once, then each person taps their own code, and assistants never see prices.</li>
-        <li class="py-4">Getting started means adding your suppliers, bringing in your stock list and counting everything once.{% if ai_enabled %} You can paste the list in or take a photo of an invoice, and check what StockRoom found before anything's saved.{% endif %}</li>
+        <li class="py-4">Getting started is {% if ai_enabled %}a folder of invoices, a look down the draft, and one count of the shelf{% else %}picking your stock from the catalogue and counting it once{% endif %}. There's a setup list that ticks itself off as you go.</li>
       </ul>
     </div>
   </section>
@@ -131,7 +200,11 @@
           <li class="border-l-2 border-gray-300 pl-4">It doesn't place orders. You still ring or email your supplier. StockRoom tells you what to order and when.</li>
           <li class="border-l-2 border-gray-300 pl-4">It doesn't connect to your suppliers' systems or to your practice management software.</li>
           <li class="border-l-2 border-gray-300 pl-4">The forecast isn't much use for the first few weeks. Until it has enough taps and counts to go on, it shows a range instead of a date.</li>
-          <li class="border-l-2 border-gray-300 pl-4">It keeps your stock, your suppliers and your staff's names, and nothing about patients.</li>
+          <li class="border-l-2 border-gray-300 pl-4">It isn't your accounting system. It covers the stock invoices you put through it, not your whole set of expenses, and it doesn't work out what's deductible.</li>
+          <li class="border-l-2 border-gray-300 pl-4">It keeps your stock, your suppliers, your staff's names{% if ai_enabled %} and the invoice files you upload{% endif %}. Nothing about patients.</li>
+          {% if ai_enabled %}
+            <li class="border-l-2 border-gray-300 pl-4">Photos and PDFs are read by Google Gemini, and it does misread things. That's why you check the preview before anything is saved.</li>
+          {% endif %}
         </ul>
       </div>
     </div>
@@ -141,7 +214,7 @@
     <div class="mx-auto max-w-2xl px-4 py-14 text-center sm:px-6 lg:py-20">
       <h2 class="text-[1.75rem] sm:text-[2rem]">Have a look around</h2>
       <p class="mt-4 text-lg leading-relaxed text-gray-700">
-        {% if demo_mode %}The demo practice has 16 weeks of made-up history, so its forecasts and reorder list look the way yours would after a few months of use.{% else %}Set up your practice, add your suppliers and stock, and give each person on the team their own code.{% endif %}
+        {% if demo_mode %}The demo practice has 16 weeks of made-up history, so its forecasts and reorder list look the way yours would after a few months of use.{% else %}Set up your practice, bring in what you order, and give each person on the team their own code.{% endif %}
       </p>
       <div class="mt-8 sm:flex sm:justify-center">{% partial actions %}</div>
     </div>

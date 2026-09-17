@@ -33,6 +33,31 @@ class LandingPageTests(TestCase):
         self.assertContains(response, "Set up your practice")
         self.assertNotContains(response, "Try the demo practice")
 
+    @override_settings(AI_API_KEY="test-key")
+    def test_the_invoice_features_are_described_when_ai_is_on(self):
+        content = self.client.get("/").content.decode()
+        self.assertIn("Start with the paperwork you already have", content)
+        self.assertIn("The invoice closes the loop", content)
+        self.assertIn("GST and tax records", content)
+
+    @override_settings(AI_API_KEY="")
+    def test_nothing_ai_is_promised_when_there_is_no_key(self):
+        """Invoice upload and Ask StockRoom 404 without a key (ai_required), so
+        the public page mustn't advertise them."""
+        content = self.client.get("/").content.decode()
+        for claim in ["Start with the paperwork you already have", "The invoice closes the loop",
+                      "Ask StockRoom", "GST and tax records", "Google Gemini"]:
+            with self.subTest(claim):
+                self.assertNotIn(claim, content)
+
+    @override_settings(AI_API_KEY="test-key")
+    def test_it_says_invoice_files_are_kept_not_just_stock_and_staff(self):
+        """The page makes a promise about what StockRoom holds. Invoices are
+        now kept for 7 years, so leaving them out would make it untrue."""
+        content = self.client.get("/").content.decode()
+        self.assertIn("the invoice files you upload", content)
+        self.assertIn("Nothing about patients.", content)
+
     def test_logged_in_staff_still_get_their_home_screen(self):
         org = Organisation.objects.create(name="Test Dental")
         self.client.force_login(User.objects.create_user("sandy@example.com", "pw", organisation=org))
