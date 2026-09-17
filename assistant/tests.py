@@ -1,6 +1,7 @@
 import io
 import json
 import urllib.error
+from datetime import timedelta
 from unittest import mock
 
 from django.core.cache import cache
@@ -348,6 +349,40 @@ class InvoiceUploadTests(Practice):
 
         self.upload(content=csv, name="invoice (1).csv")
         self.assertEqual(on_hand(self.gloves.events.all()), 13)
+
+    def test_undo_reverses_the_stock_order_status_and_price_a_confirm_changed(self):
+        self.client.force_login(self.admin)
+        before = on_hand(self.gloves.events.all())
+        csv = b"vendor,sku,description,qty,unit\nHenry Schein,HS-GLV,Gloves,10,10.00\n"
+        self.upload(content=csv)
+        response = self.client.post("/invoices/confirm/", {"price_confirm_0": "1"}, follow=True)
+        invoice = Invoice.objects.get()
+        order = OrderLine.objects.get(item=self.gloves)
+        self.assertEqual(on_hand(self.gloves.events.all()), before + 10)
+        self.gloves.refresh_from_db()
+        self.assertEqual(str(self.gloves.price), "10.00")
+        self.assertIsNotNone(order.received_at)
+        self.assertContains(response, f'hx-post="/invoices/{invoice.pk}/undo/"')
+
+        self.client.post(f"/invoices/{invoice.pk}/undo/")
+
+        self.assertEqual(on_hand(self.gloves.events.all()), before)
+        self.gloves.refresh_from_db()
+        self.assertEqual(str(self.gloves.price), "8.50")
+        order.refresh_from_db()
+        self.assertIsNone(order.received_at)
+        self.assertEqual(order.qty, 10)  # still the one open order line, not split
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.PARSED)
+
+    def test_undo_is_gone_after_the_window(self):
+        self.client.force_login(self.admin)
+        self.upload()
+        self.client.post("/invoices/confirm/", {})
+        invoice = Invoice.objects.get()
+        invoice.undo_until = timezone.now() - timedelta(seconds=1)
+        invoice.save(update_fields=["undo_until"])
+        self.assertEqual(self.client.post(f"/invoices/{invoice.pk}/undo/").status_code, 403)
 
     def test_unmatched_lines_can_be_left_or_matched_to_whats_on_order(self):
         clamps = Item.objects.create(organisation=self.org, name="Rubber dam clamps", unit="clamp", supplier=self.henry)

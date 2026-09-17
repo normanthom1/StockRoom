@@ -176,7 +176,7 @@ def invoice_upload(request):
     try:
         invoice, lines = invoices.parse_invoice(request.user.organisation, upload.read(), mime_type, upload.name)
     except gemini.GeminiError:
-        messages.error(request, "Couldn't read that just now. Try again, or a CSV instead.")
+        messages.error(request, "Couldn't read that invoice. Try a clearer photo, or import a CSV instead.")
         return redirect("stock:invoice_upload")
     if invoices.find_original(invoice):
         invoices.ingest(invoice, lines, request.user)

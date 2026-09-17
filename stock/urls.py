@@ -49,6 +49,7 @@ urlpatterns = [
     path("invoices/<int:pk>/check/", views.invoice_check, name="invoice_check"),
     path("invoices/open-orders/", views.invoice_order_search, name="invoice_order_search"),
     path("invoices/line/<int:pk>/receive/", views.invoice_line_receive, name="invoice_line_receive"),
+    path("invoices/<int:pk>/undo/", views.invoice_undo, name="invoice_undo"),
     path("invoices/batch/<int:pk>/", views.invoice_batch, name="invoice_batch"),
     path("items/matched/", views.merges, name="merges"),
     path("items/matched/<int:pk>/undo/", views.merge_undo, name="merge_undo"),

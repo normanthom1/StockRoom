@@ -150,7 +150,7 @@ class OrderLine(OrgOwned):
         spending reports. update_item_price=False (a price rise the invoice
         preview wasn't ticked to confirm) still records that, but leaves the
         item's catalogue price alone."""
-        remainder = self.qty - qty
+        left_over = self.qty - qty
         self.received_qty = qty
         self.received_at = timezone.now()
         self.received_by = user
@@ -161,13 +161,14 @@ class OrderLine(OrgOwned):
                 self.item.price = unit_price
                 self.item.save(update_fields=["price"])
         self.save()
-        StockEvent.objects.create(organisation=self.organisation, item=self.item, user=user, kind="received", qty=qty)
-        if remainder > 0:
-            OrderLine.objects.create(
+        event = StockEvent.objects.create(organisation=self.organisation, item=self.item, user=user, kind="received", qty=qty)
+        remainder = None
+        if left_over > 0:
+            remainder = OrderLine.objects.create(
                 organisation=self.organisation,
                 item=self.item,
                 supplier=self.supplier,
-                qty=remainder,
+                qty=left_over,
                 unit_price=self.unit_price,
                 ordered_by=self.ordered_by,
                 ordered_at=self.ordered_at,
@@ -175,6 +176,7 @@ class OrderLine(OrgOwned):
                 order_ref=self.order_ref,
                 split_from=self,
             )
+        return event, remainder
 
 
 class Invoice(OrgOwned):
@@ -207,6 +209,10 @@ class Invoice(OrgOwned):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
     )
     force_reason = models.CharField(max_length=200, blank=True)
+    # What receive() changed, for Undo on the confirm toast (stock/invoices.py undo_ingest).
+    # Cleared once undo_until passes or it's used.
+    undo_snapshot = models.JSONField(null=True, blank=True)
+    undo_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # An invoice counts once: a repeat is saved as ignored, or forced. The
