@@ -1,6 +1,6 @@
 import csv
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from statistics import median
 from urllib.parse import urlencode
@@ -19,10 +19,11 @@ from django.utils.dateparse import parse_datetime
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from accounts.decorators import admin_required
+from accounts.decorators import admin_required, ai_required
 from accounts.mailto import build_mailto_link
 from accounts.models import User
 
+from . import invoices
 from .chart import usage_chart_svg
 from .csv_import import parse_csv
 from .forecast import Status, forecast, outlier_mask, weekly_consumption
@@ -41,7 +42,16 @@ from .humanize import (
     pluralize_unit,
 )
 from .matching import UNDO_DAYS, Match, Matcher, normalize, record_merge, undo_merge
-from .models import CatalogueProduct, Item, ItemAlias, OrderLine, StockEvent, Supplier
+from .models import (
+    CatalogueProduct,
+    Invoice,
+    InvoiceLine,
+    Item,
+    ItemAlias,
+    OrderLine,
+    StockEvent,
+    Supplier,
+)
 from .spending import PERIOD_WEEKS, period_bounds, previous_period_bounds
 
 CHART_WEEKS = 12
@@ -1037,6 +1047,105 @@ def item_import_confirm(request):
     already = f" {merged} {'was' if merged == 1 else 'were'} already on your list." if merged else ""
     messages.success(request, f"Imported {created} item{'s' if created != 1 else ''}.{already}")
     return redirect("stock:items")
+
+
+@ai_required
+@admin_required
+def invoice_upload(request):
+    return render(request, "stock/invoice_upload.html")
+
+
+def invoice_preview(request, invoice, lines):
+    """Check a parsed (unsaved) invoice and show what would be saved. Nothing
+    is written until invoice_confirm; also used by the invoice upload view
+    (assistant.views)."""
+    org = invoice.organisation
+    matches = Matcher(org).match_all([
+        {"name": line.description or line.sku, "sku": line.sku, "supplier": invoice.supplier, "price": line.unit_price}
+        for line in lines
+    ])
+    for index, (line, match) in enumerate(zip(lines, matches, strict=True)):
+        line.index, line.match = index, match
+    request.session["pending_invoice"] = {
+        "supplier_name": invoice.supplier_name,
+        "supplier_id": invoice.supplier_id,
+        "issued_on": invoice.issued_on.isoformat() if invoice.issued_on else None,
+        "order_ref": invoice.order_ref,
+        "lines": [
+            {
+                "sku": line.sku,
+                "description": line.description,
+                "qty": line.qty,
+                "unit_price": str(line.unit_price) if line.unit_price is not None else None,
+                "match": [line.match.item.pk, line.match.confidence, line.match.method] if line.match.item else None,
+            }
+            for line in lines
+        ],
+    }
+    return render(request, "stock/invoice_preview.html", {"invoice": invoice, "lines": lines})
+
+
+def _edited_qty(raw, fallback):
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return fallback
+    return value if value >= 0 else fallback
+
+
+def _edited_price(raw, fallback):
+    try:
+        value = Decimal(raw)
+    except (TypeError, ValueError, InvalidOperation):
+        return fallback
+    return value if value >= 0 else fallback
+
+
+@require_POST
+@admin_required
+def invoice_confirm(request):
+    org = request.user.organisation
+    pending = request.session.pop("pending_invoice", None)
+    if not pending:
+        messages.error(request, "Nothing to import. Upload an invoice first.")
+        return redirect("stock:invoice_upload")
+
+    supplier = Supplier.objects.for_org(org).filter(pk=pending["supplier_id"]).first() if pending["supplier_id"] else None
+    invoice = Invoice(
+        organisation=org,
+        supplier_name=pending["supplier_name"],
+        supplier=supplier,
+        issued_on=date.fromisoformat(pending["issued_on"]) if pending["issued_on"] else None,
+        order_ref=pending["order_ref"],
+    )
+    lines, merges = [], []
+    for index, row in enumerate(pending["lines"]):
+        qty = _edited_qty(request.POST.get(f"qty_{index}"), row["qty"])
+        fallback_price = Decimal(row["unit_price"]) if row["unit_price"] is not None else None
+        unit_price = invoices.cents(_edited_price(request.POST.get(f"price_{index}"), fallback_price))
+        line_total = qty * unit_price if qty is not None and unit_price is not None else None
+        line = InvoiceLine(organisation=org, sku=row["sku"], description=row["description"],
+                           qty=qty, unit_price=unit_price, line_total=line_total)
+        if row["match"]:
+            pk, confidence, method = row["match"]
+            match = Match(Item.objects.for_org(org).filter(pk=pk, is_active=True).first(), confidence, method)
+            if match.item and (match.band == "sure" or request.POST.get(f"same_{index}")):
+                line.item = match.item
+                merges.append((match, row["description"] or row["sku"]))
+        lines.append(line)
+
+    invoices.set_totals_ok(invoice, lines)
+    invoices.save_invoice(invoice, lines)
+    for match, name in merges:
+        record_merge(match, name=name, user=request.user, source=ItemAlias.Source.INVOICE, invoice=invoice)
+    messages.success(request, "Invoice added.")
+    return redirect("stock:invoice_detail", invoice.pk)
+
+
+@admin_required
+def invoice_detail(request, pk):
+    invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
+    return render(request, "stock/invoice_detail.html", {"invoice": invoice, "lines": invoice.lines.order_by("pk")})
 
 
 def _stocked_names(org):

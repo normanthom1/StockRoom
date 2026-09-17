@@ -5,7 +5,11 @@
 
 {% block content %}
 <h1 class="mb-1">Deliveries &middot; {{ open_count }}</h1>
-<p class="mb-5 text-sm text-gray-600">Tick off what arrives. Change the number if only part of an order came.</p>
+<p class="mb-3 text-sm text-gray-600">Tick off what arrives. Change the number if only part of an order came.</p>
+
+{% if can_edit_price and ai_enabled %}
+  <a href="{% url 'stock:invoice_upload' %}" class="btn btn-tonal mb-5">Upload an invoice</a>
+{% endif %}
 
 {% if not groups %}
   <p class="blueprint p-5 text-center text-gray-600">Nothing on order right now.</p>

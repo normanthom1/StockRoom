@@ -20,6 +20,7 @@ from accounts.decorators import admin_required
 from accounts.models import Organisation, User
 from stock.models import (
     CatalogueProduct,
+    Invoice,
     Item,
     ItemAlias,
     OrderLine,
@@ -70,6 +71,11 @@ def make_order_line(org):
     return OrderLine.objects.create(organisation=org, item=item, qty=1, ordered_by=user)
 
 
+def make_invoice(org):
+    """An invoice in org, for Cases that need some existing invoice's pk."""
+    return Invoice.objects.create(organisation=org, supplier_name=f"Supplier {Invoice.objects.count()}")
+
+
 def make_alias(org):
     """A matched name in org, for Cases that need some existing alias's pk."""
     item = make_item(org)
@@ -115,6 +121,7 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:delivery_submit", make=make_supplier, method="post"),
     Case("stock:supplier_apply_lead_days", make=make_supplier, method="post"),
     Case("stock:merge_undo", make=make_alias, method="post"),
+    Case("stock:invoice_detail", make=make_invoice),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -166,6 +173,10 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:export_stock_events"),
     Case("stock:export_order_lines"),
     Case("assistant:import_with_ai", method="post"),
+    Case("stock:invoice_upload"),
+    Case("stock:invoice_confirm", method="post"),
+    Case("stock:invoice_detail", make=make_invoice),
+    Case("assistant:invoice_upload", method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.

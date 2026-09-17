@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Upload invoice · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-2">Upload an invoice</h1>
+<p class="mb-4 text-sm text-gray-600">A photo, PDF or CSV of a supplier invoice. StockRoom reads the lines out of it. Nothing is saved until you've checked the preview.</p>
+
+<form method="post" action="{% url 'assistant:invoice_upload' %}" enctype="multipart/form-data"
+      class="blueprint flex flex-col gap-2 p-4" data-disable-on-submit>
+  {% csrf_token %}
+  <label for="invoice_file" class="mb-0">Invoice</label>
+  <input id="invoice_file" type="file" name="invoice_file" accept="image/*,application/pdf,.csv,text/csv" required>
+  <button type="submit" class="btn-primary mt-2">Choose invoice</button>
+  <p class="hidden text-sm text-gray-600 [button:disabled+&]:block" role="status">Reading your invoice…</p>
+</form>
+{% endblock %}

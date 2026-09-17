@@ -75,16 +75,17 @@ INVOICE_SCHEMA = {
 
 def parse_invoice(organisation, data, mime_type):
     """Read an invoice file into a saved Invoice with its product lines. It lands
-    as parsed when every line adds up, otherwise as a conflict. Raises
-    gemini.GeminiError if a photo or PDF can't be read, and ValueError for any
-    other kind of file."""
+    as parsed when every line adds up, otherwise as a conflict. Neither the
+    invoice nor its lines are saved yet; save_invoice does that once a preview
+    is confirmed. Raises gemini.GeminiError if a photo or PDF can't be read,
+    and ValueError for any other kind of file."""
     if mime_type in CSV_TYPES:
         header, lines = _read_csv(data)
     elif mime_type == "application/pdf" or mime_type.startswith("image/"):
         header, lines = _read_with_ai(organisation, data, mime_type)
     else:
         raise ValueError(f"Can't read an invoice from {mime_type}.")
-    return _save(organisation, header, lines)
+    return _build(organisation, header, lines)
 
 
 def _read_with_ai(organisation, data, mime_type):
@@ -111,7 +112,8 @@ def _rename(raw):
     return {MAPPING.get(key.strip().lower(), key.strip().lower()): value for key, value in raw.items() if key}
 
 
-def _save(organisation, header, raw_lines):
+def _build(organisation, header, raw_lines):
+    """The unsaved Invoice and InvoiceLines a preview shows and save_invoice persists."""
     lines = []
     for raw in raw_lines:
         sku, description = _text(raw.get("sku"), 64), _text(raw.get("description"), 200)
@@ -125,11 +127,6 @@ def _save(organisation, header, raw_lines):
         lines.append(InvoiceLine(organisation=organisation, sku=sku, description=description, qty=qty,
                                  unit_price=unit_price, line_total=line_total))
 
-    totals_ok = bool(lines) and all(
-        None not in (line.qty, line.unit_price, line.line_total)
-        and abs(line.line_total - line.qty * line.unit_price) <= ONE_CENT
-        for line in lines
-    )
     supplier_name = _text(header.get("supplier"), 200)
     invoice = Invoice(
         organisation=organisation,
@@ -137,15 +134,32 @@ def _save(organisation, header, raw_lines):
         supplier=Supplier.objects.for_org(organisation).filter(name__iexact=supplier_name).first() if supplier_name else None,
         issued_on=_date(header.get("date")),
         order_ref=_text(header.get("order_id"), 64),
-        totals_ok=totals_ok,
-        status=Invoice.Status.PARSED if totals_ok else Invoice.Status.CONFLICT,
     )
+    set_totals_ok(invoice, lines)
     for line in lines:  # checked above at full precision; stored to the cent
-        line.invoice = invoice
-        line.unit_price = _cents(line.unit_price)
-        line.line_total = _cents(line.line_total)
+        line.unit_price = cents(line.unit_price)
+        line.line_total = cents(line.line_total)
+    return invoice, lines
+
+
+def set_totals_ok(invoice, lines):
+    """Every line's total must be within 1c of qty x unit price. Sets
+    Invoice.totals_ok and status; also used to re-check after an admin edits
+    a line's qty or unit price in the preview."""
+    invoice.totals_ok = bool(lines) and all(
+        None not in (line.qty, line.unit_price, line.line_total)
+        and abs(line.line_total - line.qty * line.unit_price) <= ONE_CENT
+        for line in lines
+    )
+    invoice.status = Invoice.Status.PARSED if invoice.totals_ok else Invoice.Status.CONFLICT
+
+
+def save_invoice(invoice, lines):
+    """Persist a built invoice and its lines in one transaction."""
     with transaction.atomic():
         invoice.save()
+        for line in lines:
+            line.invoice = invoice
         InvoiceLine.objects.bulk_create(lines)
     return invoice
 
@@ -163,7 +177,7 @@ def _number(value):
     return number if number is None or number.is_finite() else None
 
 
-def _cents(value):
+def cents(value):
     return None if value is None else value.quantize(ONE_CENT)
 
 

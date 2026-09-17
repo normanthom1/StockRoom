@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from accounts.models import Organisation, User
 from accounts.ratelimit import AI_PER_HOUR
-from stock.models import DemoResetState, Item, OrderLine, StockEvent, Supplier
+from stock.models import DemoResetState, Invoice, Item, OrderLine, StockEvent, Supplier
 
 from . import gemini
 from .views import HISTORY_TURNS
@@ -44,6 +44,8 @@ class NoKeyTests(Practice):
         self.client.force_login(self.admin)
         self.assertEqual(self.client.get("/ask/").status_code, 404)
         self.assertEqual(self.client.post("/items/import/ai/", {"text": "gloves"}).status_code, 404)
+        self.assertEqual(self.client.get("/invoices/").status_code, 404)
+        self.assertEqual(self.client.post("/invoices/upload/", {}).status_code, 404)
         self.assertNotContains(self.client.get("/"), 'href="/ask/"')
         self.assertContains(self.client.get("/items/import/"), "Import items from a CSV")
 
@@ -211,6 +213,74 @@ class ImportWithAITests(Practice):
     def test_managers_only(self):
         self.client.force_login(self.assistant)
         self.assertEqual(self.client.post("/items/import/ai/", {"text": "gloves"}).status_code, 403)
+
+
+@override_settings(AI_API_KEY="test-key")
+class InvoiceUploadTests(Practice):
+    CSV = b"vendor,sku,description,qty,unit\nHenry Schein,,Gloves,2,8.50\n"
+
+    def upload(self, content=CSV, content_type="text/csv", name="invoice.csv"):
+        return self.client.post("/invoices/upload/", {"invoice_file": SimpleUploadedFile(name, content, content_type)})
+
+    def test_a_csv_is_read_without_gemini_and_shows_a_preview(self):
+        self.client.force_login(self.admin)
+        with mock.patch("assistant.gemini.generate") as generate:
+            response = self.upload()
+        generate.assert_not_called()
+        self.assertContains(response, "Gloves")
+        self.assertContains(response, "Matched: Gloves")
+        self.assertFalse(Invoice.objects.exists())  # nothing written until confirmed
+
+    def test_confirming_creates_the_invoice_and_its_lines(self):
+        self.client.force_login(self.admin)
+        self.upload()
+        response = self.client.post("/invoices/confirm/", {"qty_0": "2", "price_0": "8.50"})
+        invoice = Invoice.objects.get()
+        self.assertRedirects(response, f"/invoices/{invoice.pk}/")
+        self.assertEqual(invoice.supplier, self.henry)
+        self.assertTrue(invoice.totals_ok)
+        line = invoice.lines.get()
+        self.assertEqual((line.qty, str(line.unit_price), line.item), (2, "8.50", self.gloves))
+
+    def test_editing_a_line_before_confirming_changes_what_is_saved(self):
+        self.client.force_login(self.admin)
+        self.upload()
+        self.client.post("/invoices/confirm/", {"qty_0": "3", "price_0": "8.50"})
+        line = Invoice.objects.get().lines.get()
+        self.assertEqual((line.qty, str(line.line_total)), (3, "25.50"))
+
+    def test_a_photo_is_sent_to_gemini(self):
+        self.client.force_login(self.admin)
+        photo = SimpleUploadedFile("invoice.jpg", b"jpeg bytes", content_type="image/jpeg")
+        reply = {"invoice_date": "2026-09-14", "vendor": "Henry Schein",
+                 "lines": [{"description": "Gloves", "qty": 2, "unit": 8.5, "line_total": 17}]}
+        with mock.patch("assistant.gemini.generate", return_value=reply) as generate:
+            response = self.client.post("/invoices/upload/", {"invoice_file": photo})
+        self.assertEqual(generate.call_args.kwargs["attachment"], ("image/jpeg", b"jpeg bytes"))
+        self.assertContains(response, "Gloves")
+
+    def test_only_pdfs_photos_and_csvs_under_5mb(self):
+        self.client.force_login(self.admin)
+        response = self.upload(content=b"x", content_type="text/plain", name="a.txt")
+        self.assertRedirects(response, "/invoices/")
+
+    def test_a_failed_read_goes_back_with_a_message(self):
+        self.client.force_login(self.admin)
+        photo = SimpleUploadedFile("invoice.jpg", b"x", content_type="image/jpeg")
+        with mock.patch("assistant.gemini.generate", side_effect=gemini.GeminiError):
+            response = self.client.post("/invoices/upload/", {"invoice_file": photo}, follow=True)
+        self.assertContains(response, "Couldn&#x27;t read that")
+
+    def test_cancelling_leaves_no_rows_behind(self):
+        self.client.force_login(self.admin)
+        self.upload()
+        self.client.get("/invoices/")  # cancel: just navigate away, nothing to clean up
+        self.assertFalse(Invoice.objects.exists())
+
+    def test_managers_only(self):
+        self.client.force_login(self.assistant)
+        self.assertEqual(self.upload().status_code, 403)
+        self.assertEqual(self.client.get("/invoices/").status_code, 403)
 
 
 @override_settings(AI_API_KEY="test-key", AI_MODEL="gemini-test")
