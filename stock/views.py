@@ -22,6 +22,7 @@ from django.views.decorators.http import require_POST
 from accounts.decorators import admin_required, ai_required
 from accounts.mailto import build_mailto_link
 from accounts.models import User
+from stockroom.analytics import track
 
 from . import invoices, nztax, taxreport
 from . import setup as setup_module  # `setup` on its own would shadow the view below
@@ -1283,6 +1284,8 @@ def invoice_undo(request, pk):
         messages.error(request, "Too late to undo this import. Change what's wrong on the item or the order instead.")
         return redirect("stock:invoice_detail", invoice.pk)
     invoices.undo_ingest(invoice)
+    track("invoice_undone", org=invoice.organisation_id,
+          seconds_after=int((timezone.now() - invoice.created_at).total_seconds()))
     return _toast_response(request, "Undone.")
 
 
@@ -1411,6 +1414,7 @@ def merge_undo(request, pk):
     alias = get_object_or_404(ItemAlias.objects.for_org(request.user.organisation).select_related("item"), pk=pk)
     if not undo_merge(alias, request.user):
         raise PermissionDenied  # already undone, or older than UNDO_DAYS
+    track("merge_undone", org=alias.organisation_id, method=alias.method, confidence=alias.confidence)
     return _toast_response(request, f"Undone. {alias.raw_name} won't be matched to {alias.item.name} again.")
 
 
@@ -1768,6 +1772,7 @@ def setup(request):
     done = [step for step in steps if step["done"]]
     if len(done) == len(steps) and org.setup_dismissed_at is None:
         _finish_setup(org)
+    track("setup_step_opened", org=org.pk, done=len(done), steps=len(steps))
     return render(request, "stock/setup.html", {
         "steps": steps,
         "done_count": len(done),
@@ -1784,6 +1789,8 @@ def _has_invoices(org):
 def _finish_setup(org):
     org.setup_dismissed_at = timezone.now()
     org.save(update_fields=["setup_dismissed_at"])
+    track("setup_completed", org=org.pk,
+          items=Item.objects.for_org(org).filter(is_active=True).count())
 
 
 @require_POST

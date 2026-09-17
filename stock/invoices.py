@@ -24,6 +24,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from assistant import gemini
+from stockroom.analytics import track
 
 from . import nztax
 from .matching import Matcher, record_merge
@@ -460,7 +461,18 @@ def ingest(invoice, lines, user, force_reason=""):
         if invoice.forced_by_id or not find_original(invoice):
             raise
         return _ignore(invoice, lines)
+    _track_ingest(invoice, lines)
     return invoice
+
+
+def _track_ingest(invoice, lines):
+    received = sum(1 for line in lines if line.order_line_id or line.stock_event_id)
+    track("invoice_imported", org=invoice.organisation_id, status=invoice.status,
+          lines=len(lines), received=received, forced=bool(invoice.forced_by_id))
+    if invoice.status == Invoice.Status.CONFLICT:
+        # The one that leaves the practice's counts wrong until someone acts.
+        track("invoice_needs_checking", org=invoice.organisation_id,
+              no_supplier=not invoice.supplier_id, totals_ok=invoice.totals_ok)
 
 
 def _ignore(invoice, lines):
