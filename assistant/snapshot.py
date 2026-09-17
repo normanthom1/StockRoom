@@ -11,7 +11,7 @@ from decimal import Decimal
 from django.utils import timezone
 
 from stock.humanize import format_qty, format_rate
-from stock.models import OrderLine
+from stock.models import Invoice, OrderLine
 from stock.spending import period_bounds, previous_period_bounds
 from stock.views import _split_items
 
@@ -53,7 +53,55 @@ def practice_snapshot(user, now):
         for label, (start, end) in _periods(today).items():
             total = sum((line.qty * line.unit_price for line in _priced_orders(org, start, end)), Decimal(0))
             lines.append(f"- {label} ({start:%d %b} to {end:%d %b}): ${total:.2f}")
+        lines += _back_order_lines(org)
+        lines += _invoice_lines(org)
     return "\n".join(lines)
+
+
+def _back_order_lines(org):
+    open_lines = (
+        OrderLine.objects.for_org(org)
+        .filter(received_at__isnull=True, cancelled_at__isnull=True)
+        .select_related("item", "supplier")
+        .order_by("expected_at")
+    )
+    if not open_lines:
+        return []
+    lines = ["", "Still on order or back-order:"]
+    for line in open_lines:
+        expected = timezone.localtime(line.expected_at).date()
+        bit = f"- {line.qty} {line.item.name} from {line.supplier.name}, ordered {line.ordered_at.date():%d %b}, expected {expected:%d %b}"
+        if line.split_from_id:
+            bit += " (back-order, the rest of an earlier delivery)"
+        lines.append(bit)
+    return lines
+
+
+def _invoice_lines(org):
+    invoices = (
+        Invoice.objects.for_org(org)
+        .exclude(status=Invoice.Status.IGNORED)
+        .prefetch_related("lines__item")
+        .order_by("-issued_on", "-created_at")[:30]
+    )
+    if not invoices:
+        return []
+    lines = ["", "Invoices, most recent first (numbers here are exact, from the invoice):"]
+    for invoice in invoices:
+        date = f"{invoice.issued_on:%d %b %Y}" if invoice.issued_on else "date unknown"
+        supplier = invoice.supplier.name if invoice.supplier_id else (invoice.supplier_name or "unknown supplier")
+        bit = f"- {date}: {supplier}, {invoice.get_status_display().lower()}"
+        if invoice.invoice_number:
+            bit += f", invoice number {invoice.invoice_number}"
+        items = [
+            f"{line.qty if line.qty is not None else '?'} {line.item.name if line.item_id else (line.description or line.sku or 'unmatched line')}"
+            + (f" at ${line.unit_price} each" if line.unit_price is not None else "")
+            for line in invoice.lines.all()
+        ]
+        if items:
+            bit += " - " + "; ".join(items)
+        lines.append(bit)
+    return lines
 
 
 def _periods(today):

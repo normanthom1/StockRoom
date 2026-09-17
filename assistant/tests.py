@@ -16,6 +16,7 @@ from stock.models import (
     DemoResetState,
     Invoice,
     InvoiceBatch,
+    InvoiceLine,
     Item,
     OrderLine,
     StockEvent,
@@ -102,6 +103,35 @@ class AskTests(Practice):
         self.assertIn("$8.50 per box", system)
         self.assertIn("spent $85.00 this month", system)
         self.assertIn("This month", system)
+
+    def test_a_managers_prompt_has_invoice_and_back_order_data(self):
+        self.client.force_login(self.admin)
+        invoice = Invoice.objects.create(
+            organisation=self.org, supplier=self.henry, issued_on="2024-09-10",
+            invoice_number="INV-42", status=Invoice.Status.COMPLETE,
+        )
+        InvoiceLine.objects.create(organisation=self.org, invoice=invoice, item=self.gloves, qty=10, unit_price="8.50")
+        with answer() as generate:
+            self.ask()
+        system = generate.call_args.args[0]
+        self.assertIn("10 Sep 2024: Henry Schein, received", system)
+        self.assertIn("invoice number INV-42", system)
+        self.assertIn("10 Gloves at $8.50 each", system)
+        self.assertIn("Still on order or back-order:", system)
+        self.assertIn("10 Gloves from Henry Schein, ordered", system)
+
+    def test_an_assistants_prompt_has_no_invoice_or_back_order_data(self):
+        self.client.force_login(self.assistant)
+        invoice = Invoice.objects.create(
+            organisation=self.org, supplier=self.henry, issued_on="2024-09-10", status=Invoice.Status.COMPLETE,
+        )
+        InvoiceLine.objects.create(organisation=self.org, invoice=invoice, item=self.gloves, qty=10, unit_price="8.50")
+        with answer() as generate:
+            self.ask()
+        system = generate.call_args.args[0]
+        self.assertNotIn("Invoices", system)
+        self.assertNotIn("Still on order", system)
+        self.assertNotIn("$", system)
 
     def test_earlier_questions_go_back_with_each_new_one_up_to_a_limit(self):
         self.client.force_login(self.admin)
