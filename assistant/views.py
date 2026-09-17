@@ -152,7 +152,8 @@ def import_with_ai(request):
 @ai_required
 @admin_required
 def invoice_upload(request):
-    """A PDF, photo or CSV read into a preview; nothing is saved until confirmed."""
+    """A PDF, photo or CSV read into a preview; nothing is saved until confirmed.
+    A repeat of one already imported is saved as ignored and says so instead."""
     upload = request.FILES.get("invoice_file")
     if not upload:
         messages.error(request, "Choose an invoice first.")
@@ -167,8 +168,11 @@ def invoice_upload(request):
         return redirect("stock:invoice_upload")
 
     try:
-        invoice, lines = invoices.parse_invoice(request.user.organisation, upload.read(), mime_type)
+        invoice, lines = invoices.parse_invoice(request.user.organisation, upload.read(), mime_type, upload.name)
     except gemini.GeminiError:
         messages.error(request, "Couldn't read that just now. Try again, or a CSV instead.")
         return redirect("stock:invoice_upload")
+    if invoices.find_original(invoice):
+        invoices.ingest(invoice, lines, request.user)
+        return redirect("stock:invoice_detail", invoice.pk)
     return invoice_preview(request, invoice, lines)

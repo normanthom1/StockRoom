@@ -72,8 +72,9 @@ def make_order_line(org):
 
 
 def make_invoice(org):
-    """An invoice in org, for Cases that need some existing invoice's pk."""
-    return Invoice.objects.create(organisation=org, supplier_name=f"Supplier {Invoice.objects.count()}")
+    """An invoice in org needing a check (no supplier), for Cases that need some existing invoice's pk."""
+    return Invoice.objects.create(organisation=org, supplier_name=f"Supplier {Invoice.objects.count()}",
+                                  status=Invoice.Status.CONFLICT)
 
 
 def make_alias(org):
@@ -122,6 +123,7 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:supplier_apply_lead_days", make=make_supplier, method="post"),
     Case("stock:merge_undo", make=make_alias, method="post"),
     Case("stock:invoice_detail", make=make_invoice),
+    Case("stock:invoice_check", make=make_invoice),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -176,6 +178,7 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:invoice_upload"),
     Case("stock:invoice_confirm", method="post"),
     Case("stock:invoice_detail", make=make_invoice),
+    Case("stock:invoice_check", make=make_invoice),
     Case("assistant:invoice_upload", method="post"),
 ]
 

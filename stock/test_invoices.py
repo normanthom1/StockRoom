@@ -1,13 +1,15 @@
+import hashlib
 from datetime import date
 from decimal import Decimal
 from unittest import mock
 
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
-from accounts.models import Organisation
+from accounts.models import Organisation, User
 
-from .invoices import parse_invoice, save_invoice
-from .models import Invoice, Supplier
+from .invoices import ingest, match_lines, parse_invoice, save_invoice
+from .models import Invoice, Item, ItemAlias, OrderLine, StockEvent, Supplier
 
 # A Henry Schein invoice as Gemini reads it, with every kind of line that isn't a product.
 AI_REPLY = {
@@ -106,3 +108,83 @@ class ParseInvoiceTests(TestCase):
         saved = save_invoice(invoice, lines)
         self.assertIsNotNone(saved.pk)
         self.assertEqual(list(Invoice.objects.get(pk=saved.pk).lines.order_by("pk")), lines)
+
+
+NUMBERED = b"""vendor,invoice_number,sku,description,qty,unit,line_total
+Henry Schein,INV-881,HS-GLV-M,"Nitrile gloves, size M",10,8.50,85.00
+"""
+
+
+class RepeatsAndConflictsTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organisation.objects.create(name="Test Dental")
+        cls.admin = User.objects.create_user("sandy@example.com", "pw", organisation=cls.org, role=User.Role.ADMIN)
+        cls.supplier = Supplier.objects.create(organisation=cls.org, name="Henry Schein")
+        cls.gloves = Item.objects.create(organisation=cls.org, name="Nitrile gloves, size M", unit="box",
+                                         supplier=cls.supplier)
+
+    def upload(self, data, mime_type="text/csv", name="invoice.csv", force_reason=""):
+        invoice, lines = parse_invoice(self.org, data, mime_type, name)
+        match_lines(invoice, lines)
+        return ingest(invoice, lines, self.admin, force_reason)
+
+    def test_the_same_file_twice_is_ignored_logged_and_changes_nothing(self):
+        with mock.patch("assistant.gemini.generate", return_value=AI_REPLY):
+            first = self.upload(b"%PDF scan", "application/pdf", "schein.pdf")
+        counts = (StockEvent.objects.count(), ItemAlias.objects.count())
+        with (mock.patch("assistant.gemini.generate") as generate,
+              self.assertLogs("stock.invoices", "INFO") as logs):
+            second = self.upload(b"%PDF scan", "application/pdf", "schein (1).pdf")
+        generate.assert_not_called()  # the earlier reading is reused
+        self.assertEqual((first.status, second.status), (Invoice.Status.PARSED, Invoice.Status.IGNORED))
+        self.assertEqual((StockEvent.objects.count(), ItemAlias.objects.count()), counts)
+        checksum = hashlib.sha256(b"%PDF scan").hexdigest()
+        self.assertEqual((second.checksum, second.source_name), (checksum, "schein (1).pdf"))
+        self.assertIn("'schein (1).pdf'", logs.output[0])
+        self.assertIn(checksum, logs.output[0])
+
+    def test_import_anyway_records_who_forced_it_and_why(self):
+        self.upload(NUMBERED)
+        forced = self.upload(NUMBERED, force_reason="The same order arrived twice")
+        self.assertEqual(forced.status, Invoice.Status.PARSED)
+        self.assertEqual((forced.forced_by, forced.force_reason), (self.admin, "The same order arrived twice"))
+
+    def test_a_different_file_with_a_seen_supplier_and_number_is_ignored(self):
+        self.upload(NUMBERED)
+        rescan = NUMBERED.replace(b"INV-881", b"inv-881").replace(b"\n", b"\r\n")
+        self.assertEqual(self.upload(rescan, name="rescan.csv").status, Invoice.Status.IGNORED)
+        other_number = NUMBERED.replace(b"INV-881", b"INV-882")
+        self.assertEqual(self.upload(other_number).status, Invoice.Status.PARSED)
+
+    def test_an_unknown_supplier_goes_to_review(self):
+        invoice = self.upload(NUMBERED.replace(b"Henry Schein", b"Nobody Ltd"))
+        self.assertIsNone(invoice.supplier)
+        self.assertEqual(invoice.status, Invoice.Status.CONFLICT)
+
+    def test_an_unknown_product_goes_to_review_without_blocking_the_invoice(self):
+        invoice = self.upload(NUMBERED + b"Henry Schein,INV-881,HS-DAM,Rubber dam clamps,1,40.00,40.00\n")
+        self.assertEqual(invoice.status, Invoice.Status.PARSED)
+        self.assertEqual([line.item for line in invoice.lines.order_by("pk")], [self.gloves, None])
+
+    def test_a_line_total_that_disagrees_blocks_the_whole_invoice(self):
+        invoice = self.upload(NUMBERED + b"Henry Schein,INV-881,HS-BIB,Patient bibs,2,24.95,49.92\n")
+        self.assertFalse(invoice.totals_ok)
+        self.assertEqual(invoice.status, Invoice.Status.CONFLICT)
+
+    def test_more_than_is_outstanding_is_an_over_delivery(self):
+        order = OrderLine.objects.create(organisation=self.org, item=self.gloves, qty=10, ordered_by=self.admin)
+        order.receive(12, self.admin)
+        self.assertEqual((order.received_qty, order.over_delivered, order.is_open), (12, True, False))
+        self.assertEqual(StockEvent.objects.get(kind="received").qty, 12)
+        self.assertEqual(OrderLine.objects.count(), 1)  # nothing left on back-order
+
+    def test_the_database_stops_two_uploads_at_once_both_getting_in(self):
+        first = self.upload(NUMBERED)
+        for fields in ({"checksum": first.checksum}, {"supplier": self.supplier, "invoice_number": "inv-881"}):
+            with self.subTest(fields), self.assertRaises(IntegrityError), transaction.atomic():
+                Invoice.objects.create(organisation=self.org, **fields)
+        # The second upload checked for a repeat before the first had saved.
+        with mock.patch("stock.invoices.find_original", side_effect=[None, first]):
+            second = self.upload(NUMBERED.replace(b"\n", b"\r\n"))
+        self.assertEqual(second.status, Invoice.Status.IGNORED)

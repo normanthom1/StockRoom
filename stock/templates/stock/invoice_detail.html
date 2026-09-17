@@ -4,7 +4,27 @@
 
 {% block content %}
 <h1 class="mb-1">{{ invoice.supplier_name|default:"Invoice" }}</h1>
-<p class="mb-4 text-sm text-gray-600">{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</p>
+<p class="mb-4 text-sm text-gray-600">{% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</p>
+
+{% if invoice.status == "ignored" %}
+  <div class="blueprint mb-5 px-4 pt-3">
+    <p class="font-heading text-lg font-semibold text-gray-900">Already imported{% if original %} on {{ original.created_at|date:"j M" }}{% endif %} - nothing changed</p>
+    <a href="{% url 'stock:invoice_check' invoice.pk %}" class="link">Import anyway</a>
+  </div>
+{% elif invoice.status == "conflict" %}
+  <div class="mb-5 border border-dashed border-status-week px-3 py-2.5 text-status-week">
+    <p class="font-medium">Needs checking before it counts:</p>
+    <ul class="list-disc pl-5 text-sm leading-relaxed">
+      {% if not invoice.supplier %}<li>{% if invoice.supplier_name %}No supplier called "{{ invoice.supplier_name }}"{% else %}No supplier shown{% endif %}</li>{% endif %}
+      {% if not invoice.totals_ok %}<li>Some lines don't add up</li>{% endif %}
+    </ul>
+  </div>
+  <a href="{% url 'stock:invoice_check' invoice.pk %}" class="btn btn-tonal mb-5">Check this invoice</a>
+{% endif %}
+
+{% if invoice.forced_by %}
+  <p class="mb-4 text-sm text-gray-600">Imported again by {{ invoice.forced_by.name|default:"a manager" }}: {{ invoice.force_reason }}</p>
+{% endif %}
 
 <div class="border-t border-gray-300">
   {% for line in lines %}
@@ -14,7 +34,7 @@
         <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ line.description|default:"(no description)" }}</span>
       </span>
       <span class="text-sm text-gray-600">
-        {{ line.qty|default_if_none:"?" }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.item %} &middot; {{ line.item.name }}{% endif %}
+        {{ line.qty|default_if_none:"?" }} &times; ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}{% if line.item %} &middot; {{ line.item.name }}{% elif invoice.status != "ignored" %} &middot; Not matched to an item{% endif %}
       </span>
     </div>
   {% empty %}

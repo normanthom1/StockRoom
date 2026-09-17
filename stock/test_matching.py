@@ -7,9 +7,9 @@ from django.utils import timezone
 
 from accounts.models import Organisation, User
 
-from .invoices import parse_invoice, save_invoice
-from .matching import Matcher, match_invoice_lines, normalize, synonym_key
-from .models import Item, ItemAlias, Supplier
+from .invoices import ingest, match_lines, parse_invoice
+from .matching import Matcher, normalize, synonym_key
+from .models import Invoice, Item, ItemAlias, Supplier
 
 
 class NormalizeTests(SimpleTestCase):
@@ -65,31 +65,32 @@ class MatcherTests(TestCase):
     def item(cls, name, supplier=None, **fields):
         return Item.objects.create(organisation=cls.org, name=name, unit="box", supplier=supplier or cls.schein, **fields)
 
-    def invoice(self, description="glove"):
-        csv = f"vendor,sku,description,qty,unit\nHenry Schein,,{description},2,8.50\n".encode()
-        return save_invoice(*parse_invoice(self.org, csv, "text/csv"))
+    def import_invoice(self, description="glove"):
+        """A new one-line invoice read, matched and saved as an upload or batch does. Returns the line."""
+        csv = f"vendor,invoice_number,description,qty,unit\nHenry Schein,INV-{Invoice.objects.count()},{description},2,8.50\n"
+        invoice, lines = parse_invoice(self.org, csv.encode(), "text/csv")
+        match_lines(invoice, lines)
+        ingest(invoice, lines, self.admin)
+        return lines[0]
 
     def match(self, name, **kwargs):
         return Matcher(self.org).match(name, **kwargs)
 
     def test_an_invoice_line_matches_an_existing_item_and_is_remembered(self):
-        invoice = self.invoice()
         items_before = Item.objects.count()
-        [(line, match)] = match_invoice_lines(invoice, self.admin)
-        self.assertEqual((match.item, match.band), (self.gloves, "sure"))
+        line = self.import_invoice()
+        self.assertEqual((line.match.item, line.match.band), (self.gloves, "sure"))
         line.refresh_from_db()
         self.assertEqual(line.item, self.gloves)
         self.assertEqual(Item.objects.count(), items_before)
         alias = ItemAlias.objects.get()
         self.assertEqual((alias.item, alias.method, alias.confidence), (self.gloves, "exact", 1.0))
-        self.assertEqual((alias.source, alias.source_invoice, alias.raw_name), ("invoice", invoice, "glove"))
+        self.assertEqual((alias.source, alias.source_invoice, alias.raw_name), ("invoice", line.invoice, "glove"))
 
     def test_matching_again_adds_no_second_alias(self):
-        invoice = self.invoice()
-        match_invoice_lines(invoice, self.admin)
-        match_invoice_lines(invoice, self.admin)
-        [(line, match)] = match_invoice_lines(self.invoice(), self.admin)  # the same invoice, imported again
-        self.assertEqual((line.item, match.method), (self.gloves, "alias"))
+        self.import_invoice()
+        line = self.import_invoice()  # the next invoice with that name on it
+        self.assertEqual((line.item, line.match.method), (self.gloves, "alias"))
         self.assertEqual(ItemAlias.objects.count(), 1)
 
     def test_the_suppliers_code_beats_a_better_name(self):
@@ -134,8 +135,7 @@ class MatcherTests(TestCase):
         self.assertEqual(sure.method, "exact")
 
     def test_undo_unmatches_the_line_and_stops_it_matching_again(self):
-        invoice = self.invoice()
-        [(line, _)] = match_invoice_lines(invoice, self.admin)
+        line = self.import_invoice()
         alias = ItemAlias.objects.get()
         self.client.force_login(self.admin)
         self.assertContains(self.client.get("/items/matched/"), "glove &rarr; Gloves")
@@ -144,13 +144,13 @@ class MatcherTests(TestCase):
         alias.refresh_from_db()
         line.refresh_from_db()
         self.assertEqual((alias.reverted_by, line.item), (self.admin, None))
-        [(line, match)] = match_invoice_lines(self.invoice(), self.admin)
+        line = self.import_invoice()
         self.assertIsNone(line.item)
-        self.assertNotEqual(match.item, self.gloves)
+        self.assertNotEqual(line.match.item, self.gloves)
         self.assertEqual(self.client.post(f"/items/matched/{alias.pk}/undo/").status_code, 403)
 
     def test_undo_lasts_30_days(self):
-        match_invoice_lines(self.invoice(), self.admin)
+        self.import_invoice()
         alias = ItemAlias.objects.get()
         self.client.force_login(self.admin)
         ItemAlias.objects.update(created_at=timezone.now() - timedelta(days=29))
