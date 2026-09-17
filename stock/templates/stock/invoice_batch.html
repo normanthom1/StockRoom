@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Importing invoices · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Importing invoices</h1>
+<p class="mb-4 text-sm text-gray-600">It keeps going if you leave this page. Uploaded {{ batch.created_at|date:"j M, g:i a" }}</p>
+
+{% partialdef files inline %}
+<div id="batch-files"{% if waiting %} hx-get="{% url 'stock:invoice_batch' batch.pk %}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <p class="kicker mb-2">{{ done }} of {{ files|length }} done</p>
+  <ul class="mb-6 border-t border-gray-300">
+    {% for file in files %}
+      <li class="flex min-h-12 items-center gap-3 border-b border-gray-200 py-2">
+        <span class="min-w-0 flex-1 truncate">
+          {% if file.invoice_id %}<a href="{% url 'stock:invoice_detail' file.invoice_id %}" class="link">{{ file.name }}</a>{% else %}{{ file.name }}{% endif %}
+        </span>
+        <span class="chip {% if file.state == 'ingested' %}border-status-ok text-status-ok{% elif file.state == 'parsed' %}border-status-week text-status-week{% elif file.state == 'failed' %}border-status-now text-status-now{% else %}border-gray-300 text-gray-700{% endif %}">{{ file.get_state_display }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+  {% if left %}
+    <form method="post" action="{% url 'assistant:invoice_batch_resume' batch.pk %}" data-disable-on-submit>
+      {% csrf_token %}
+      <button type="submit" class="btn-primary">Resume</button>
+    </form>
+  {% endif %}
+</div>
+{% endpartialdef %}
+{% endblock %}

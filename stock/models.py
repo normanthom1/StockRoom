@@ -231,6 +231,36 @@ class InvoiceLine(OrgOwned):
         return f"{self.qty} × {self.description or self.sku}"
 
 
+class InvoiceBatch(OrgOwned):
+    """Several invoice files uploaded at once, read one at a time by the
+    import_invoices command (stock/invoices.py run_batch). Each file keeps its
+    own state, so a run that stops part way is resumed, not started over."""
+
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(default=timezone.now)
+
+
+class InvoiceBatchFile(OrgOwned):
+    class State(models.TextChoices):
+        PENDING = "pending", "Waiting"
+        PARSED = "parsed", "Needs checking"
+        INGESTED = "ingested", "Done"
+        IGNORED = "ignored", "Skipped - already imported"
+        FAILED = "failed", "Couldn't read"
+
+    batch = models.ForeignKey(InvoiceBatch, on_delete=models.CASCADE, related_name="files")
+    name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    # The uploaded file, deleted once it's been read into an invoice.
+    data = models.BinaryField(null=True)
+    state = models.CharField(max_length=20, choices=State, default=State.PENDING)
+    error = models.CharField(max_length=200, blank=True)
+    invoice = models.ForeignKey(Invoice, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    def __str__(self):
+        return self.name
+
+
 class ItemAlias(OrgOwned):
     """A name that turned out to be one of the practice's items, so the next
     invoice or import matches it straight away (stock/matching.py). Undo sets

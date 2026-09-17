@@ -47,6 +47,7 @@ urlpatterns = [
     path("invoices/confirm/", views.invoice_confirm, name="invoice_confirm"),
     path("invoices/<int:pk>/", views.invoice_detail, name="invoice_detail"),
     path("invoices/<int:pk>/check/", views.invoice_check, name="invoice_check"),
+    path("invoices/batch/<int:pk>/", views.invoice_batch, name="invoice_batch"),
     path("items/matched/", views.merges, name="merges"),
     path("items/matched/<int:pk>/undo/", views.merge_undo, name="merge_undo"),
     path("stocktake/", views.stocktake_step, name="stocktake_step"),

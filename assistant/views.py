@@ -2,8 +2,9 @@ import csv
 import io
 
 from django.contrib import messages
+from django.db import transaction
 from django.http import HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -12,7 +13,7 @@ from accounts.decorators import admin_required, ai_required
 from accounts.ratelimit import AI_PER_HOUR, ai_limited
 from stock import invoices
 from stock.csv_import import REQUIRED_COLUMNS
-from stock.models import Supplier
+from stock.models import InvoiceBatch, InvoiceBatchFile, Supplier
 from stock.views import import_preview, invoice_preview
 
 from . import gemini
@@ -160,7 +161,7 @@ def invoice_upload(request):
         return redirect("stock:invoice_upload")
     mime_type = upload.content_type or ""
     is_csv = mime_type in invoices.CSV_TYPES
-    if upload.size > MAX_UPLOAD or not (is_csv or mime_type.startswith(("image/", "application/pdf"))):
+    if not _invoice_file_ok(upload):
         messages.error(request, "Choose a PDF, photo or CSV under 5 MB.")
         return redirect("stock:invoice_upload")
     if not is_csv and ai_limited(request):
@@ -176,3 +177,53 @@ def invoice_upload(request):
         invoices.ingest(invoice, lines, request.user)
         return redirect("stock:invoice_detail", invoice.pk)
     return invoice_preview(request, invoice, lines)
+
+
+MAX_BATCH = 50
+
+
+def _invoice_file_ok(upload):
+    mime_type = upload.content_type or ""
+    return upload.size <= MAX_UPLOAD and (mime_type in invoices.CSV_TYPES or mime_type.startswith(("image/", "application/pdf")))
+
+
+@require_POST
+@ai_required
+@admin_required
+def invoice_batch_upload(request):
+    """Several invoices at once, saved as a batch and imported in the background
+    without a preview. Any that need checking are listed on the batch page."""
+    uploads = request.FILES.getlist("invoice_files")
+    if not uploads or len(uploads) > MAX_BATCH or not all(_invoice_file_ok(upload) for upload in uploads):
+        messages.error(request, f"Choose up to {MAX_BATCH} PDFs, photos or CSVs, each under 5 MB.")
+        return redirect("stock:invoice_upload")
+    read_by_ai = sum(upload.content_type not in invoices.CSV_TYPES for upload in uploads)
+    if read_by_ai and ai_limited(request, calls=read_by_ai):
+        messages.error(request, LIMITED)
+        return redirect("stock:invoice_upload")
+
+    org = request.user.organisation
+    with transaction.atomic():
+        batch = InvoiceBatch.objects.create(organisation=org, created_by=request.user)
+        InvoiceBatchFile.objects.bulk_create([
+            InvoiceBatchFile(organisation=org, batch=batch, name=upload.name[:255], content_type=upload.content_type,
+                             data=upload.read())
+            for upload in uploads
+        ])
+        transaction.on_commit(lambda: invoices.start_batch(batch))
+    return redirect("stock:invoice_batch", batch.pk)
+
+
+@require_POST
+@ai_required
+@admin_required
+def invoice_batch_resume(request, pk):
+    """Start another run for a batch's files still waiting or that failed."""
+    batch = get_object_or_404(InvoiceBatch.objects.for_org(request.user.organisation), pk=pk)
+    left = batch.files.filter(state__in=invoices.TO_READ)
+    read_by_ai = left.exclude(content_type__in=invoices.CSV_TYPES).count()
+    if read_by_ai and ai_limited(request, calls=read_by_ai):
+        messages.error(request, LIMITED)
+    elif left.exists():
+        invoices.start_batch(batch)
+    return redirect("stock:invoice_batch", batch.pk)

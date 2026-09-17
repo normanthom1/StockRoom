@@ -21,6 +21,7 @@ from accounts.models import Organisation, User
 from stock.models import (
     CatalogueProduct,
     Invoice,
+    InvoiceBatch,
     Item,
     ItemAlias,
     OrderLine,
@@ -77,6 +78,11 @@ def make_invoice(org):
                                   status=Invoice.Status.CONFLICT)
 
 
+def make_batch(org):
+    """An invoice batch in org, for Cases that need some existing batch's pk."""
+    return InvoiceBatch.objects.create(organisation=org, created_by=make_member(org))
+
+
 def make_alias(org):
     """A matched name in org, for Cases that need some existing alias's pk."""
     item = make_item(org)
@@ -124,6 +130,8 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:merge_undo", make=make_alias, method="post"),
     Case("stock:invoice_detail", make=make_invoice),
     Case("stock:invoice_check", make=make_invoice),
+    Case("stock:invoice_batch", make=make_batch),
+    Case("assistant:invoice_batch_resume", make=make_batch, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -179,7 +187,10 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:invoice_confirm", method="post"),
     Case("stock:invoice_detail", make=make_invoice),
     Case("stock:invoice_check", make=make_invoice),
+    Case("stock:invoice_batch", make=make_batch),
     Case("assistant:invoice_upload", method="post"),
+    Case("assistant:invoice_batch_upload", method="post"),
+    Case("assistant:invoice_batch_resume", make=make_batch, method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.

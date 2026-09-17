@@ -45,6 +45,8 @@ from .matching import UNDO_DAYS, Match, Matcher, normalize, record_merge, undo_m
 from .models import (
     CatalogueProduct,
     Invoice,
+    InvoiceBatch,
+    InvoiceBatchFile,
     InvoiceLine,
     Item,
     ItemAlias,
@@ -1024,7 +1026,29 @@ def item_import_confirm(request):
 @ai_required
 @admin_required
 def invoice_upload(request):
-    return render(request, "stock/invoice_upload.html")
+    unfinished = (
+        InvoiceBatch.objects.for_org(request.user.organisation)
+        .annotate(left=Count("files", filter=Q(files__state__in=invoices.TO_READ)), total=Count("files"))
+        .filter(left__gt=0)
+        .order_by("-created_at")
+    )
+    return render(request, "stock/invoice_upload.html", {"unfinished": unfinished})
+
+
+@admin_required
+def invoice_batch(request, pk):
+    """Each file in a batch and how it went, polled by htmx while any are still waiting."""
+    batch = get_object_or_404(InvoiceBatch.objects.for_org(request.user.organisation), pk=pk)
+    files = list(batch.files.defer("data").order_by("pk"))
+    context = {
+        "batch": batch,
+        "files": files,
+        "done": sum(file.state not in invoices.TO_READ for file in files),
+        "waiting": any(file.state == InvoiceBatchFile.State.PENDING for file in files),
+        "left": any(file.state in invoices.TO_READ for file in files),
+    }
+    template = "stock/invoice_batch.html#files" if request.headers.get("HX-Request") else "stock/invoice_batch.html"
+    return render(request, template, context)
 
 
 INVOICE_FIELDS = ("supplier_name", "order_ref", "invoice_number", "checksum", "source_name")
