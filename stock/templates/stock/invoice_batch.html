@@ -24,6 +24,11 @@
       {% csrf_token %}
       <button type="submit" class="btn-primary">Resume</button>
     </form>
+  {% elif drafts %}
+    <div class="blueprint flex flex-col gap-3 p-4">
+      <p class="text-gray-700">{{ drafts }} product{{ drafts|pluralize }} on these invoices {{ drafts|pluralize:"isn't,aren't" }} in your stock list yet. Check the draft and StockRoom will add them, with their supplier and price.</p>
+      <a href="{% url 'stock:setup_draft' %}" class="btn-primary">Check the draft</a>
+    </div>
   {% endif %}
 </div>
 {% endpartialdef %}

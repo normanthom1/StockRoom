@@ -40,6 +40,8 @@ PAGES = [
     ("/activity/", "0000"),
     ("/stocktake/", "0000"),
     ("/accounts/team/", "0000"),
+    ("/setup/", "0000"),
+    ("/setup/draft/", "0000"),
     ("/items/import/", "0000"),
     ("/items/catalogue/", "0000"),
     ("/items/matched/", "0000"),

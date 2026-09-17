@@ -24,6 +24,7 @@ from accounts.mailto import build_mailto_link
 from accounts.models import User
 
 from . import invoices
+from . import setup as setup_module  # `setup` on its own would shadow the view below
 from .chart import usage_chart_svg
 from .csv_import import parse_csv
 from .forecast import Status, forecast, outlier_mask, weekly_consumption
@@ -1046,7 +1047,11 @@ def invoice_upload(request):
         .filter(left__gt=0)
         .order_by("-created_at")
     )
-    return render(request, "stock/invoice_upload.html", {"unfinished": unfinished})
+    return render(request, "stock/invoice_upload.html", {
+        "unfinished": unfinished,
+        # A practice with no stock yet is here to set up, not to receive a delivery.
+        "setting_up": not Item.objects.for_org(request.user.organisation).filter(is_active=True).exists(),
+    })
 
 
 @admin_required
@@ -1054,12 +1059,16 @@ def invoice_batch(request, pk):
     """Each file in a batch and how it went, polled by htmx while any are still waiting."""
     batch = get_object_or_404(InvoiceBatch.objects.for_org(request.user.organisation), pk=pk)
     files = list(batch.files.defer("data").order_by("pk"))
+    left = any(file.state in invoices.TO_READ for file in files)
     context = {
         "batch": batch,
         "files": files,
         "done": sum(file.state not in invoices.TO_READ for file in files),
         "waiting": any(file.state == InvoiceBatchFile.State.PENDING for file in files),
-        "left": any(file.state in invoices.TO_READ for file in files),
+        "left": left,
+        # Where a practice setting up goes next: the draft these files just built.
+        # Only once they're all read, so the 2-second poll isn't rebuilding it each time.
+        "drafts": 0 if left else len(setup_module.draft_items(batch.organisation)),
     }
     template = "stock/invoice_batch.html#files" if request.headers.get("HX-Request") else "stock/invoice_batch.html"
     return render(request, template, context)
@@ -1714,3 +1723,101 @@ def export_order_lines(request):
         ],
         rows,
     )
+
+
+# --- Setting a new practice up (stock/setup.py) ---------------------------
+
+
+@admin_required
+def setup(request):
+    """The setup checklist a new practice lands on. It ticks itself off from
+    the practice's own data, and retires once every step is done."""
+    org = request.user.organisation
+    drafts = setup_module.draft_items(org) if _has_invoices(org) else []
+    steps = setup_module.steps(org, len(drafts))
+    done = [step for step in steps if step["done"]]
+    if len(done) == len(steps) and org.setup_dismissed_at is None:
+        _finish_setup(org)
+    return render(request, "stock/setup.html", {
+        "steps": steps,
+        "done_count": len(done),
+        "next_step": next((step for step in steps if not step["done"]), None),
+    })
+
+
+def _has_invoices(org):
+    """Skip building drafts for a practice with no invoices at all, which is
+    every practice that set up some other way."""
+    return Invoice.objects.for_org(org).exists()
+
+
+def _finish_setup(org):
+    org.setup_dismissed_at = timezone.now()
+    org.save(update_fields=["setup_dismissed_at"])
+
+
+@require_POST
+@admin_required
+def setup_skip(request):
+    """Put the checklist away. Nothing else changes, and /setup/ still works."""
+    _finish_setup(request.user.organisation)
+    messages.success(request, "Setup put away. It's still under More if you want it back.")
+    return redirect("stock:home")
+
+
+DRAFT_FIELDS = ("name", "unit", "supplier", "price", "order_size", "on_hand")
+
+
+@admin_required
+def setup_draft(request):
+    """Everything the practice's invoices say they order, as an editable draft."""
+    org = request.user.organisation
+    drafts = setup_module.draft_items(org)
+    for index, draft in enumerate(drafts):
+        draft.index = index
+    return render(request, "stock/setup_draft.html", {
+        "drafts": drafts,
+        "regular": [d for d in drafts if d.is_regular],
+        "one_offs": [d for d in drafts if not d.is_regular],
+        "suppliers": Supplier.objects.for_org(org).filter(is_active=True).order_by("name"),
+        "invoice_count": Invoice.objects.for_org(org).count(),
+    })
+
+
+@require_POST
+@admin_required
+def setup_draft_confirm(request):
+    """Create an item (and any new supplier) for each ticked draft, with today's
+    count from the "on hand" box. The drafts are rebuilt here rather than read
+    out of the form, so only the editable fields come from the browser."""
+    org = request.user.organisation
+    by_key = {draft.key: draft for draft in setup_module.draft_items(org)}
+
+    chosen, no_supplier = [], 0
+    for index in range(len(by_key)):
+        draft = by_key.get(request.POST.get(f"key_{index}", ""))
+        if draft is None or not request.POST.get(f"pick_{index}"):
+            continue
+        name = request.POST.get(f"name_{index}", "").strip()[:200]
+        supplier_name = request.POST.get(f"supplier_{index}", "").strip()[:200]
+        if not name:
+            continue
+        if not supplier_name:
+            no_supplier += 1
+            continue
+        draft.name = name
+        draft.supplier_name = supplier_name
+        draft.unit = request.POST.get(f"unit_{index}", "").strip()[:50] or setup_module.DEFAULT_UNIT
+        draft.price = _edited_price(request.POST.get(f"price_{index}"), draft.price)
+        draft.order_size = _parse_nonneg_int(request.POST.get(f"order_size_{index}", "")) or None
+        draft.on_hand = _parse_nonneg_int(request.POST.get(f"on_hand_{index}", ""))
+        chosen.append(draft)
+
+    if not chosen:
+        messages.error(request, "Nothing was added. Tick the items you stock, and give each one a supplier.")
+        return redirect("stock:setup_draft")
+
+    items = setup_module.create_drafts(org, request.user, chosen)
+    left_out = f" {no_supplier} needed a supplier and {'was' if no_supplier == 1 else 'were'} left." if no_supplier else ""
+    messages.success(request, f"Added {len(items)} item{'s' if len(items) != 1 else ''}.{left_out}")
+    return redirect("stock:setup")

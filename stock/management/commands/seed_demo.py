@@ -143,7 +143,8 @@ def command(reset):
             existing.delete()
 
     with transaction.atomic():
-        org = Organisation.objects.create(name=DEMO_ORG)
+        # Seeded with 16 weeks of stock, so it's long past setting up.
+        org = Organisation.objects.create(name=DEMO_ORG, setup_dismissed_at=timezone.now())
         User.objects.create_user(
             DEMO_EMAIL, DEMO_PASSWORD, organisation=org, name="Reception", role=User.Role.ADMIN, is_practice_login=True
         )
