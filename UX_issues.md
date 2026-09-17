@@ -40,16 +40,20 @@ wrong, or when the practice's setup does not match the happy path.**
 
 | # | Issue | Severity | Effort | Status |
 |---|---|---|---|---|
-| [UX-01](#ux-01--setup-sends-a-new-practice-to-a-404) | Setup sends a new practice to a 404 | Critical | S | Fixed |
-| [UX-02](#ux-02--undo-on-an-invoice-import-is-gone-in-six-seconds) | Undo on an invoice import is gone in six seconds | High | S | Fixed |
-| [UX-03](#ux-03--invoices-that-need-checking-become-invisible) | Invoices that need checking become invisible | High | M | Fixed |
-| [UX-04](#ux-04--dates-render-in-us-format) | Dates render in US format | High | S | Fixed |
-| [UX-05](#ux-05--nothing-measures-whether-any-of-this-works) | Nothing measures whether any of this works | Medium | S | Fixed |
+| [UX-01](#ux-01--setup-sends-a-new-practice-to-a-404) | Setup sends a new practice to a 404 | Critical | S | Fixed — [#127](https://github.com/normanthom1/StockRoom/pull/127) |
+| [UX-02](#ux-02--undo-on-an-invoice-import-is-gone-in-six-seconds) | Undo on an invoice import is gone in six seconds | High | S | Fixed — [#128](https://github.com/normanthom1/StockRoom/pull/128) |
+| [UX-03](#ux-03--invoices-that-need-checking-become-invisible) | Invoices that need checking become invisible | High | M | Fixed — [#129](https://github.com/normanthom1/StockRoom/pull/129) |
+| [UX-04](#ux-04--dates-render-in-us-format) | Dates render in US format | High | S | Fixed — [#130](https://github.com/normanthom1/StockRoom/pull/130) |
+| [UX-05](#ux-05--nothing-measures-whether-any-of-this-works) | Nothing measures whether any of this works | Medium | S | Fixed — [#131](https://github.com/normanthom1/StockRoom/pull/131) |
 | [UX-06](#ux-06--batch-import-changes-every-price-with-no-preview-and-no-undo) | Batch import changes every price with no preview and no undo | High | L | Pending |
 | [UX-07](#ux-07--the-stock-list-cannot-tell-you-what-is-low) | The stock list cannot tell you what is low | Medium | M | Pending |
 | [UX-08](#ux-08--no-plain-english-for-the-words-stockroom-invented) | No plain English for the words StockRoom invented | Medium | S | Pending |
 | [UX-09](#ux-09--match-to-assumes-you-remember-what-you-ordered) | "Match to" assumes you remember what you ordered | Medium | M | Pending |
 | [UX-10](#ux-10--a-failed-invoice-read-loses-the-managers-place) | A failed invoice read loses the manager's place | Low | S | Pending |
+
+Pending issues are ordered by severity, not by number. **UX-06 is the one to do
+next**: it is the last place where a manager can lose real money with no way
+back, and the setup flow pushes them straight at it.
 
 Severity is the `ui-ux-pro-max` scale: **Critical** blocks the task outright,
 **High** costs real money or data, **Medium** costs time, **Low** is friction.
@@ -279,9 +283,16 @@ invoice in the wrong income year, and this is the screen where they are being
 asked to confirm the reading is right. It also quietly contradicts the NZ
 framing the rest of the app works hard at.
 
-**Fix.** Set the NZ formats in settings rather than patching two templates.
-That fixes both screens, every Django form and admin widget, and every date
-added later — the root cause rather than the two places it currently shows.
+**Fix.** Give Django a real `en_NZ` format module and point
+`FORMAT_MODULE_PATH` at it, rather than patching two templates. That fixes both
+screens, every Django form and admin widget, and every date added later — the
+root cause rather than the two places it currently shows.
+
+Worth recording, because it is the obvious-looking fix that silently fails:
+setting `DATE_FORMAT` in `settings.py` does **nothing** while `USE_I18N` is on.
+`get_format()` reads the active locale's format module first and only falls back
+to the setting if no module defines it, and `en` defines it. Tried that first;
+the value did not change.
 
 **Acceptance criteria**
 1. `django.utils.formats.get_format("DATE_FORMAT")` returns a day-first format,
