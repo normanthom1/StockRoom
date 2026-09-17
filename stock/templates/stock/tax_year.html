@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Stock expenses by tax year · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Stock expenses</h1>
+<p class="mb-4 text-sm text-gray-600">What you've been invoiced for stock, by tax year. New Zealand tax years run 1 April to 31 March.</p>
+
+<div class="mb-5 flex flex-wrap gap-2">
+  {% for y in years %}
+    <a href="?year={{ y }}" class="btn {% if y == year %}btn-fill{% else %}btn-line{% endif %} px-3"
+       {% if y == year %}aria-current="page"{% endif %}>
+      {{ y|add:"-1" }}-{{ y|stringformat:"s"|slice:"2:" }}{% if y == current_year %} <span class="ml-1 text-xs">so far</span>{% endif %}
+    </a>
+  {% endfor %}
+</div>
+
+<div class="blueprint mb-5 p-5">
+  <p class="kicker mb-1 text-primary-dark">Year ended {{ total.ends_on|date:"j F Y" }}</p>
+  <p class="font-heading text-4xl leading-none font-semibold text-gray-900">${{ total.incl_gst|floatformat:2 }}</p>
+  <p class="mt-1 text-sm text-gray-600">including GST, from {{ total.invoices }} invoice{{ total.invoices|pluralize }}</p>
+  <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-gray-300 pt-3 text-sm">
+    <dt class="text-gray-600">Excluding GST</dt>
+    <dd class="text-right font-heading text-base font-semibold">${{ total.excl_gst|floatformat:2 }}</dd>
+    <dt class="text-gray-600">GST</dt>
+    <dd class="text-right font-heading text-base font-semibold">${{ total.gst|floatformat:2 }}</dd>
+  </dl>
+</div>
+
+<p class="mb-5 border-l-2 border-gray-300 pl-3 text-sm leading-relaxed text-gray-700">{{ disclaimer }}</p>
+
+{% if total.by_supplier %}
+  <h2 class="mb-2">By supplier</h2>
+  <div class="-mx-4 mb-6 border-t border-gray-300">
+    {% for s in total.by_supplier %}
+      <div class="flex flex-col gap-1 border-b border-gray-200 px-4 py-3">
+        <span class="flex items-baseline gap-3">
+          <span class="min-w-0 flex-1 font-heading text-[1.0625rem] font-semibold text-gray-900">{{ s.name }}</span>
+          <span class="shrink-0 font-heading text-base font-semibold whitespace-nowrap">${{ s.incl_gst|floatformat:2 }}</span>
+        </span>
+        <span class="text-[0.8125rem] text-gray-600">
+          {{ s.invoices }} invoice{{ s.invoices|pluralize }} &middot; ${{ s.excl_gst|floatformat:2 }} plus ${{ s.gst|floatformat:2 }} GST
+        </span>
+        <span class="text-[0.8125rem] {% if s.gst_number %}text-gray-600{% else %}text-status-week{% endif %}">
+          {% if s.gst_number %}GST {{ s.gst_number }}{% else %}No GST number recorded{% endif %}
+        </span>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="blueprint mb-6 p-5 text-center text-gray-600">No invoices in this tax year yet.</p>
+{% endif %}
+
+{% if total.needs_attention %}
+  <h2 class="mb-2">Worth a look before you hand this over</h2>
+  <ul class="mb-6 border-t border-gray-300">
+    {% if total.duplicates_ignored %}
+      <li class="border-b border-gray-200 py-3 text-sm leading-relaxed text-gray-700">
+        <span class="font-medium text-gray-900">{{ total.duplicates_ignored }} repeat{{ total.duplicates_ignored|pluralize }} skipped.</span>
+        The same invoice was uploaded more than once. Repeats are left out of every figure above, so nothing is counted twice.
+      </li>
+    {% endif %}
+    {% if total.gst_estimated %}
+      <li class="border-b border-gray-200 py-3 text-sm leading-relaxed text-gray-700">
+        <span class="font-medium text-status-week">{{ total.gst_estimated }} invoice{{ total.gst_estimated|pluralize }} didn't show GST separately.</span>
+        StockRoom worked it out at 15%. Check these against the paperwork if the GST return has to match to the cent.
+      </li>
+    {% endif %}
+    {% if total.without_totals %}
+      <li class="border-b border-gray-200 py-3 text-sm leading-relaxed text-gray-700">
+        <span class="font-medium text-status-week">{{ total.without_totals }} invoice{{ total.without_totals|pluralize }} had no total on them.</span>
+        The amount was added up from the lines instead, which leaves out freight.
+      </li>
+    {% endif %}
+    {% if total.unusable %}
+      <li class="border-b border-gray-200 py-3 text-sm leading-relaxed text-gray-700">
+        <span class="font-medium text-status-now">{{ total.unusable }} invoice{{ total.unusable|pluralize }} had no amounts StockRoom could read.</span>
+        They're in no figure above. Open them and fill the amounts in.
+      </li>
+    {% endif %}
+    {% if total.missing_gst_number %}
+      <li class="border-b border-gray-200 py-3 text-sm leading-relaxed text-gray-700">
+        <span class="font-medium text-status-week">{{ total.missing_gst_number }} invoice{{ total.missing_gst_number|pluralize }} with no supplier GST number.</span>
+        You need the supplier's GST number to claim the GST back on a purchase over $200.
+      </li>
+    {% endif %}
+    {% if total.no_document %}
+      <li class="border-b border-gray-200 py-3 text-sm leading-relaxed text-gray-700">
+        <span class="font-medium text-status-week">{{ total.no_document }} invoice{{ total.no_document|pluralize }} with no file kept.</span>
+        These were entered before StockRoom started keeping the original, or typed in by hand. Keep your own copy of those.
+      </li>
+    {% endif %}
+  </ul>
+{% endif %}
+
+{% if undated %}
+  <h2 class="mb-1">Not in any year</h2>
+  <p class="mb-2 text-sm text-gray-600">{{ undated_note }}</p>
+  <ul class="mb-6 border-t border-gray-300">
+    {% for invoice in undated %}
+      <li class="border-b border-gray-200 py-2">
+        <a href="{% url 'stock:invoice_detail' invoice.pk %}" class="link block min-h-12 py-1">
+          {{ invoice.supplier_name|default:"No supplier shown" }}{% if invoice.invoice_number %} &middot; {{ invoice.invoice_number }}{% endif %}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+<h2 class="mb-2">Give this to your accountant</h2>
+<p class="mb-3 text-sm leading-relaxed text-gray-600">{{ basis_note }}</p>
+<a href="{% url 'stock:export_tax_year' %}?year={{ year }}" class="btn-primary">Download {{ total.label }} as a CSV</a>
+
+<div class="blueprint mt-6 p-4">
+  <p class="kicker mb-1.5 text-primary-dark">Keeping the paperwork</p>
+  <p class="text-sm leading-relaxed text-gray-700">StockRoom keeps the original file behind every invoice it reads, and holds it for {{ retention_years }} years after the end of the tax year it belongs to, which is what the Tax Administration Act asks for. Nothing is deleted on that date by itself.</p>
+  <p class="mt-2 text-sm leading-relaxed text-gray-700">StockRoom's servers are outside New Zealand, and Inland Revenue expects business records to be kept in New Zealand unless it has approved otherwise. Keep your own copy of the CSV above and your invoice files, and ask your accountant whether you need anything more.</p>
+</div>
+{% endblock %}

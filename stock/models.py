@@ -181,7 +181,8 @@ class OrderLine(OrgOwned):
 
 class Invoice(OrgOwned):
     """A supplier invoice read into lines (stock/invoices.py). Only the parsed
-    lines are kept, never the file. Admins only: it carries prices."""
+    lines are kept here; the file itself is an InvoiceDocument, held as the
+    practice's tax record. Admins only: it carries prices."""
 
     class Status(models.TextChoices):
         PARSED = "parsed", "Nothing received yet"
@@ -192,6 +193,17 @@ class Invoice(OrgOwned):
 
     # As written on the invoice; supplier is set when it matches one of the practice's.
     supplier_name = models.CharField(max_length=200, blank=True)
+    # The supplier's GST number as printed. Needed to claim the GST back: it's
+    # part of the taxable supply information a registered person has to hold
+    # (GST Act 1985, ss 19E-19K and s 20(2)). Checked with IRD's check digit on
+    # the way in (stock/nztax.py), because it's read off a photo by an AI model.
+    supplier_gst_number = models.CharField(max_length=20, blank=True)
+    # The invoice's own totals as printed, not worked out from the lines. The
+    # tax report adds these up, so what the practice reports is what the
+    # supplier charged, freight and rounding included.
+    total_excl_gst = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    gst_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    total_incl_gst = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="invoices")
     issued_on = models.DateField(null=True, blank=True)
     order_ref = models.CharField(max_length=64, blank=True)
@@ -264,6 +276,60 @@ class InvoiceLine(OrgOwned):
 
     def __str__(self):
         return f"{self.qty} × {self.description or self.sku}"
+
+
+class InvoiceDocument(OrgOwned):
+    """The invoice or receipt file itself, kept as evidence.
+
+    StockRoom used to read a file and throw it away, keeping only the parsed
+    lines. That can't stand for a GST-registered practice: the parsed lines are
+    StockRoom's reading of the document, not the document, and an AI reading is
+    exactly the kind of thing an auditor would want to check against the
+    original. The Tax Administration Act 1994 s 22 requires records that record
+    and explain the transaction, kept for seven years after the end of the
+    income year (s 22(2), and GST Act 1985 s 75(3) for GST).
+
+    So the original is kept, byte for byte, and `retain_until` says the
+    earliest it may go. Nothing deletes on that date by itself: the
+    Commissioner can require records for longer, and a dispute or an audit
+    extends it. It's a floor, not a timer.
+
+    ponytail: the bytes live in Postgres, like InvoiceBatchFile's already do,
+    with a 5 MB cap per upload. Move to object storage if practices start
+    keeping years of photos and the database feels it.
+    """
+
+    # Null between upload and confirm: a single upload is read into a preview
+    # first, so the file is kept straight away and linked to its invoice by
+    # checksum once the manager confirms (stock/invoices.py link_documents).
+    # ponytail: a preview someone cancels leaves an unlinked document behind.
+    # They're rare and small; add a sweep for old unlinked ones if they pile up.
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, null=True, blank=True, related_name="documents")
+    filename = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    data = models.BinaryField()
+    byte_size = models.PositiveIntegerField()
+    # SHA-256 of the bytes below, so a stored document can be shown to be the
+    # one that was uploaded, and so a repeat upload is recognised.
+    checksum = models.CharField(max_length=64, db_index=True)
+    uploaded_at = models.DateTimeField(default=timezone.now)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    # The earliest this may be thrown away (stock/nztax.py retain_until).
+    retain_until = models.DateField()
+
+    class Meta:
+        constraints = [
+            # The same file is kept once per practice, however many times it's
+            # uploaded. A repeat upload points at the copy already held.
+            models.UniqueConstraint(fields=["organisation", "checksum"], name="stock_invoice_document_once"),
+        ]
+
+    def __str__(self):
+        return self.filename
+
+    @property
+    def is_still_required(self):
+        return timezone.localdate() < self.retain_until
 
 
 class InvoiceBatch(OrgOwned):

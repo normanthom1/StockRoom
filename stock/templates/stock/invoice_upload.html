@@ -13,7 +13,7 @@
     <label for="invoice_files_setup" class="mb-0">Your invoices and receipts</label>
     <input id="invoice_files_setup" type="file" name="invoice_files" accept="image/*,application/pdf,.csv,text/csv" multiple required>
     <button type="submit" class="btn-primary mt-2">Read my invoices</button>
-    <p class="text-xs text-gray-600">Up to 50 files, each under 5 MB. Photos and PDFs are read by Google Gemini, which takes a few seconds each. The files themselves are never kept.</p>
+    <p class="text-xs text-gray-600">Up to 50 files, each under 5 MB. Photos and PDFs are read by Google Gemini, which takes a few seconds each. StockRoom keeps each file as your tax record.</p>
   </form>
 
   <p class="mt-4 text-center text-sm text-gray-600">Haven't got them to hand? <a href="{% url 'stock:setup' %}" class="link">Other ways to set up</a></p>
@@ -28,7 +28,7 @@
   <li>adds what arrived to your stock levels, so the runout dates catch up</li>
   <li>updates each item's price to what the supplier charged</li>
 </ul>
-<p class="mb-4 text-sm text-gray-600">Nothing is saved until you've checked the preview. The file itself is never kept.</p>
+<p class="mb-4 text-sm text-gray-600">Nothing is added to your stock until you've checked the preview. The file itself is kept as your tax record, for 7 years after the end of the tax year.</p>
 
 {% if unfinished %}
   <h2 class="mb-2">Still importing</h2>
