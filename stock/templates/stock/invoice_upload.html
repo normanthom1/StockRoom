@@ -3,6 +3,27 @@
 {% block title %}Upload an invoice or receipt · StockRoom{% endblock %}
 
 {% block content %}
+{% if needs_checking %}
+  <h2 class="mb-1">{{ needs_checking|length }} need{{ needs_checking|length|pluralize:"s," }} checking</h2>
+  <p class="mb-2 text-sm text-gray-600">Nothing was received off {{ needs_checking|length|pluralize:"this one,these" }}, so your counts and prices are short until it's sorted. Open one to fix it.</p>
+  <div class="-mx-4 mb-6 border-t border-gray-300">
+    {% for invoice in needs_checking %}
+      <a href="{% url 'stock:invoice_detail' invoice.pk %}"
+         class="flex items-stretch border-b border-gray-300 transition-colors hover:bg-gray-900/[0.03]">
+        <span class="w-[5px] shrink-0 bg-status-week"></span>
+        <div class="flex min-w-0 flex-1 flex-col gap-1.5 py-3.5 pr-4 pl-3">
+          <span class="flex items-baseline gap-3">
+            <span class="min-w-0 flex-1 font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ invoice.supplier_name|default:"No supplier shown" }}</span>
+            <span class="chip shrink-0 border-status-week text-status-week">Needs checking</span>
+          </span>
+          <span class="text-[0.8125rem] leading-snug text-gray-600">
+            {% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on|date:"j M Y" }} &middot; {% endif %}{% if not invoice.supplier %}{% if invoice.supplier_name %}no supplier called "{{ invoice.supplier_name }}"{% else %}no supplier on the invoice{% endif %}{% if not invoice.totals_ok %}, {% endif %}{% endif %}{% if not invoice.totals_ok %}some lines don't add up{% endif %}
+          </span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
 {% if setting_up %}
   <h1 class="mb-2">Start with a batch of invoices</h1>
   <p class="mb-4 text-sm leading-relaxed text-gray-600">You've no stock list yet, so this is the quickest way to build one. Choose a year's worth of invoices or receipts, photos, PDFs or CSVs, and StockRoom reads them into a draft: what you order, who from, what you pay and how much you buy at a time. You check the draft before anything is added.</p>
@@ -49,6 +70,22 @@
   <button type="submit" class="btn-primary mt-2">Read this file</button>
   <p class="hidden text-sm text-gray-600 [button:disabled+&]:block" role="status">Reading your file…</p>
 </form>
+
+{% if recent %}
+  <h2 class="mt-8 mb-2">Recent invoices and receipts</h2>
+  <div class="-mx-4 mb-6 border-t border-gray-300">
+    {% for invoice in recent %}
+      <a href="{% url 'stock:invoice_detail' invoice.pk %}"
+         class="flex min-h-14 flex-col justify-center gap-0.5 border-b border-gray-200 px-4 py-2.5 transition-colors hover:bg-gray-900/[0.03]">
+        <span class="flex items-baseline gap-3">
+          <span class="min-w-0 flex-1 font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ invoice.supplier_name|default:"No supplier shown" }}</span>
+          <span class="shrink-0 text-[0.8125rem] whitespace-nowrap {% if invoice.status == 'complete' %}text-status-ok{% else %}text-gray-600{% endif %}">{{ invoice.get_status_display }}</span>
+        </span>
+        <span class="text-xs text-gray-600">{% if invoice.invoice_number %}{{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on|date:"j M Y" }}{% else %}added {{ invoice.created_at|date:"j M Y" }}{% endif %}</span>
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
 
 {% if not setting_up %}
 <h2 class="mt-8 mb-2">Several at once</h2>
