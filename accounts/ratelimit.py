@@ -85,11 +85,16 @@ def record_wrong_code(practice):
 AI_PER_HOUR = 20
 
 
-def ai_limited(request):
+def ai_limited(request, calls=1):
     """True once this person has had AI_PER_HOUR answers this hour, or every
     practice together has had settings.AI_DAILY_LIMIT today. On the demo,
     visitors share the same staff accounts, so it's per device instead.
+    A batch of calls (invoices imported together) is one of this person's,
+    but every call counts towards the daily total.
     """
     who = f"ip:{client_ip(request)}" if settings.DEMO_MODE else f"user:{request.user.pk}"
-    # Short-circuits: someone already over their own limit doesn't use up everyone's daily total.
-    return _over_limit(f"ai:{who}", AI_PER_HOUR, 60 * 60) or _over_limit("ai:all", settings.AI_DAILY_LIMIT, 24 * 60 * 60)
+    # Someone already over their own limit doesn't use up everyone's daily total.
+    if _over_limit(f"ai:{who}", AI_PER_HOUR, 60 * 60):
+        return True
+    over = [_over_limit("ai:all", settings.AI_DAILY_LIMIT, 24 * 60 * 60) for _ in range(calls)]  # each one counts
+    return any(over)

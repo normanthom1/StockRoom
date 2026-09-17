@@ -10,7 +10,16 @@ from django.utils import timezone
 
 from accounts.models import Organisation, User
 from accounts.ratelimit import AI_PER_HOUR
-from stock.models import DemoResetState, Invoice, Item, OrderLine, StockEvent, Supplier
+from stock.invoices import run_batch
+from stock.models import (
+    DemoResetState,
+    Invoice,
+    InvoiceBatch,
+    Item,
+    OrderLine,
+    StockEvent,
+    Supplier,
+)
 
 from . import gemini
 from .views import HISTORY_TURNS
@@ -336,6 +345,73 @@ class InvoiceUploadTests(Practice):
         self.client.force_login(self.assistant)
         self.assertEqual(self.upload().status_code, 403)
         self.assertEqual(self.client.get("/invoices/").status_code, 403)
+
+
+@override_settings(AI_API_KEY="test-key")
+class InvoiceBatchTests(Practice):
+    def csv(self, number):
+        body = f"vendor,invoice_number,description,qty,unit\nHenry Schein,INV-{number},Gloves,1,8.50\n"
+        return SimpleUploadedFile(f"INV-{number}.csv", body.encode(), "text/csv")
+
+    def upload(self, files):
+        with mock.patch("stock.invoices.subprocess.Popen") as popen, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post("/invoices/batch/", {"invoice_files": files})
+        return response, popen
+
+    def test_several_invoices_start_a_batch_listed_file_by_file(self):
+        self.client.force_login(self.admin)
+        response, popen = self.upload([self.csv(1), self.csv(2)])
+        batch = InvoiceBatch.objects.get()
+        self.assertRedirects(response, f"/invoices/batch/{batch.pk}/")
+        self.assertEqual(popen.call_args.args[0][-2:], ["import_invoices", str(batch.pk)])
+        page = self.client.get(f"/invoices/batch/{batch.pk}/")
+        self.assertContains(page, "INV-1.csv")
+        self.assertContains(page, "Waiting", count=2)
+        self.assertContains(page, 'hx-trigger="every 2s"')
+        self.assertContains(page, "Resume")
+        self.assertContains(self.client.get("/invoices/"), "2 of 2 left")
+
+        run_batch(batch)
+        fragment = self.client.get(f"/invoices/batch/{batch.pk}/", headers={"HX-Request": "true"})
+        self.assertNotContains(fragment, "<html")
+        self.assertContains(fragment, "2 of 2 done")
+        self.assertContains(fragment, "Done", count=2)
+        self.assertNotContains(fragment, "every 2s")
+        self.assertNotContains(fragment, "Resume")
+        self.assertNotContains(self.client.get("/invoices/"), "Still importing")
+
+    def test_resume_starts_another_run_only_while_files_are_left(self):
+        self.client.force_login(self.admin)
+        self.upload([self.csv(1)])
+        batch = InvoiceBatch.objects.get()
+        with mock.patch("stock.invoices.subprocess.Popen") as popen:
+            self.assertRedirects(self.client.post(f"/invoices/batch/{batch.pk}/resume/"), f"/invoices/batch/{batch.pk}/")
+            popen.assert_called_once()
+            run_batch(batch)
+            self.client.post(f"/invoices/batch/{batch.pk}/resume/")
+            popen.assert_called_once()
+
+    def test_only_invoice_files_under_5mb(self):
+        self.client.force_login(self.admin)
+        response, popen = self.upload([self.csv(1), SimpleUploadedFile("notes.txt", b"x", "text/plain")])
+        self.assertRedirects(response, "/invoices/")
+        self.assertFalse(InvoiceBatch.objects.exists())
+        popen.assert_not_called()
+
+    @override_settings(CACHES=LOCMEM, AI_DAILY_LIMIT=3)
+    def test_every_photo_or_pdf_counts_towards_the_daily_ai_limit(self):
+        cache.clear()
+        self.client.force_login(self.admin)
+        photos = [SimpleUploadedFile(f"{n}.jpg", b"jpeg bytes", "image/jpeg") for n in range(4)]
+        response, _ = self.upload(photos)
+        self.assertRedirects(response, "/invoices/", fetch_redirect_response=False)
+        self.assertContains(self.client.get("/invoices/"), "the limit for now")
+        self.assertFalse(InvoiceBatch.objects.exists())
+
+    def test_managers_only(self):
+        self.client.force_login(self.assistant)
+        response, _ = self.upload([self.csv(1)])
+        self.assertEqual(response.status_code, 403)
 
 
 @override_settings(AI_API_KEY="test-key", AI_MODEL="gemini-test")

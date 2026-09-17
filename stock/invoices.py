@@ -11,16 +11,19 @@ import hashlib
 import io
 import logging
 import re
+import subprocess
+import sys
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from assistant import gemini
 
 from .matching import Matcher, record_merge
-from .models import Invoice, InvoiceLine, ItemAlias, Supplier
+from .models import Invoice, InvoiceBatchFile, InvoiceLine, ItemAlias, Supplier
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +242,44 @@ def _ignore(invoice, lines):
     logger.info("Ignored a repeat invoice for organisation %s: %r, sha256 %s",
                 invoice.organisation_id, invoice.source_name, invoice.checksum)
     return invoice
+
+
+TO_READ = [InvoiceBatchFile.State.PENDING, InvoiceBatchFile.State.FAILED]
+FILE_STATE = {Invoice.Status.IGNORED: InvoiceBatchFile.State.IGNORED, Invoice.Status.CONFLICT: InvoiceBatchFile.State.PARSED}
+
+
+def start_batch(batch):
+    """Run a batch in its own process, so it outlives the request.
+    ponytail: a process per run, not a worker queue. A redeploy stops it part
+    way, and Resume carries on; add a worker if batches outgrow that."""
+    subprocess.Popen([sys.executable, "manage.py", "import_invoices", str(batch.pk)], cwd=settings.BASE_DIR)
+
+
+def run_batch(batch):
+    """Read and ingest a batch's files that are waiting or failed, the same way
+    as an upload. Each file is read, matched and saved in one transaction, so a
+    run killed part way leaves every file either done or still to do. Two runs
+    at once share the files: one being read is locked, and the other skips it."""
+    tried = []
+    while True:
+        with transaction.atomic():
+            file = (InvoiceBatchFile.objects.select_for_update(skip_locked=True)
+                    .filter(batch=batch, state__in=TO_READ).exclude(pk__in=tried).order_by("pk").first())
+            if file is None:
+                return
+            tried.append(file.pk)
+            try:
+                with transaction.atomic():
+                    invoice, lines = parse_invoice(batch.organisation, bytes(file.data), file.content_type, file.name)
+                    match_lines(invoice, lines)
+                    invoice = ingest(invoice, lines, batch.created_by)
+            except Exception as error:  # one unreadable file mustn't stop the rest
+                logger.exception("Couldn't read %r in invoice batch %s", file.name, batch.pk)
+                file.state, file.error = InvoiceBatchFile.State.FAILED, (str(error) or type(error).__name__)[:200]
+            else:
+                file.state = FILE_STATE.get(invoice.status, InvoiceBatchFile.State.INGESTED)
+                file.invoice, file.data, file.error = invoice, None, ""
+            file.save()
 
 
 def save_invoice(invoice, lines):

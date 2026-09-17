@@ -1,15 +1,29 @@
 import hashlib
+from collections import Counter
 from datetime import date
 from decimal import Decimal
 from unittest import mock
 
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from accounts.models import Organisation, User
+from assistant import gemini
 
-from .invoices import ingest, match_lines, parse_invoice, save_invoice
-from .models import Invoice, Item, ItemAlias, OrderLine, StockEvent, Supplier
+from . import invoices
+from .forecast import on_hand
+from .invoices import ingest, match_lines, parse_invoice, run_batch, save_invoice
+from .models import (
+    Invoice,
+    InvoiceBatch,
+    InvoiceBatchFile,
+    Item,
+    ItemAlias,
+    OrderLine,
+    StockEvent,
+    Supplier,
+)
 
 # A Henry Schein invoice as Gemini reads it, with every kind of line that isn't a product.
 AI_REPLY = {
@@ -188,3 +202,86 @@ class RepeatsAndConflictsTests(TestCase):
         with mock.patch("stock.invoices.find_original", side_effect=[None, first]):
             second = self.upload(NUMBERED.replace(b"\n", b"\r\n"))
         self.assertEqual(second.status, Invoice.Status.IGNORED)
+
+
+def invoice_csv(number, vendor="Henry Schein", qty=2):
+    name = f"INV-{number}.csv"
+    return name, f"vendor,invoice_number,description,qty,unit\n{vendor},INV-{number},Glove,{qty},8.50\n".encode(), "text/csv"
+
+
+class BatchTests(TestCase):
+    def practice(self, name="Test Dental"):
+        org = Organisation.objects.create(name=name)
+        admin = User.objects.create_user(f"sandy@{org.slug}.test", "pw", organisation=org, role=User.Role.ADMIN)
+        supplier = Supplier.objects.create(organisation=org, name="Henry Schein")
+        gloves = Item.objects.create(organisation=org, name="Gloves", unit="box", supplier=supplier)
+        StockEvent.objects.create(organisation=org, item=gloves, user=admin, kind="count", qty=5)
+        OrderLine.objects.create(organisation=org, item=gloves, qty=12, ordered_by=admin)
+        return org, admin
+
+    def batch(self, org, admin, files):
+        batch = InvoiceBatch.objects.create(organisation=org, created_by=admin)
+        InvoiceBatchFile.objects.bulk_create([
+            InvoiceBatchFile(organisation=org, batch=batch, name=name, data=data, content_type=content_type)
+            for name, data, content_type in files
+        ])
+        return batch
+
+    def states(self, batch):
+        return dict(Counter(batch.files.values_list("state", flat=True)))
+
+    def stock(self, org):
+        return {item.name: on_hand(item.events.all()) for item in Item.objects.for_org(org)}
+
+    def test_twenty_files_keep_their_own_state_and_a_rerun_reads_only_whats_left(self):
+        org, admin = self.practice()
+        files = [invoice_csv(n) for n in range(17)]
+        files += [invoice_csv(0)]  # the first one again
+        files += [invoice_csv(99, vendor="Nobody Ltd")]
+        files += [("smudged.jpg", b"jpeg bytes", "image/jpeg")]
+        batch = self.batch(org, admin, files)
+
+        with (mock.patch("assistant.gemini.generate", side_effect=gemini.GeminiError("Gemini couldn't read it")),
+              self.assertLogs("stock.invoices", "ERROR")):
+            run_batch(batch)
+        self.assertEqual(self.states(batch), {"ingested": 17, "ignored": 1, "parsed": 1, "failed": 1})
+        failed = batch.files.get(state="failed")
+        self.assertEqual((failed.name, failed.error), ("smudged.jpg", "Gemini couldn't read it"))
+        self.assertEqual(batch.files.get(data__isnull=False), failed)  # read files are deleted; this one's kept to retry
+        self.assertEqual(batch.files.get(state="parsed").invoice.status, Invoice.Status.CONFLICT)
+
+        reply = {"vendor": "Henry Schein", "invoice_number": "INV-500",
+                 "lines": [{"description": "Glove", "qty": 1, "unit": 8.5, "line_total": 8.5}]}
+        with (mock.patch("stock.invoices.parse_invoice", wraps=parse_invoice) as parse,
+              mock.patch("assistant.gemini.generate", return_value=reply)):
+            call_command("import_invoices", batch.pk)
+        self.assertEqual([call.args[3] for call in parse.call_args_list], ["smudged.jpg"])
+        self.assertEqual(self.states(batch), {"ingested": 18, "ignored": 1, "parsed": 1})
+        self.assertEqual(Invoice.objects.filter(organisation=org).exclude(status="ignored").count(), 19)
+
+    def test_a_run_killed_halfway_ends_with_the_same_stock_as_one_that_wasnt(self):
+        files = [invoice_csv(n, qty=n + 1) for n in range(6)]
+        steady, killed = self.practice("Steady Dental"), self.practice("Killed Dental")
+        self.assertEqual(self.stock(steady[0]), self.stock(killed[0]))
+        run_batch(self.batch(*steady, files))
+
+        batch = self.batch(*killed, files)
+        real_ingest, calls = invoices.ingest, []
+
+        def ingest_then_killed(*args, **kwargs):
+            invoice = real_ingest(*args, **kwargs)
+            calls.append(invoice)
+            if len(calls) == 3:
+                raise KeyboardInterrupt  # after the invoice is saved, before its file is marked
+            return invoice
+
+        with mock.patch("stock.invoices.ingest", side_effect=ingest_then_killed), self.assertRaises(KeyboardInterrupt):
+            run_batch(batch)
+        self.assertEqual(self.states(batch), {"ingested": 2, "pending": 4})
+        run_batch(batch)
+
+        self.assertEqual(self.states(batch), {"ingested": 6})
+        self.assertEqual(self.stock(killed[0]), self.stock(steady[0]))
+        for model in (Invoice, ItemAlias):
+            self.assertEqual(model.objects.filter(organisation=killed[0]).count(),
+                             model.objects.filter(organisation=steady[0]).count())

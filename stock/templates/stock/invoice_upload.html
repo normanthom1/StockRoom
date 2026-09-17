@@ -6,6 +6,17 @@
 <h1 class="mb-2">Upload an invoice</h1>
 <p class="mb-4 text-sm text-gray-600">A photo, PDF or CSV of a supplier invoice. StockRoom reads the lines out of it. Nothing is saved until you've checked the preview.</p>
 
+{% if unfinished %}
+  <h2 class="mb-2">Still importing</h2>
+  <ul class="mb-6 border-t border-gray-300">
+    {% for batch in unfinished %}
+      <li class="border-b border-gray-200">
+        <a href="{% url 'stock:invoice_batch' batch.pk %}" class="link">{{ batch.created_at|date:"j M, g:i a" }} &middot; {{ batch.left }} of {{ batch.total }} left</a>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
 <form method="post" action="{% url 'assistant:invoice_upload' %}" enctype="multipart/form-data"
       class="blueprint flex flex-col gap-2 p-4" data-disable-on-submit>
   {% csrf_token %}
@@ -13,5 +24,15 @@
   <input id="invoice_file" type="file" name="invoice_file" accept="image/*,application/pdf,.csv,text/csv" required>
   <button type="submit" class="btn-primary mt-2">Choose invoice</button>
   <p class="hidden text-sm text-gray-600 [button:disabled+&]:block" role="status">Reading your invoice…</p>
+</form>
+
+<h2 class="mt-8 mb-2">Several at once</h2>
+<p class="mb-4 text-sm text-gray-600">Choose a folder's worth. Each one is imported as it's read, without a preview. Repeats are skipped, and any that need checking are listed for you.</p>
+<form method="post" action="{% url 'assistant:invoice_batch_upload' %}" enctype="multipart/form-data"
+      class="blueprint flex flex-col gap-2 p-4" data-disable-on-submit>
+  {% csrf_token %}
+  <label for="invoice_files" class="mb-0">Invoices</label>
+  <input id="invoice_files" type="file" name="invoice_files" accept="image/*,application/pdf,.csv,text/csv" multiple required>
+  <button type="submit" class="btn btn-fill mt-2">Import invoices</button>
 </form>
 {% endblock %}
