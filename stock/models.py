@@ -51,6 +51,8 @@ class Item(OrgOwned):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     barcode = models.CharField(max_length=64, blank=True)
+    # The preferred supplier's product code, which is how an invoice line finds its item.
+    supplier_sku = models.CharField(max_length=64, blank=True)
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
@@ -107,6 +109,8 @@ class OrderLine(OrgOwned):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
     )
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    # The practice's order number as the supplier quotes it back on the invoice.
+    order_ref = models.CharField(max_length=64, blank=True)
 
     def __str__(self):
         return f"{self.qty} × {self.item}"
@@ -121,6 +125,46 @@ class OrderLine(OrgOwned):
         if self.expected_at is None:
             self.expected_at = self.ordered_at + timedelta(days=self.supplier.lead_days)
         super().save(*args, **kwargs)
+
+
+class Invoice(OrgOwned):
+    """A supplier invoice read into lines (stock/invoices.py). Only the parsed
+    lines are kept, never the file. Admins only: it carries prices."""
+
+    class Status(models.TextChoices):
+        PARSED = "parsed", "Ready to check"
+        COMPLETE = "complete", "Received"
+        PARTIAL = "partial", "Partly received"
+        IGNORED = "ignored", "Already imported"
+        CONFLICT = "conflict", "Needs checking"
+
+    # As written on the invoice; supplier is set when it matches one of the practice's.
+    supplier_name = models.CharField(max_length=200, blank=True)
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="invoices")
+    issued_on = models.DateField(null=True, blank=True)
+    order_ref = models.CharField(max_length=64, blank=True)
+    # Every line's total is within 1c of qty x unit price.
+    totals_ok = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PARSED)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.supplier_name or 'Invoice'} {self.issued_on or ''}".strip()
+
+
+class InvoiceLine(OrgOwned):
+    """A product line. Freight, GST, discounts, subtotals and totals are dropped when parsing."""
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="lines")
+    sku = models.CharField(max_length=64, blank=True)
+    description = models.CharField(max_length=200, blank=True)
+    # Null when the invoice didn't show it, which fails the totals check.
+    qty = models.PositiveIntegerField(null=True, blank=True)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    line_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.qty} × {self.description or self.sku}"
 
 
 # The shared catalogue: the same reference list for every practice, so not
