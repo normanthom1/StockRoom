@@ -38,6 +38,7 @@ from .humanize import (
     humanize_range,
     humanize_run_out,
     order_by_text,
+    part_delivered_text,
     phone_digits,
     pluralize_unit,
 )
@@ -156,7 +157,7 @@ def item_detail(request, pk):
     now = timezone.localtime()
     today = now.date()
     events = list(item.events.all())
-    open_orders = [o for o in item.order_lines.all() if o.is_open]
+    open_orders = [o for o in item.order_lines.select_related("split_from").all() if o.is_open]
     f = forecast(events, open_orders, lead_days=item.supplier.lead_days, order_size=item.order_size, now=now)
 
     # weekly_consumption/outlier_mask are newest-first; the chart reads left
@@ -177,6 +178,14 @@ def item_detail(request, pk):
         # On the list because it's running low, so it stays there until it's ordered
         # (a pin by hand is item.pinned_to_reorder_at). An item on order isn't on it.
         "wanted": f.status in WANTED_STATUSES,
+        "orders": [
+            {
+                "order": order,
+                "text": part_delivered_text(order) if order.split_from_id
+                else f"Ordered {order.qty} {pluralize_unit(item.unit, order.qty)} · {arriving_text(order.expected_at.date(), today)}",
+            }
+            for order in sorted(open_orders, key=lambda o: o.expected_at)
+        ],
         "backups": _backups(item),
         # Suppliers the manager could add as another source for this item.
         "addable_suppliers": Supplier.objects.for_org(request.user.organisation).filter(is_active=True)
@@ -757,7 +766,7 @@ def _open_lines_for_org(org):
     return (
         OrderLine.objects.for_org(org)
         .filter(received_at__isnull=True, cancelled_at__isnull=True)
-        .select_related("item", "supplier")
+        .select_related("item", "supplier", "split_from")
         .order_by("expected_at")
     )
 
@@ -781,6 +790,7 @@ def deliveries(request):
                         "order": line,
                         "expected_text": arriving_text(line.expected_at.date(), today),
                         "is_late": line.expected_at < now,
+                        "part_delivered_text": part_delivered_text(line) if line.split_from_id else "",
                     }
                     for line in lines
                 ],

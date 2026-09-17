@@ -30,9 +30,14 @@
       <div class="border-b border-gray-200 py-3.5">
         <div class="flex items-start gap-3">
           <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">{{ line.order.item.name }}</span>
+          {% if line.part_delivered_text %}<span class="chip border-status-week text-status-week">Part delivered</span>{% endif %}
           {% if line.is_late %}<span class="chip border-status-out bg-status-out text-white">Late</span>{% endif %}
         </div>
-        <p class="mt-1 text-[0.8125rem] leading-snug text-gray-600">Ordered {{ line.order.qty }} {{ line.order.item.unit|plural:line.order.qty }} &middot; {{ line.expected_text }}</p>
+        {% if line.part_delivered_text %}
+          <p class="mt-1 text-[0.8125rem] leading-snug text-gray-600">{{ line.part_delivered_text }} &middot; {{ line.expected_text }}</p>
+        {% else %}
+          <p class="mt-1 text-[0.8125rem] leading-snug text-gray-600">Ordered {{ line.order.qty }} {{ line.order.item.unit|plural:line.order.qty }} &middot; {{ line.expected_text }}</p>
+        {% endif %}
         <div class="mt-3 flex items-center gap-2.5">
           <input type="number" inputmode="numeric" min="1" max="{{ line.order.qty }}" name="qty_{{ line.order.pk }}"
                  value="{{ line.order.qty }}" class="w-20 text-center" aria-label="Received quantity for {{ line.order.item.name }}">
