@@ -453,3 +453,69 @@ Henry Schein,PO-9,INV-2,HS-GLV-M,Medium nitrile exam gloves,4,8.50
         for _ in range(2):
             self.client.post(f"/invoices/line/{line.pk}/receive/", {"to_stock": "1"})
         self.assertEqual(StockEvent.objects.filter(kind="received").count(), 1)
+
+
+class FindingInvoicesTests(TestCase):
+    """UX-03. Nothing in the app linked to an invoice once you'd left the batch
+    page, so an invoice that needed checking - one that received nothing, and so
+    left the practice's counts wrong - became unreachable and stayed that way."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organisation.objects.create(name="Test Dental")
+        cls.admin = User.objects.create_user("sandy@example.com", "pw", organisation=cls.org, role=User.Role.ADMIN)
+        cls.supplier = Supplier.objects.create(organisation=cls.org, name="Henry Schein")
+
+    def setUp(self):
+        self.client.force_login(self.admin)
+
+    def conflict(self, org=None, supplier_name="Dentsply", number="D-1"):
+        return Invoice.objects.create(organisation=org or self.org, supplier_name=supplier_name,
+                                      invoice_number=number, issued_on=date(2026, 9, 14),
+                                      status=Invoice.Status.CONFLICT)
+
+    def test_invoices_needing_checking_are_listed_with_a_way_into_them(self):
+        invoice = self.conflict()
+        with self.settings(AI_API_KEY="test-key"):
+            response = self.client.get("/invoices/")
+
+        self.assertContains(response, "Needs checking")
+        self.assertContains(response, f'href="/invoices/{invoice.pk}/"')
+        self.assertContains(response, 'no supplier called "Dentsply"')
+
+    def test_a_finished_invoice_is_still_reachable(self):
+        done = Invoice.objects.create(organisation=self.org, supplier=self.supplier, supplier_name="Henry Schein",
+                                      invoice_number="HS-7", issued_on=date(2026, 9, 14),
+                                      status=Invoice.Status.COMPLETE, totals_ok=True)
+        with self.settings(AI_API_KEY="test-key"):
+            response = self.client.get("/invoices/")
+
+        self.assertContains(response, "Recent invoices and receipts")
+        self.assertContains(response, f'href="/invoices/{done.pk}/"')
+
+    def test_deliveries_says_how_many_need_checking(self):
+        self.conflict(number="D-1")
+        self.conflict(number="D-2")
+        with self.settings(AI_API_KEY="test-key"):
+            response = self.client.get("/deliveries/")
+
+        self.assertContains(response, "2 invoices need checking")
+
+    def test_deliveries_reads_normally_with_nothing_to_check(self):
+        with self.settings(AI_API_KEY="test-key"):
+            response = self.client.get("/deliveries/")
+
+        self.assertContains(response, "Upload an invoice or receipt")
+        self.assertNotContains(response, "need checking")
+
+    def test_another_practices_invoices_are_never_listed(self):
+        other = Organisation.objects.create(name="Other Dental")
+        theirs = self.conflict(org=other, supplier_name="Someone Else", number="X-9")
+        mine = self.conflict()
+
+        with self.settings(AI_API_KEY="test-key"):
+            response = self.client.get("/invoices/")
+
+        self.assertContains(response, f'href="/invoices/{mine.pk}/"')
+        self.assertNotContains(response, f'href="/invoices/{theirs.pk}/"')
+        self.assertNotContains(response, "Someone Else")

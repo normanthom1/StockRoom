@@ -807,6 +807,8 @@ def deliveries(request):
         "groups": groups,
         "open_count": sum(len(g["lines"]) for g in groups),
         "can_edit_price": request.user.is_org_admin,
+        # So an invoice that needs checking is noticed without going looking.
+        "needs_checking_count": _needs_checking(org).count() if request.user.is_org_admin else 0,
     }
     return render(request, "stock/deliveries.html", context)
 
@@ -1039,19 +1041,36 @@ def item_import_confirm(request):
     return redirect("stock:items")
 
 
+RECENT_INVOICES = 10
+
+
+def _needs_checking(org):
+    """Invoices read but not counted: no supplier of the practice's, or lines
+    that don't add up. Nothing was received off them, so the practice's stock is
+    wrong until someone opens one and sorts it out."""
+    return (Invoice.objects.for_org(org).filter(status=Invoice.Status.CONFLICT)
+            .select_related("supplier").order_by("-created_at"))
+
+
 @ai_required
 @admin_required
 def invoice_upload(request):
+    org = request.user.organisation
     unfinished = (
-        InvoiceBatch.objects.for_org(request.user.organisation)
+        InvoiceBatch.objects.for_org(org)
         .annotate(left=Count("files", filter=Q(files__state__in=invoices.TO_READ)), total=Count("files"))
         .filter(left__gt=0)
         .order_by("-created_at")
     )
     return render(request, "stock/invoice_upload.html", {
         "unfinished": unfinished,
+        # Nothing else in the app links to an invoice once you've left the batch
+        # page, so this is the way back to one.
+        "needs_checking": _needs_checking(org),
+        "recent": (Invoice.objects.for_org(org).exclude(status=Invoice.Status.CONFLICT)
+                   .select_related("supplier").order_by("-created_at")[:RECENT_INVOICES]),
         # A practice with no stock yet is here to set up, not to receive a delivery.
-        "setting_up": not Item.objects.for_org(request.user.organisation).filter(is_active=True).exists(),
+        "setting_up": not Item.objects.for_org(org).filter(is_active=True).exists(),
     })
 
 
