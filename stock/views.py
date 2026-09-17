@@ -1054,6 +1054,8 @@ def invoice_batch(request, pk):
 INVOICE_FIELDS = ("supplier_name", "order_ref", "invoice_number", "checksum", "source_name")
 # Invoices that changed nothing, so they can be checked and imported again.
 RECHECKABLE = [Invoice.Status.IGNORED, Invoice.Status.CONFLICT]
+# Imported invoices with lines still to match to what's on order.
+RECEIVABLE = [Invoice.Status.PARSED, Invoice.Status.PARTIAL]
 # Why a manager imports a repeat anyway: picked, not typed.
 FORCE_REASONS = [
     "It's a different invoice with the same number",
@@ -1067,6 +1069,7 @@ def invoice_preview(request, invoice, lines):
     until invoice_confirm. Used for a new upload (assistant.views) and for
     checking a saved one again (invoice_check)."""
     invoices.match_lines(invoice, lines)
+    invoices.match_orders(invoice, lines)
     for index, line in enumerate(lines):
         line.index, line.adds_up = index, invoices.adds_up(line)
     request.session["pending_invoice"] = {
@@ -1082,6 +1085,7 @@ def invoice_preview(request, invoice, lines):
                 "unit_price": _text_or_none(line.unit_price),
                 "line_total": _text_or_none(line.line_total),
                 "match": [line.match.item.pk, line.match.confidence, line.match.method] if line.match.item else None,
+                "order": line.order.pk if line.order else None,
             }
             for line in lines
         ],
@@ -1089,7 +1093,10 @@ def invoice_preview(request, invoice, lines):
     repeat = invoice.status == Invoice.Status.IGNORED
     return render(request, "stock/invoice_preview.html", {
         "invoice": invoice,
-        "lines": lines,
+        # Lines that will be received and add up are folded away; the rest want a look.
+        "matched": [line for line in lines if line.order and line.adds_up],
+        "to_check": [line for line in lines if not (line.order and line.adds_up)],
+        "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier_id),
         "suppliers": Supplier.objects.for_org(invoice.organisation).filter(is_active=True).order_by("name"),
         "force_reasons": FORCE_REASONS if repeat else None,
         "original": invoices.find_original(invoice) if repeat else None,
@@ -1146,6 +1153,9 @@ def invoice_confirm(request):
     # A supplier picked in the preview, for an invoice from one StockRoom didn't recognise.
     supplier_id = _id(request.POST.get("supplier")) or pending["supplier_id"]
     invoice.supplier = Supplier.objects.for_org(org).filter(pk=supplier_id).first() if supplier_id else None
+    # What each line was delivered against: picked with "Match to", or matched in the preview.
+    picked = [_id(request.POST.get(f"order_{index}")) or row.get("order") for index, row in enumerate(pending["lines"])]
+    orders = _open_lines_for_org(org).filter(supplier=invoice.supplier_id).in_bulk([pk for pk in picked if pk])
 
     lines = []
     for index, row in enumerate(pending["lines"]):
@@ -1155,6 +1165,7 @@ def invoice_confirm(request):
                                                   _decimal_or_none(row.get("line_total"))))
         line = InvoiceLine(organisation=org, sku=row["sku"], description=row["description"],
                            qty=qty, unit_price=unit_price, line_total=line_total)
+        line.order = orders.get(picked[index])
         if row["match"]:
             pk, confidence, method = row["match"]
             match = Match(Item.objects.for_org(org).filter(pk=pk, is_active=True).first(), confidence, method)
@@ -1163,10 +1174,41 @@ def invoice_confirm(request):
         lines.append(line)
 
     invoice = invoices.ingest(invoice, lines, request.user, force_reason)
+    received = sum(1 for line in lines if line.order_line_id)
     if invoice.status == Invoice.Status.CONFLICT:
         messages.error(request, "Saved, but it needs checking before it counts.")
-    elif invoice.status != Invoice.Status.IGNORED:  # the invoice page says it was a repeat
-        messages.success(request, "Invoice added.")
+    elif invoice.status == Invoice.Status.COMPLETE:
+        messages.success(request, "Received everything on the invoice.")
+    elif invoice.status == Invoice.Status.PARTIAL:
+        messages.success(request, f"Received {received} of {len(lines)} lines.")
+    elif invoice.status == Invoice.Status.PARSED:  # an ignored repeat says so on its own page
+        messages.success(request, "Invoice added. Nothing on it matched what's on order.")
+    return redirect("stock:invoice_detail", invoice.pk)
+
+
+@admin_required
+def invoice_order_search(request):
+    """What's on order from a supplier, narrowed by a search, for matching an invoice line to."""
+    orders = _open_lines_for_org(request.user.organisation).filter(
+        supplier=_id(request.GET.get("supplier")), item__name__icontains=request.GET.get("q", "").strip()
+    )
+    return render(request, "stock/_order_choices.html", {"orders": orders, "key": _id(request.GET.get("key"))})
+
+
+@require_POST
+@admin_required
+def invoice_line_receive(request, pk):
+    """Match a saved invoice's line to something on order, and receive it there and then."""
+    org = request.user.organisation
+    line = get_object_or_404(InvoiceLine.objects.for_org(org).select_related("invoice"), pk=pk)
+    invoice = line.invoice
+    line.order = _open_lines_for_org(org).filter(pk=_id(request.POST.get(f"order_{pk}")), supplier=invoice.supplier_id).first()
+    if line.order and not line.order_line_id and invoice.status in RECEIVABLE:
+        invoices.receive(invoice, [line], request.user)
+    if line.order_line_id:
+        messages.success(request, f"Received {format_qty(line.qty, line.item.unit)} of {line.item.name}.")
+    else:
+        messages.error(request, "Nothing was received. Choose what it was delivered against, and check it has a quantity.")
     return redirect("stock:invoice_detail", invoice.pk)
 
 
@@ -1180,9 +1222,13 @@ def invoice_check(request, pk):
 @admin_required
 def invoice_detail(request, pk):
     invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
+    lines = list(invoice.lines.select_related("item", "order_line__item").order_by("pk"))
+    receivable = invoice.status in RECEIVABLE and invoice.supplier_id
     return render(request, "stock/invoice_detail.html", {
         "invoice": invoice,
-        "lines": invoice.lines.select_related("item").order_by("pk"),
+        "received": [line for line in lines if line.order_line_id],
+        "not_received": [line for line in lines if not line.order_line_id],
+        "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier) if receivable else None,
         "original": invoices.find_original(invoice) if invoice.status == Invoice.Status.IGNORED else None,
     })
 

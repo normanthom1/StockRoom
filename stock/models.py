@@ -166,7 +166,7 @@ class Invoice(OrgOwned):
     lines are kept, never the file. Admins only: it carries prices."""
 
     class Status(models.TextChoices):
-        PARSED = "parsed", "Ready to check"
+        PARSED = "parsed", "Nothing received yet"
         COMPLETE = "complete", "Received"
         PARTIAL = "partial", "Partly received"
         IGNORED = "ignored", "Already imported"
@@ -226,6 +226,10 @@ class InvoiceLine(OrgOwned):
     unit_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     line_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     item = models.ForeignKey(Item, on_delete=models.SET_NULL, null=True, blank=True, related_name="invoice_lines")
+    # The order it was received against (stock/invoices.py receive); set once, so it's never received twice.
+    order_line = models.ForeignKey(
+        OrderLine, on_delete=models.PROTECT, null=True, blank=True, related_name="invoice_lines"
+    )
 
     def __str__(self):
         return f"{self.qty} × {self.description or self.sku}"

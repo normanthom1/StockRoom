@@ -22,6 +22,7 @@ from stock.models import (
     CatalogueProduct,
     Invoice,
     InvoiceBatch,
+    InvoiceLine,
     Item,
     ItemAlias,
     OrderLine,
@@ -78,6 +79,12 @@ def make_invoice(org):
                                   status=Invoice.Status.CONFLICT)
 
 
+def make_invoice_line(org):
+    """A line on an imported invoice in org, for Cases that need some existing invoice line's pk."""
+    invoice = Invoice.objects.create(organisation=org, supplier=make_supplier(org), status=Invoice.Status.PARSED)
+    return InvoiceLine.objects.create(organisation=org, invoice=invoice, description="Gloves", qty=1)
+
+
 def make_batch(org):
     """An invoice batch in org, for Cases that need some existing batch's pk."""
     return InvoiceBatch.objects.create(organisation=org, created_by=make_member(org))
@@ -132,6 +139,7 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("stock:invoice_check", make=make_invoice),
     Case("stock:invoice_batch", make=make_batch),
     Case("assistant:invoice_batch_resume", make=make_batch, method="post"),
+    Case("stock:invoice_line_receive", make=make_invoice_line, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -191,6 +199,8 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("assistant:invoice_upload", method="post"),
     Case("assistant:invoice_batch_upload", method="post"),
     Case("assistant:invoice_batch_resume", make=make_batch, method="post"),
+    Case("stock:invoice_order_search"),
+    Case("stock:invoice_line_receive", make=make_invoice_line, method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.

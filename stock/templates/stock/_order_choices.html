@@ -1,0 +1,6 @@
+{% load stock_units %}
+{% for order in orders %}
+  <label><input type="radio" name="order_{{ key }}" value="{{ order.pk }}"> {{ order.item.name }} &middot; {{ order.qty }} {{ order.item.unit|plural:order.qty }} on order</label>
+{% empty %}
+  <p class="py-2 text-sm text-gray-600">Nothing on order matches that.</p>
+{% endfor %}

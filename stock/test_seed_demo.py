@@ -8,7 +8,8 @@ from accounts.models import Organisation, User
 from stockroom.demo import DEMO_ORG
 
 from .forecast import Status, forecast
-from .models import Item
+from .invoices import ingest, match_lines, parse_invoice
+from .models import Invoice, InvoiceBatch, InvoiceLine, Item
 
 
 def seeded_statuses():
@@ -61,6 +62,21 @@ class SeedDemoTests(TestCase):
         call_command("seed_demo")
         with self.assertRaises(click.ClickException):
             call_command("seed_demo")
+
+    def test_reset_works_after_a_visitor_has_imported_invoices(self):
+        call_command("seed_demo")
+        org = Organisation.objects.get(name=DEMO_ORG)
+        sofia = User.objects.get(organisation=org, name="Sofia")
+        csv = b"vendor,description,qty,unit\nHenry Schein,Rubber dam sheets,10,1.00\n"
+        for force_reason in ("", "Something else"):  # received against an order, then imported anyway
+            invoice, lines = parse_invoice(org, csv, "text/csv")
+            match_lines(invoice, lines)
+            ingest(invoice, lines, sofia, force_reason)
+        self.assertTrue(InvoiceLine.objects.filter(organisation=org, order_line__isnull=False).exists())
+        InvoiceBatch.objects.create(organisation=org, created_by=sofia)
+
+        call_command("seed_demo", "--reset")
+        self.assertFalse(Invoice.objects.exists())
 
     def test_reset_only_touches_the_demo_organisation(self):
         other = Organisation.objects.create(name="Someone Else's Practice")

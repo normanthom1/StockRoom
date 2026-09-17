@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.models import Organisation, User
 from accounts.ratelimit import AI_PER_HOUR
+from stock.forecast import on_hand
 from stock.invoices import run_batch
 from stock.models import (
     DemoResetState,
@@ -237,7 +238,8 @@ class InvoiceUploadTests(Practice):
             response = self.upload()
         generate.assert_not_called()
         self.assertContains(response, "Gloves")
-        self.assertContains(response, "Matched: Gloves")
+        self.assertContains(response, "1 matched")
+        self.assertContains(response, "On order: Gloves &middot; 10 boxes")
         self.assertFalse(Invoice.objects.exists())  # nothing written until confirmed
 
     def test_confirming_creates_the_invoice_and_its_lines(self):
@@ -259,6 +261,55 @@ class InvoiceUploadTests(Practice):
         line = invoice.lines.get()
         self.assertEqual((line.qty, str(line.unit_price), invoice.totals_ok), (3, "9.00", True))
 
+    def test_one_confirm_receives_everything_on_order_and_importing_it_again_adds_nothing(self):
+        self.client.force_login(self.admin)
+        csv = b"vendor,sku,description,qty,unit\nHenry Schein,HS-GLV,Gloves,10,8.50\n"
+        self.assertContains(self.client.get("/"), "On order")
+        self.upload(content=csv)
+        response = self.client.post("/invoices/confirm/", {}, follow=True)
+        self.assertContains(response, "Received everything on the invoice.")
+        self.assertContains(response, "1 received")
+        self.assertContains(self.client.get("/deliveries/"), "Nothing on order right now.")
+        self.assertNotContains(self.client.get("/"), "On order")
+        self.assertNotContains(self.client.get("/reorder/"), "Order quantity for Gloves")
+        self.assertEqual(on_hand(self.gloves.events.all()), 13)
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.supplier_sku, "HS-GLV")  # so next month's invoice matches by code
+
+        self.upload(content=csv, name="invoice (1).csv")
+        self.assertEqual(on_hand(self.gloves.events.all()), 13)
+
+    def test_unmatched_lines_can_be_left_or_matched_to_whats_on_order(self):
+        clamps = Item.objects.create(organisation=self.org, name="Rubber dam clamps", unit="clamp", supplier=self.henry)
+        bibs = Item.objects.create(organisation=self.org, name="Patient bibs", unit="pack", supplier=self.henry)
+        bibs_order = OrderLine.objects.create(organisation=self.org, item=bibs, qty=5, ordered_by=self.admin)
+        csv = (b"vendor,description,qty,unit\nHenry Schein,Gloves,10,8.50\n"
+               b"Henry Schein,Assorted consumables,5,2.00\nHenry Schein,Rubber dam clamps,1,40.00\n")
+        self.client.force_login(self.admin)
+        response = self.upload(content=csv)
+        self.assertContains(response, "1 matched")
+        self.assertContains(response, "Match to…", count=2)
+
+        search = self.client.get("/invoices/open-orders/", {"supplier": self.henry.pk, "q": "bib", "key": 1})
+        self.assertContains(search, f'name="order_1" value="{bibs_order.pk}"')
+        self.assertNotContains(search, "Gloves")
+        theirs = Supplier.objects.create(organisation=Organisation.objects.create(name="Other"), name="Theirs")
+        self.assertContains(self.client.get("/invoices/open-orders/", {"supplier": theirs.pk}), "Nothing on order")
+
+        self.client.post("/invoices/confirm/", {"order_1": bibs_order.pk})  # the clamps are left unmatched
+        invoice = Invoice.objects.get()
+        bibs_order.refresh_from_db()
+        self.assertEqual((invoice.status, bibs_order.received_qty), (Invoice.Status.PARTIAL, 5))
+
+        clamps_order = OrderLine.objects.create(organisation=self.org, item=clamps, qty=1, ordered_by=self.admin)
+        line = invoice.lines.get(description="Rubber dam clamps")
+        self.assertContains(self.client.get(f"/invoices/{invoice.pk}/"), "Match to…", count=1)
+        response = self.client.post(f"/invoices/line/{line.pk}/receive/", {f"order_{line.pk}": clamps_order.pk},
+                                    follow=True)
+        self.assertContains(response, "Received 1 clamp of Rubber dam clamps.")
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.COMPLETE)
+
     def test_uploading_it_again_says_so_and_import_anyway_asks_why(self):
         self.client.force_login(self.admin)
         self.upload()
@@ -279,7 +330,7 @@ class InvoiceUploadTests(Practice):
         self.client.get(f"/invoices/{repeat.pk}/check/")
         self.client.post("/invoices/confirm/", {"force_reason": "The same order arrived twice"})
         repeat.refresh_from_db()
-        self.assertEqual((repeat.status, repeat.forced_by), (Invoice.Status.PARSED, self.admin))
+        self.assertEqual((repeat.status, repeat.forced_by), (Invoice.Status.COMPLETE, self.admin))
         self.assertContains(self.client.get(f"/invoices/{repeat.pk}/"),
                             "Imported again by Sandy: The same order arrived twice")
         self.assertEqual(self.client.get(f"/invoices/{repeat.pk}/check/").status_code, 404)  # not twice
@@ -297,7 +348,7 @@ class InvoiceUploadTests(Practice):
         self.client.get(f"/invoices/{invoice.pk}/check/")
         self.client.post("/invoices/confirm/", {"supplier": self.henry.pk})
         invoice.refresh_from_db()
-        self.assertEqual((invoice.supplier, invoice.status, invoice.lines.count()), (self.henry, "parsed", 1))
+        self.assertEqual((invoice.supplier, invoice.status, invoice.lines.count()), (self.henry, "complete", 1))
 
     def test_a_line_that_doesnt_add_up_is_saved_to_check_until_its_fixed(self):
         csv = b"vendor,sku,description,qty,unit,line_total\nHenry Schein,,Gloves,2,8.50,25.50\n"
@@ -311,7 +362,7 @@ class InvoiceUploadTests(Practice):
         self.client.get(f"/invoices/{invoice.pk}/check/")
         self.client.post("/invoices/confirm/", {"qty_0": "3", "price_0": "8.50", "total_0": "25.50"})
         invoice.refresh_from_db()
-        self.assertEqual((invoice.status, invoice.lines.get().qty), (Invoice.Status.PARSED, 3))
+        self.assertEqual((invoice.status, invoice.lines.get().qty), (Invoice.Status.COMPLETE, 3))
 
     def test_a_photo_is_sent_to_gemini(self):
         self.client.force_login(self.admin)
