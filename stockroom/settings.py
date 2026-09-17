@@ -137,8 +137,15 @@ SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", not DEMO_MODE)
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
 # Google retires models for new keys (2.5 Flash is gone), so check its model list if calls start 404ing.
 AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.8-flash")
+# Only for matching product names that spelling alone can't settle (stock/matching.py).
+AI_EMBEDDING_MODEL = os.environ.get("AI_EMBEDDING_MODEL", "gemini-embedding-001")
 # A backstop on the bill: Gemini calls a day across every practice, demo included.
 AI_DAILY_LIMIT = int(os.environ.get("AI_DAILY_LIMIT", "300"))
+
+# How alike two product names must be (0 to 1) before an invoice or import line is
+# suggested as an existing item, by spelling and by Gemini embeddings (stock/matching.py).
+PRODUCT_FUZZY_THRESHOLD = float(os.environ.get("PRODUCT_FUZZY_THRESHOLD", "0.85"))
+PRODUCT_EMBEDDING_THRESHOLD = float(os.environ.get("PRODUCT_EMBEDDING_THRESHOLD", "0.80"))
 
 # Deliberately no provider (#13). Staff have no email or password of their
 # own (they sign in with a code), so the only mail is the practice login's

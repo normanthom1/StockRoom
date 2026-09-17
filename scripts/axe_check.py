@@ -42,6 +42,7 @@ PAGES = [
     ("/accounts/team/", "0000"),
     ("/items/import/", "0000"),
     ("/items/catalogue/", "0000"),
+    ("/items/matched/", "0000"),
     ("/ask/", "0000"),  # only with AI_API_KEY set; a 404 page otherwise
     ("/", "11"),  # Johanna, assistant
     ("/log-usage/", "11"),

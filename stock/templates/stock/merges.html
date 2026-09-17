@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Matched names · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Matched names</h1>
+<p class="mb-4 text-sm text-gray-600">Names from invoices and imports that StockRoom matched to something already on your stock list, over the last {{ undo_days }} days. Undo any that aren't the same thing, and they won't be matched again.</p>
+
+<div class="mb-6 border-t border-gray-300">
+  {% for alias in aliases %}
+    <div class="flex flex-col gap-1 border-b border-gray-200 py-3">
+      <span class="font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ alias.raw_name }} &rarr; {{ alias.item.name }}</span>
+      <span class="text-[0.8125rem] text-gray-600">{{ alias.get_method_display }} &middot; {% widthratio alias.confidence 1 100 %}% &middot; {% if alias.source_invoice %}invoice from {{ alias.source_invoice.supplier_name|default:"a supplier" }}{% else %}{{ alias.get_source_display|lower }}{% endif %} &middot; {{ alias.created_by.name|default:alias.created_by.email }}, {{ alias.created_at|date:"j M" }}</span>
+      {% if alias.reverted_at %}
+        <span><span class="chip">Undone {{ alias.reverted_at|date:"j M" }}</span></span>
+      {% else %}
+        <button type="button" hx-post="{% url 'stock:merge_undo' alias.pk %}" hx-disabled-elt="this"
+                class="btn btn-line mt-1 self-start" aria-label="Undo matching {{ alias.raw_name }} to {{ alias.item.name }}">Undo</button>
+      {% endif %}
+    </div>
+  {% empty %}
+    <p class="blueprint mt-4 p-5 text-center text-gray-600">Nothing's been matched in the last {{ undo_days }} days.</p>
+  {% endfor %}
+</div>
+{% endblock %}

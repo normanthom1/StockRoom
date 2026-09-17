@@ -239,6 +239,25 @@ class GeminiClientTests(SimpleTestCase):
         self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
         self.assertEqual(body["contents"][0]["parts"][1], {"inline_data": {"mime_type": "image/png", "data": "cG5n"}})
 
+    @override_settings(AI_EMBEDDING_MODEL="embed-test")
+    def test_embeddings_come_back_in_order(self):
+        with mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen:
+            reply = {"embeddings": [{"values": [0.1, 0.2]}, {"values": [0.3, 0.4]}]}
+            urlopen.return_value.__enter__.return_value = io.BytesIO(json.dumps(reply).encode())
+            self.assertEqual(gemini.embed(["gloves", "bibs"]), [[0.1, 0.2], [0.3, 0.4]])
+        request = urlopen.call_args.args[0]
+        self.assertIn("/models/embed-test:batchEmbedContents", request.full_url)
+        body = json.loads(request.data)
+        self.assertEqual([r["content"]["parts"][0]["text"] for r in body["requests"]], ["gloves", "bibs"])
+        self.assertEqual(body["requests"][0]["model"], "models/embed-test")
+        with (
+            mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen,
+            self.assertLogs("assistant.gemini"),
+            self.assertRaises(gemini.GeminiError),
+        ):
+            urlopen.return_value.__enter__.return_value = io.BytesIO(json.dumps(reply).encode())
+            gemini.embed(["just one"])
+
     def test_blocked_empty_or_failed_answers_raise(self):
         for body in ({"promptFeedback": {"blockReason": "SAFETY"}}, {"candidates": [{"content": {"parts": [{"text": " "}]}}]}):
             with self.subTest(body=body), self.assertLogs("assistant.gemini"), self.assertRaises(gemini.GeminiError):

@@ -4,30 +4,42 @@
 
 {% block content %}
 <h1 class="mb-2">Import preview</h1>
-<p class="mb-4 text-sm text-gray-600">{{ valid_count }} item{{ valid_count|pluralize }} ready to import{% if error_count %}, {{ error_count }} row{{ error_count|pluralize }} with a problem below. Fix {{ error_count|pluralize:"it,them" }} and import again. A missing supplier can be added on the Suppliers page{% endif %}.</p>
+<p class="mb-4 text-sm text-gray-600">{{ valid_count }} item{{ valid_count|pluralize }} ready to import{% if sure_count %}, {{ sure_count }} already on your list{% endif %}{% if error_count %}, {{ error_count }} row{{ error_count|pluralize }} with a problem below. Fix {{ error_count|pluralize:"it,them" }} and import again. A missing supplier can be added on the Suppliers page{% endif %}.{% if unsure_count %} Check the {{ unsure_count }} that might already be on your list.{% endif %}</p>
 
-<div class="mb-6 border-t border-gray-300">
-  {% for row in rows %}
-    <div class="flex flex-col gap-1 border-b border-gray-200 py-3 {% if not row.is_valid %}-mx-4 bg-status-out-tint px-4{% endif %}">
-      <span class="flex items-baseline gap-2">
-        <span class="text-xs text-gray-500">Row {{ row.line_number }}</span>
-        <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ row.name|default:"(no name)" }}</span>
-      </span>
-      {% if row.is_valid %}
-        <span class="text-sm text-gray-600">{{ row.unit }} &middot; {{ row.supplier_name }}{% if row.price is not None %} &middot; ${{ row.price|floatformat:2 }}{% endif %}{% if row.count is not None %} &middot; {{ row.count }} on hand{% endif %}</span>
-      {% else %}
-        <span class="text-sm font-medium text-status-now">{{ row.errors|join:" " }}</span>
-      {% endif %}
-    </div>
-  {% endfor %}
-</div>
+<form method="post" action="{% url 'stock:item_import_confirm' %}">
+  {% csrf_token %}
+  <div class="mb-6 border-t border-gray-300">
+    {% for row in rows %}
+      <div class="flex flex-col gap-1 border-b border-gray-200 py-3 {% if not row.is_valid %}-mx-4 bg-status-out-tint px-4{% endif %}">
+        <span class="flex items-baseline gap-2">
+          <span class="text-xs text-gray-500">Row {{ row.line_number }}</span>
+          <span class="font-heading text-[1.0625rem] font-semibold text-gray-900">{{ row.name|default:"(no name)" }}</span>
+        </span>
+        {% if not row.is_valid %}
+          <span class="text-sm font-medium text-status-now">{{ row.errors|join:" " }}</span>
+        {% else %}
+          <span class="text-sm text-gray-600">{{ row.unit }} &middot; {{ row.supplier_name }}{% if row.price is not None %} &middot; ${{ row.price|floatformat:2 }}{% endif %}{% if row.count is not None %} &middot; {{ row.count }} on hand{% endif %}</span>
+          {% if row.match.band == "sure" %}
+            <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-gray-900">
+              <span>Already have: {{ row.match.item.name }}</span>
+              <span class="chip">{{ row.match.label }}</span>
+            </span>
+          {% elif row.match.band %}
+            <fieldset class="mt-1">
+              <legend class="text-sm font-medium text-gray-900">{{ row.match.label }}: is it {{ row.match.item.name }}?</legend>
+              <label><input type="radio" name="same_{{ row.index }}" value="1"> Same as {{ row.match.item.name }}</label>
+              <label><input type="radio" name="same_{{ row.index }}" value="" checked> New item</label>
+            </fieldset>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
 
-{% if valid_count %}
-  <form method="post" action="{% url 'stock:item_import_confirm' %}">
-    {% csrf_token %}
-    <button type="submit" class="btn-primary">Import {{ valid_count }} item{{ valid_count|pluralize }}</button>
-  </form>
-{% else %}
-  <a href="{% url 'stock:item_import' %}" class="link">Try again</a>
-{% endif %}
+  {% if valid_count %}
+    <button type="submit" class="btn-primary">{% if unsure_count %}Import{% else %}Import {{ valid_count }} item{{ valid_count|pluralize }}{% endif %}</button>
+  {% else %}
+    <a href="{% url 'stock:item_import' %}" class="link">{% if sure_count %}Nothing new to import. Back to import{% else %}Try again{% endif %}</a>
+  {% endif %}
+</form>
 {% endblock %}

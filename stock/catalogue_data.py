@@ -166,3 +166,72 @@ CATALOGUE = {
         ("Waterline cleaner", "bottle", []),
     ]),
 }
+
+# Other names for the same thing, for matching invoice and import lines to a
+# practice's items (stock/matching.py). Other name -> the name to match on.
+# Both sides are normalised first, so plurals, case and punctuation don't matter,
+# and a longer phrase wins over a shorter one. Code only, no migration needed.
+SYNONYMS = {
+    # Spelling
+    "sterilization": "sterilisation",
+    "sterilizing": "sterilising",
+    "sanitizer": "sanitiser",
+    "anesthetic": "anaesthetic",
+    "hemostatic": "haemostatic",
+    "color": "colour",
+    "aluminum": "aluminium",
+    "xray": "x ray",
+    "microbrush": "micro brush",
+    "facemask": "face mask",
+    "headrest": "head rest",
+    # Bibs and napkins
+    "napkin": "bib",
+    "patient napkin": "bib",
+    "patient towel": "bib",
+    "dental bib": "bib",
+    "napkin holder": "bib clip",
+    "napkin clip": "bib clip",
+    "bib holder": "bib clip",
+    "bib chain": "bib clip",
+    # PPE
+    "exam glove": "glove",
+    "examination glove": "glove",
+    "protective eyewear": "safety glasses",
+    "safety spectacles": "safety glasses",
+    "visor": "face shield",
+    "isolation gown": "disposable gown",
+    # Infection control
+    "sterilisation pouch": "autoclave pouch",
+    "steri pouch": "autoclave pouch",
+    "self sealing pouch": "autoclave pouch",
+    "disinfecting wipe": "disinfectant wipe",
+    "hand rub": "hand sanitiser",
+    # Suction and prophy
+    "saliva extractor": "saliva ejector",
+    "high volume evacuator": "hve",
+    "high volume suction": "hve",
+    "prophylaxis paste": "prophy paste",
+    "polishing paste": "prophy paste",
+    "prophylaxis angle": "prophy angle",
+    "cotton wool roll": "cotton roll",
+    "dental roll": "cotton roll",
+    # Anaesthesia
+    "lidocaine": "lignocaine",
+    "carpule": "cartridge",
+    # Restorative
+    "dental dam": "rubber dam",
+    "glass ionomer cement": "glass ionomer",
+    "gic": "glass ionomer",
+    "composite resin": "composite",
+    "resin composite": "composite",
+    "etchant": "etch",
+    "etching gel": "etch gel",
+    "dental adhesive": "bonding agent",
+    "irreversible hydrocolloid": "alginate",
+    # X-ray
+    "psp plate": "phosphor plate",
+    "imaging plate": "phosphor plate",
+    "sensor sleeve": "sensor barrier",
+    # Equipment care
+    "handpiece oil": "handpiece lubricant",
+}
