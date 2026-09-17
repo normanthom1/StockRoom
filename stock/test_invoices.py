@@ -345,6 +345,26 @@ Henry Schein,PO-2,INV-1,HS-GLV-M,Medium nitrile exam gloves,10,8.50
         self.gloves.refresh_from_db()
         self.assertEqual((self.bibs.supplier_sku, self.gloves.supplier_sku), ("HS-BIB", "HS-GLV-M"))
 
+    def test_a_second_invoice_against_the_same_order_receives_only_the_remainder(self):
+        order = self.order(self.gloves, 10, order_ref="PO-9")
+        first = self.upload(b"""vendor,po_number,invoice_number,sku,description,qty,unit
+Henry Schein,PO-9,INV-1,HS-GLV-M,Medium nitrile exam gloves,6,8.50
+""")
+        order.refresh_from_db()
+        # The invoice's own line was fully matched, even though the order itself is only part filled.
+        self.assertEqual((first.status, order.received_qty, order.is_open), (Invoice.Status.COMPLETE, 6, False))
+
+        remainder = OrderLine.objects.get(item=self.gloves, received_at__isnull=True)
+        self.assertEqual((remainder.qty, remainder.order_ref, remainder.split_from), (4, "PO-9", order))
+
+        second = self.upload(b"""vendor,po_number,invoice_number,sku,description,qty,unit
+Henry Schein,PO-9,INV-2,HS-GLV-M,Medium nitrile exam gloves,4,8.50
+""")
+        remainder.refresh_from_db()
+        self.assertEqual((second.status, remainder.received_qty, remainder.is_open),
+                         (Invoice.Status.COMPLETE, 4, False))
+        self.assertFalse(OrderLine.objects.filter(item=self.gloves, received_at__isnull=True).exists())
+
     def test_a_line_with_nothing_on_order_is_left_unmatched(self):
         self.order(self.bibs, 4)
         invoice = self.upload(b"vendor,description,qty,unit\nHenry Schein,Patient bibs,4,1.00\nHenry Schein,Gloves,1,8.50\n")

@@ -74,9 +74,23 @@ class DeliveriesTests(TestCase):
         self.assertEqual(remainder.qty, 8)
         self.assertTrue(remainder.is_open)
         self.assertEqual(remainder.ordered_by, self.admin)
+        self.assertEqual(remainder.split_from, self.order)
 
         event = StockEvent.objects.get(item=self.item, kind="received")
         self.assertEqual(event.qty, 12)
+
+    def test_partial_receipt_says_the_status_in_words(self):
+        self.client.force_login(self.admin)
+        self.client.post(
+            f"/deliveries/supplier/{self.supplier.pk}/", {"receive_line": self.order.pk, f"qty_{self.order.pk}": "12"}
+        )
+        deliveries = self.client.get("/deliveries/")
+        self.assertContains(deliveries, "Part delivered")
+        self.assertContains(deliveries, "12 of 20 arrived, 8 still coming")
+
+        item_page = self.client.get(f"/item/{self.item.pk}/")
+        self.assertContains(item_page, "Part delivered")
+        self.assertContains(item_page, "12 of 20 arrived, 8 still coming")
 
     def test_partial_receipt_item_stays_on_order_for_the_remainder(self):
         self.client.force_login(self.admin)

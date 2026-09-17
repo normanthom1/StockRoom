@@ -126,6 +126,13 @@ def arriving_text(expected, today):
 CONFIDENCE_LABEL = {"low": "Low confidence", "high": "Confident"}
 
 
+def part_delivered_text(remainder_line):
+    """For an open back-order split off a partial delivery: "3 of 5 arrived,
+    2 still coming". remainder_line.split_from is the closed original line."""
+    original = remainder_line.split_from
+    return f"{original.received_qty} of {original.qty} arrived, {remainder_line.qty} still coming"
+
+
 def build_sentence(item, f, today):
     """The item detail page's plain-language forecast summary, e.g.
     "You use ~12 boxes a week. There are 18 boxes. Henry Schein takes

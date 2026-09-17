@@ -27,6 +27,18 @@
     <p class="border border-dashed border-status-week px-3 py-2.5 text-sm leading-relaxed text-status-week">{{ caveat }}</p>
   {% endif %}
 
+  {% if orders %}
+    <section class="border-t border-gray-300 pt-4" aria-labelledby="orders-heading">
+      <h2 id="orders-heading" class="kicker mb-2 font-sans">On order</h2>
+      {% for row in orders %}
+        <div class="flex items-start gap-3 {% if not forloop.first %}mt-2 border-t border-gray-200 pt-2{% endif %}">
+          {% if row.order.split_from_id %}<span class="chip border-status-week text-status-week shrink-0">Part delivered</span>{% endif %}
+          <span class="min-w-0 flex-1 text-sm text-gray-600">{{ row.text }}</span>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
   {% if user.is_org_admin %}
     <div class="flex flex-col gap-4 border-t border-gray-300 pt-4">
       <form method="post" action="{% url 'stock:item_set_price' item.pk %}" class="flex items-end gap-2.5">

@@ -114,6 +114,11 @@ class OrderLine(OrgOwned):
     cancelled_at = models.DateTimeField(null=True, blank=True)
     # The practice's order number as the supplier quotes it back on the invoice.
     order_ref = models.CharField(max_length=64, blank=True)
+    # The line a partial receipt split this back-order off from, so the item
+    # and Deliveries pages can say "3 of 5 arrived, 2 still coming".
+    split_from = models.OneToOneField(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="remainder"
+    )
 
     def __str__(self):
         return f"{self.qty} × {self.item}"
@@ -158,6 +163,8 @@ class OrderLine(OrgOwned):
                 ordered_by=self.ordered_by,
                 ordered_at=self.ordered_at,
                 expected_at=self.expected_at,
+                order_ref=self.order_ref,
+                split_from=self,
             )
 
 
