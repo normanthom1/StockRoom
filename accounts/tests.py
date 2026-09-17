@@ -77,7 +77,8 @@ class AuthFlowTests(TestCase):
 
     def test_signup_creates_the_practice_login_and_its_first_manager(self):
         response = self.client.post("/accounts/signup/", self.signup_data)
-        self.assertRedirects(response, "/")
+        # Into the setup checklist: a brand new practice has nothing for Home to show.
+        self.assertRedirects(response, "/setup/")
         practice = User.objects.get(email="reception@kowhai.test")
         self.assertTrue(practice.is_practice_login)
         self.assertEqual(practice.organisation.name, "Kowhai Dental")

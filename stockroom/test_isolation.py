@@ -203,6 +203,10 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:invoice_order_search"),
     Case("stock:invoice_line_receive", make=make_invoice_line, method="post"),
     Case("stock:invoice_undo", make=make_invoice, method="post"),
+    Case("stock:setup"),
+    Case("stock:setup_skip", method="post"),
+    Case("stock:setup_draft"),
+    Case("stock:setup_draft_confirm", method="post"),
 ]
 
 # Pages an assistant can open. None of them may show a price.

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Check your draft stock list · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Check your draft stock list</h1>
+
+{% if drafts %}
+  <p class="mb-4 text-sm leading-relaxed text-gray-600">This is what {{ invoice_count }} invoice{{ invoice_count|pluralize }} say you order. Fix anything that reads badly, untick what you don't keep on the shelf, and set what's on hand today. Nothing is added until you tap Add these items.</p>
+
+  {% partialdef row %}
+    <div class="flex items-stretch border-b border-gray-300">
+      <span class="w-[5px] shrink-0 {% if d.is_regular %}bg-primary{% else %}bg-gray-300{% endif %}"></span>
+      <div class="flex min-w-0 flex-1 flex-col gap-2 py-3 pr-4 pl-3">
+        <input type="hidden" name="key_{{ d.index }}" value="{{ d.key }}">
+
+        <label class="flex min-h-12 items-center gap-3 text-[0.8125rem] text-gray-600">
+          <input type="checkbox" name="pick_{{ d.index }}" value="1" class="size-6 shrink-0"{% if d.is_regular %} checked{% endif %}>
+          <span>Bought {{ d.times }} time{{ d.times|pluralize }}{% if d.last_seen %}, last on {{ d.last_seen|date:"j M Y" }}{% endif %}{% if d.total_qty %} &middot; {{ d.total_qty }} in total{% endif %}</span>
+        </label>
+
+        <label class="sr-only" for="name_{{ d.index }}">Item name</label>
+        <input id="name_{{ d.index }}" type="text" name="name_{{ d.index }}" value="{{ d.name }}" maxlength="200"
+               class="w-full font-heading text-[1.0625rem] font-semibold">
+
+        <div class="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+          <label class="sr-only" for="supplier_{{ d.index }}">Supplier</label>
+          <input id="supplier_{{ d.index }}" type="text" name="supplier_{{ d.index }}" value="{{ d.supplier_name }}"
+                 list="supplier-names" maxlength="200" placeholder="Supplier" class="min-w-44 flex-1">
+          <label class="sr-only" for="unit_{{ d.index }}">Counted in</label>
+          <input id="unit_{{ d.index }}" type="text" name="unit_{{ d.index }}" value="{{ d.unit }}"
+                 list="unit-names" maxlength="50" class="w-28" placeholder="box">
+        </div>
+
+        {# One number per line, so nothing wraps at 390px and the boxes line up row to row. #}
+        <div class="flex items-center gap-2.5">
+          <label class="sr-only" for="price_{{ d.index }}">Price each</label>
+          <input id="price_{{ d.index }}" type="number" inputmode="decimal" step="0.01" min="0"
+                 name="price_{{ d.index }}" value="{{ d.price|default_if_none:'' }}" class="w-24 text-center">
+          <span class="text-sm text-gray-600">$ each</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <label class="sr-only" for="order_size_{{ d.index }}">How many you order at a time</label>
+          <input id="order_size_{{ d.index }}" type="number" inputmode="numeric" min="1"
+                 name="order_size_{{ d.index }}" value="{{ d.order_size|default_if_none:'' }}" class="w-24 text-center">
+          <span class="text-sm text-gray-600">{{ d.unit }}{{ d.order_size|pluralize }} per order</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <label class="sr-only" for="on_hand_{{ d.index }}">On the shelf now</label>
+          <input id="on_hand_{{ d.index }}" type="number" inputmode="numeric" min="0"
+                 name="on_hand_{{ d.index }}" value="{{ d.on_hand|default_if_none:'' }}" class="w-24 text-center">
+          <span class="text-sm text-gray-600">on the shelf now{% if d.on_hand is not None %}, we think{% endif %}</span>
+        </div>
+      </div>
+    </div>
+  {% endpartialdef %}
+
+  <form method="post" action="{% url 'stock:setup_draft_confirm' %}" data-disable-on-submit>
+    {% csrf_token %}
+    <datalist id="supplier-names">
+      {% for supplier in suppliers %}<option value="{{ supplier.name }}"></option>{% endfor %}
+    </datalist>
+    <datalist id="unit-names">
+      <option value="box"></option><option value="pack"></option><option value="bottle"></option>
+      <option value="syringe"></option><option value="cartridge"></option><option value="tub"></option>
+      <option value="roll"></option><option value="tube"></option><option value="kit"></option>
+    </datalist>
+
+    {% if regular %}
+      <h2 class="mb-2 border-b border-gray-300 pb-1">You order these regularly</h2>
+      <p class="mb-2 text-sm text-gray-600">Bought more than once, so they're ticked already.</p>
+      <div class="-mx-4 border-t border-gray-300">
+        {% for d in regular %}{% partial row %}{% endfor %}
+      </div>
+    {% endif %}
+
+    {% if one_offs %}
+      <details class="mt-6 -mx-4 border-t border-gray-300">
+        <summary class="flex min-h-14 cursor-pointer items-center gap-2 px-4 py-3 text-left font-medium text-gray-700">
+          {{ one_offs|length }} bought only once, left unticked
+        </summary>
+        <p class="px-4 pb-2 text-sm text-gray-600">A one-off purchase usually isn't stock you keep. Tick any that are.</p>
+        <div class="border-t border-gray-300">
+          {% for d in one_offs %}{% partial row %}{% endfor %}
+        </div>
+      </details>
+    {% endif %}
+
+    <div class="mt-6 flex flex-col gap-2.5">
+      <button type="submit" class="btn-primary">Add these items</button>
+      <a href="{% url 'stock:setup' %}" class="btn btn-line">Back to setup</a>
+      <p class="hidden text-sm text-gray-600 [button:disabled~&]:block" role="status">Adding your items…</p>
+    </div>
+  </form>
+{% else %}
+  <div class="blueprint mt-2 flex flex-col gap-3 p-5 text-center">
+    <p class="text-gray-700">Nothing to check. Every product on your invoices is already one of your items, so there's no draft waiting.</p>
+    <a href="{% url 'stock:invoice_upload' %}" class="btn-primary">Upload more invoices</a>
+    <a href="{% url 'stock:setup' %}" class="link self-center">Back to setup</a>
+  </div>
+{% endif %}
+{% endblock %}

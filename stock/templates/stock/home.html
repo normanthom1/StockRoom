@@ -38,9 +38,9 @@
   </div>
 {% elif not fine_rows and user.is_org_admin %}
   <div class="blueprint mt-2 mb-4 flex flex-col gap-3 p-5 text-center">
-    <p class="text-gray-700">No stock yet. Pick what you order from the catalogue, or bring in your own list{% if ai_enabled %} (paste it, or take a photo of an invoice){% endif %}.</p>
-    <a href="{% url 'stock:catalogue' %}" class="btn-primary">Get started: pick your stock</a>
-    <a href="{% url 'stock:item_import' %}" class="link self-center">Bring in your own list</a>
+    <p class="text-gray-700">No stock yet.{% if ai_enabled %} The quickest way in is a batch of invoices: StockRoom drafts your stock list, suppliers and prices off them.{% else %} Pick what you order from the catalogue, or bring in your own list.{% endif %}</p>
+    <a href="{% url 'stock:setup' %}" class="btn-primary">Get started: set up your practice</a>
+    <a href="{% url 'stock:catalogue' %}" class="link self-center">Or pick from the catalogue</a>
   </div>
 {% else %}
   <p class="blueprint mt-2 mb-4 p-5 text-center text-gray-600">Nothing needs ordering right now.</p>

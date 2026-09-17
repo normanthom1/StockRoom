@@ -23,6 +23,9 @@ class Organisation(models.Model):
     timezone = models.CharField(max_length=64, default="Pacific/Auckland", validators=[validate_timezone])
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # When the practice finished (or skipped) the setup checklist, which is what
+    # takes "Set up" out of the nav. Null means it's still worth showing.
+    setup_dismissed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.name

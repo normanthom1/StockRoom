@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Set up your practice · StockRoom{% endblock %}
+
+{% block content %}
+<h1 class="mb-1">Set up your practice</h1>
+<p class="mb-4 text-sm text-gray-600">Four things to do once. The quickest way through is a batch of invoices: StockRoom reads your stock list, suppliers and prices straight off them.</p>
+
+<div class="mb-6">
+  <div class="mb-1.5 flex items-baseline justify-between gap-3">
+    <span class="kicker">{{ done_count }} of {{ steps|length }} done</span>
+    {% if next_step %}<span class="text-sm text-gray-600">Next: {{ next_step.title|lower }}</span>{% endif %}
+  </div>
+  <progress class="bar" value="{{ done_count }}" max="{{ steps|length }}"
+            aria-label="{{ done_count }} of {{ steps|length }} setup steps done"></progress>
+</div>
+
+<ol class="-mx-4 border-t border-gray-300">
+  {% for step in steps %}
+    <li class="flex items-stretch border-b border-gray-300 {% if step == next_step %}bg-primary-tint/40{% endif %}">
+      <span class="w-[5px] shrink-0 {% if step.done %}bg-status-ok{% elif step == next_step %}bg-primary{% else %}bg-gray-300{% endif %}"></span>
+      <div class="flex min-w-0 flex-1 flex-col gap-2 py-4 pr-4 pl-3">
+        <span class="flex items-baseline gap-3">
+          <span class="min-w-0 flex-1 font-heading text-xl leading-tight font-semibold text-gray-900">
+            {{ forloop.counter }}. {{ step.title }}
+          </span>
+          {% if step.done %}
+            <span class="chip shrink-0 border-status-ok text-status-ok">Done</span>
+          {% elif step.waiting %}
+            <span class="chip shrink-0 border-status-week text-status-week">{{ step.waiting }} waiting</span>
+          {% endif %}
+        </span>
+        <span class="text-[0.8125rem] leading-snug text-gray-600">{{ step.blurb }}</span>
+        {% if step == next_step %}
+          <a href="{% url step.url %}" class="btn-primary mt-1">{{ step.cta }}</a>
+        {% elif not step.done %}
+          <a href="{% url step.url %}" class="btn btn-line mt-1 self-start">{{ step.cta }}</a>
+        {% endif %}
+      </div>
+    </li>
+  {% endfor %}
+</ol>
+
+<div class="blueprint mt-6 p-4">
+  <p class="kicker mb-1.5 text-primary-dark">No invoices handy?</p>
+  <p class="mb-3 text-sm leading-relaxed text-gray-700">You can pick what you stock from the shared catalogue of products NZ practices order, or bring in a list you already keep as a CSV. Prices and counts can come later.</p>
+  <div class="flex flex-wrap gap-2.5">
+    <a href="{% url 'stock:catalogue' %}" class="btn btn-tonal">Pick from the catalogue</a>
+    <a href="{% url 'stock:item_import' %}" class="btn btn-line">Bring in a list</a>
+  </div>
+</div>
+
+<form method="post" action="{% url 'stock:setup_skip' %}" class="mt-6 text-center">
+  {% csrf_token %}
+  <button type="submit" class="link min-h-12">I'll finish this later, put it away</button>
+</form>
+{% endblock %}

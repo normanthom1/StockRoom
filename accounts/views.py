@@ -56,7 +56,8 @@ def signup(request):
     if request.method == "POST" and form.is_valid():
         practice, manager = form.save()
         switch_to(request, manager, practice)
-        return redirect(settings.LOGIN_REDIRECT_URL)
+        # Straight into setup: a brand new practice has nothing for Home to show.
+        return redirect("stock:setup")
     return render(request, "registration/signup.html", {"form": form})
 
 
