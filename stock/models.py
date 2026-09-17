@@ -252,6 +252,15 @@ class InvoiceLine(OrgOwned):
     order_line = models.ForeignKey(
         OrderLine, on_delete=models.PROTECT, null=True, blank=True, related_name="invoice_lines"
     )
+    # Set instead of order_line when it went straight onto the shelf without an
+    # order - a receipt, or something ordered outside StockRoom. Also set once.
+    stock_event = models.ForeignKey(
+        StockEvent, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+
+    @property
+    def is_received(self):
+        return bool(self.order_line_id or self.stock_event_id)
 
     def __str__(self):
         return f"{self.qty} × {self.description or self.sku}"

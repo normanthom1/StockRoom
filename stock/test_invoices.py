@@ -370,3 +370,39 @@ Henry Schein,PO-9,INV-2,HS-GLV-M,Medium nitrile exam gloves,4,8.50
         invoice = self.upload(b"vendor,description,qty,unit\nHenry Schein,Patient bibs,4,1.00\nHenry Schein,Gloves,1,8.50\n")
         self.assertEqual(invoice.status, Invoice.Status.PARTIAL)
         self.assertEqual(StockEvent.objects.filter(kind="received").count(), 1)
+
+    def test_a_line_with_nothing_on_order_can_be_added_straight_to_stock_and_undone(self):
+        """A receipt, or anything ordered outside StockRoom: the line goes onto
+        the shelf without an order, takes the invoice's price, and Undo puts both back."""
+        self.gloves.price = Decimal("8.00")
+        self.gloves.save(update_fields=["price"])
+        invoice = self.upload(b"vendor,description,qty,unit\nHenry Schein,Nitrile gloves size M,3,9.25\n")
+        line = invoice.lines.get()
+        self.assertEqual((invoice.status, line.item, line.is_received), (Invoice.Status.PARSED, self.gloves, False))
+
+        self.client.force_login(self.admin)
+        self.assertRedirects(self.client.post(f"/invoices/line/{line.pk}/receive/", {"to_stock": "1"}),
+                             f"/invoices/{invoice.pk}/")
+        line.refresh_from_db()
+        invoice.refresh_from_db()
+        self.gloves.refresh_from_db()
+        self.assertEqual((invoice.status, line.order_line_id, self.gloves.price),
+                         (Invoice.Status.COMPLETE, None, Decimal("9.25")))
+        self.assertEqual(StockEvent.objects.filter(kind="received").values_list("item", "qty").get(),
+                         (self.gloves.pk, 3))
+
+        self.client.post(f"/invoices/{invoice.pk}/undo/")
+        line.refresh_from_db()
+        invoice.refresh_from_db()
+        self.gloves.refresh_from_db()
+        self.assertEqual((invoice.status, line.stock_event_id, self.gloves.price),
+                         (Invoice.Status.PARSED, None, Decimal("8.00")))
+        self.assertFalse(StockEvent.objects.filter(kind="received").exists())
+
+    def test_a_line_already_on_the_shelf_is_not_added_twice(self):
+        invoice = self.upload(b"vendor,description,qty,unit\nHenry Schein,Nitrile gloves size M,3,9.25\n")
+        line = invoice.lines.get()
+        self.client.force_login(self.admin)
+        for _ in range(2):
+            self.client.post(f"/invoices/line/{line.pk}/receive/", {"to_stock": "1"})
+        self.assertEqual(StockEvent.objects.filter(kind="received").count(), 1)

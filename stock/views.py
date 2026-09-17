@@ -1151,7 +1151,7 @@ def invoice_confirm(request):
     org = request.user.organisation
     pending = request.session.pop("pending_invoice", None)
     if not pending:
-        messages.error(request, "Nothing to import. Upload an invoice first.")
+        messages.error(request, "Nothing to import. Upload an invoice or receipt first.")
         return redirect("stock:invoice_upload")
 
     invoice, force_reason = Invoice(organisation=org), ""
@@ -1202,7 +1202,7 @@ def invoice_confirm(request):
     elif invoice.status == Invoice.Status.PARTIAL:
         messages.success(request, f"Received {received} of {len(lines)} lines.", extra_tags=undo_url)
     elif invoice.status == Invoice.Status.PARSED:  # an ignored repeat says so on its own page
-        messages.success(request, "Invoice added. Nothing on it matched what's on order.")
+        messages.success(request, "Invoice added. Nothing on it matched what's on order, so add the lines to stock below.")
     return redirect("stock:invoice_detail", invoice.pk)
 
 
@@ -1218,14 +1218,21 @@ def invoice_order_search(request):
 @require_POST
 @admin_required
 def invoice_line_receive(request, pk):
-    """Match a saved invoice's line to something on order, and receive it there and then."""
+    """Receive a saved invoice's line: against something on order, or straight
+    onto the shelf (to_stock) when it wasn't ordered through StockRoom."""
     org = request.user.organisation
-    line = get_object_or_404(InvoiceLine.objects.for_org(org).select_related("invoice"), pk=pk)
+    line = get_object_or_404(InvoiceLine.objects.for_org(org).select_related("invoice", "item"), pk=pk)
     invoice = line.invoice
-    line.order = _open_lines_for_org(org).filter(pk=_id(request.POST.get(f"order_{pk}")), supplier=invoice.supplier_id).first()
-    if line.order and not line.order_line_id and invoice.status in RECEIVABLE:
-        invoices.receive(invoice, [line], request.user)
-    if line.order_line_id:
+    open_to_receive = invoice.status in RECEIVABLE and not line.is_received
+    if request.POST.get("to_stock"):
+        if open_to_receive and line.item and line.qty:
+            invoices.receive_to_stock(invoice, line, request.user)
+    else:
+        line.order = _open_lines_for_org(org).filter(pk=_id(request.POST.get(f"order_{pk}")),
+                                                     supplier=invoice.supplier_id).first()
+        if line.order and open_to_receive:
+            invoices.receive(invoice, [line], request.user)
+    if line.is_received:
         undo_url = reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
         messages.success(request, f"Received {format_qty(line.qty, line.item.unit)} of {line.item.name}.",
                          extra_tags=undo_url)
@@ -1260,8 +1267,9 @@ def invoice_detail(request, pk):
     receivable = invoice.status in RECEIVABLE and invoice.supplier_id
     return render(request, "stock/invoice_detail.html", {
         "invoice": invoice,
-        "received": [line for line in lines if line.order_line_id],
-        "not_received": [line for line in lines if not line.order_line_id],
+        "receivable": bool(receivable),
+        "received": [line for line in lines if line.is_received],
+        "not_received": [line for line in lines if not line.is_received],
         "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier) if receivable else None,
         "original": invoices.find_original(invoice) if invoice.status == Invoice.Status.IGNORED else None,
     })

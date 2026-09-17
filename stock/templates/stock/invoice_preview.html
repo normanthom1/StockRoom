@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% load stock_units %}
 
-{% block title %}Invoice preview · StockRoom{% endblock %}
+{% block title %}Invoice or receipt preview · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-1">Invoice preview</h1>
-<p class="mb-4 text-sm text-gray-600">{{ invoice.supplier_name|default:"No supplier shown" }}{% if invoice.invoice_number %} &middot; Invoice {{ invoice.invoice_number }}{% endif %}{% if invoice.issued_on %} &middot; {{ invoice.issued_on }}{% endif %}. Check the lines below, then confirm. Nothing is saved yet.</p>
+<h1 class="mb-1">Invoice or receipt preview</h1>
+<p class="mb-4 text-sm text-gray-600">{{ invoice.supplier_name|default:"No supplier shown" }}{% if invoice.invoice_number %} &middot; Invoice {{ invoice.invoice_number }}{% endif %}{% if invoice.issued_on %} &middot; {{ invoice.issued_on }}{% endif %}. Check the lines below, then confirm. Confirming ticks off what's on order, adds it to stock and updates prices. Nothing is saved yet.</p>
 
 {% if not invoice.totals_ok %}
   <p class="mb-4 border border-dashed border-status-week px-3 py-2.5 text-sm leading-relaxed text-status-week">Some lines don't add up. Check the quantity, price and line total below. If they still don't, it's saved as needing a check.</p>
@@ -58,7 +58,7 @@
           <label><input type="radio" name="same_{{ line.index }}" value="" checked> Not matched</label>
         </fieldset>
       {% else %}
-        <span class="text-sm text-gray-600">No matching item</span>
+        <span class="text-sm text-gray-600">No item in StockRoom matches this, so it won't change your stock. Add it on the Items page, then check this invoice again.</span>
       {% endif %}
       {% if invoice.supplier %}
         <span class="text-sm text-gray-600">{% if open_orders %}Not matched to anything on order{% else %}Nothing on order from {{ invoice.supplier.name }} to match it to{% endif %}</span>
@@ -95,7 +95,7 @@
     <details class="border-t border-gray-300">
       <summary class="flex min-h-12 cursor-pointer items-center gap-2 border-b border-gray-200">
         <span class="font-heading text-lg font-semibold text-status-ok">{{ matched|length }} matched</span>
-        <span class="text-sm text-gray-600">received when you confirm</span>
+        <span class="text-sm text-gray-600">received and priced when you confirm</span>
       </summary>
       {% for line in matched %}{% partial line %}{% endfor %}
     </details>
@@ -105,7 +105,7 @@
   </div>
 
   <div class="flex gap-2.5">
-    <button type="submit" class="btn-primary">{% if force_reasons %}Import anyway{% else %}Confirm invoice{% endif %}</button>
+    <button type="submit" class="btn-primary">{% if force_reasons %}Import anyway{% else %}Confirm{% endif %}</button>
     <a href="{% if invoice.pk %}{% url 'stock:invoice_detail' invoice.pk %}{% else %}{% url 'stock:invoice_upload' %}{% endif %}" class="btn btn-line">Cancel</a>
   </div>
 </form>

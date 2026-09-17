@@ -162,7 +162,7 @@ def invoice_upload(request):
     A repeat of one already imported is saved as ignored and says so instead."""
     upload = request.FILES.get("invoice_file")
     if not upload:
-        messages.error(request, "Choose an invoice first.")
+        messages.error(request, "Choose an invoice or receipt first.")
         return redirect("stock:invoice_upload")
     mime_type = upload.content_type or ""
     is_csv = mime_type in invoices.CSV_TYPES

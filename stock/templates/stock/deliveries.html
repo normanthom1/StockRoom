@@ -8,7 +8,7 @@
 <p class="mb-3 text-sm text-gray-600">Tick off what arrives. Change the number if only part of an order came.</p>
 
 {% if can_edit_price and ai_enabled %}
-  <a href="{% url 'stock:invoice_upload' %}" class="btn btn-tonal mb-5">Upload an invoice</a>
+  <a href="{% url 'stock:invoice_upload' %}" class="btn btn-tonal mb-5">Upload an invoice or receipt</a>
 {% endif %}
 
 {% if not groups %}
