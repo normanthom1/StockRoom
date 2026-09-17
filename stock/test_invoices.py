@@ -83,6 +83,53 @@ class ParseInvoiceTests(TestCase):
         generate.assert_not_called()
         self.assertParsed(invoice, lines)
 
+    def test_gemini_labels_decide_what_is_a_product_not_the_wording(self):
+        """The two cases the word match gets wrong: a product whose name starts
+        with "Total", and freight carrying a product code (issue #106)."""
+        reply = {**AI_REPLY, "lines": [
+            {"kind": "product", "sku": "", "description": "Total Etch", "qty": 1, "unit": 32.0, "line_total": 32.0},
+            {"kind": "freight", "sku": "90001", "description": "Freight", "qty": 1, "unit": 12.0, "line_total": 12.0},
+            {"kind": "gst", "description": "GST 15%", "line_total": 6.6},
+        ]}
+        with mock.patch("assistant.gemini.generate", return_value=reply):
+            _, lines = parse_invoice(self.org, b"x", "application/pdf")
+
+        self.assertEqual([line.description for line in lines], ["Total Etch"])
+
+    def test_the_schema_and_prompt_ask_for_a_kind(self):
+        with mock.patch("assistant.gemini.generate", return_value=AI_REPLY) as generate:
+            parse_invoice(self.org, b"x", "application/pdf")
+        schema = generate.call_args.kwargs["schema"]
+        self.assertEqual(schema["properties"]["lines"]["items"]["properties"]["kind"]["enum"], list(invoices.LINE_KINDS))
+        self.assertIn("kind:", generate.call_args.args[0])
+
+    def test_a_csv_kind_column_is_used_and_needs_no_gemini_call(self):
+        csv = (b"sku,description,qty,unit,line_total,kind\n"
+               b",Total Etch,1,32.00,32.00,product\n"
+               b"90001,Freight,1,12.00,12.00,freight\n")
+        with mock.patch("assistant.gemini.generate") as generate:
+            _, lines = parse_invoice(self.org, csv, "text/csv")
+        generate.assert_not_called()
+        self.assertEqual([line.description for line in lines], ["Total Etch"])
+
+    def test_a_csv_without_a_kind_column_falls_back_to_the_word_match(self):
+        csv = (b"sku,description,qty,unit,line_total\n"
+               b"HS-GLV-M,Nitrile gloves,1,8.50,8.50\n"
+               b",Freight,1,12.00,12.00\n")
+        _, lines = parse_invoice(self.org, csv, "text/csv")
+        self.assertEqual([line.description for line in lines], ["Nitrile gloves"])
+
+    def test_an_unlabelled_line_falls_back_to_the_word_match(self):
+        """Gemini leaving kind off mustn't let GST through as a product."""
+        reply = {**AI_REPLY, "lines": [
+            {"sku": "HS-GLV-M", "description": "Nitrile gloves, size M", "qty": 1, "unit": 8.5, "line_total": 8.5},
+            {"description": "GST 15%", "line_total": 1.28},
+        ]}
+        with mock.patch("assistant.gemini.generate", return_value=reply):
+            _, lines = parse_invoice(self.org, b"x", "application/pdf")
+
+        self.assertEqual([line.description for line in lines], ["Nitrile gloves, size M"])
+
     def test_a_line_that_doesnt_add_up_is_a_conflict(self):
         reply = {**AI_REPLY, "lines": [{"sku": "HS-BIB", "description": "Patient bibs", "qty": 2, "unit": 24.95,
                                         "line_total": 49.92}]}
