@@ -303,7 +303,12 @@ def price_needs_confirming(current_price, new_price):
     return current_price is not None and new_price is not None and new_price > current_price * PRICE_RISE_THRESHOLD
 
 
-UNDO_WINDOW = timedelta(seconds=30)
+# The same window the rest of the app gives an undo (stock/views.py UNDO_WINDOW).
+# It used to be 30 seconds, which nobody could reach: the toast carrying the
+# Undo button hides itself after 6, and there was no other way to it. Confirming
+# an invoice receives stock and overwrites item prices, so it needs at least as
+# long to undo as marking one thing ordered does.
+UNDO_WINDOW = timedelta(minutes=10)
 
 
 def receive(invoice, lines, user):

@@ -376,13 +376,41 @@ class InvoiceUploadTests(Practice):
         self.assertEqual(invoice.status, Invoice.Status.PARSED)
 
     def test_undo_is_gone_after_the_window(self):
+        """UX-02. An expired window is an ordinary thing to hit, so it says so
+        on the invoice rather than throwing a 403 at the manager."""
         self.client.force_login(self.admin)
         self.upload()
         self.client.post("/invoices/confirm/", {})
         invoice = Invoice.objects.get()
         invoice.undo_until = timezone.now() - timedelta(seconds=1)
         invoice.save(update_fields=["undo_until"])
-        self.assertEqual(self.client.post(f"/invoices/{invoice.pk}/undo/").status_code, 403)
+
+        response = self.client.post(f"/invoices/{invoice.pk}/undo/", follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Too late to undo this import")
+        self.assertNotContains(response, "Undo this import")
+
+    def test_the_invoice_keeps_an_undo_button_after_the_toast_has_gone(self):
+        """UX-02. The toast carrying Undo hides itself after 6 seconds, so the
+        invoice page has to carry one too for as long as the window is open."""
+        self.client.force_login(self.admin)
+        self.upload()
+        self.client.post("/invoices/confirm/", {})
+        invoice = Invoice.objects.get()
+
+        response = self.client.get(f"/invoices/{invoice.pk}/")
+
+        self.assertContains(response, "Undo this import")
+        self.assertContains(response, f'hx-post="/invoices/{invoice.pk}/undo/"')
+
+    def test_the_undo_window_matches_the_rest_of_the_app(self):
+        """UX-02. Confirming an invoice receives stock and overwrites prices, so
+        it gets at least as long to undo as marking one thing ordered does."""
+        from stock import invoices as invoices_module
+        from stock import views as stock_views
+
+        self.assertGreaterEqual(invoices_module.UNDO_WINDOW, stock_views.UNDO_WINDOW)
 
     def test_unmatched_lines_can_be_left_or_matched_to_whats_on_order(self):
         clamps = Item.objects.create(organisation=self.org, name="Rubber dam clamps", unit="clamp", supplier=self.henry)

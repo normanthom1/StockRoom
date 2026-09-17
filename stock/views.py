@@ -1255,10 +1255,14 @@ def invoice_line_receive(request, pk):
 @admin_required
 def invoice_undo(request, pk):
     """Put a just-confirmed invoice back to how it was: no stock received, no
-    order lines touched, no item prices changed. Only within undo_until."""
+    order lines touched, no item prices changed. Only within undo_until.
+
+    An expired window is an ordinary thing to hit, not an attack, so it says so
+    on the invoice rather than throwing a 403 at the manager."""
     invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
     if not invoice.undo_snapshot or invoice.undo_until < timezone.now():
-        raise PermissionDenied
+        messages.error(request, "Too late to undo this import. Change what's wrong on the item or the order instead.")
+        return redirect("stock:invoice_detail", invoice.pk)
     invoices.undo_ingest(invoice)
     return _toast_response(request, "Undone.")
 
@@ -1278,6 +1282,9 @@ def invoice_detail(request, pk):
     return render(request, "stock/invoice_detail.html", {
         "invoice": invoice,
         "receivable": bool(receivable),
+        # The toast's Undo is gone in 6 seconds; this keeps it reachable for as
+        # long as the window is actually open.
+        "can_undo": bool(invoice.undo_snapshot) and invoice.undo_until > timezone.now(),
         "received": [line for line in lines if line.is_received],
         "not_received": [line for line in lines if not line.is_received],
         "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier) if receivable else None,
