@@ -793,34 +793,6 @@ def deliveries(request):
     return render(request, "stock/deliveries.html", context)
 
 
-def _receive_line(order, received_qty, user, unit_price=None):
-    """Receive part or all of an open order line. Any unreceived remainder
-    splits off into a new open line, so it stays tracked as back-ordered."""
-    remainder = order.qty - received_qty
-    order.received_qty = received_qty
-    order.received_at = timezone.now()
-    order.received_by = user
-    if unit_price is not None:
-        order.unit_price = unit_price
-        order.item.price = unit_price
-        order.item.save(update_fields=["price"])
-    order.save()
-    StockEvent.objects.create(
-        organisation=order.organisation, item=order.item, user=user, kind="received", qty=received_qty
-    )
-    if remainder > 0:
-        OrderLine.objects.create(
-            organisation=order.organisation,
-            item=order.item,
-            supplier=order.supplier,
-            qty=remainder,
-            unit_price=order.unit_price,
-            ordered_by=order.ordered_by,
-            ordered_at=order.ordered_at,
-            expected_at=order.expected_at,
-        )
-
-
 @require_POST
 def delivery_submit(request, pk):
     """One form per supplier: either one line's "Receive" button or the
@@ -853,7 +825,7 @@ def delivery_submit(request, pk):
                 except InvalidOperation:
                     pass
 
-        _receive_line(line, qty, request.user, unit_price)
+        line.receive(qty, request.user, unit_price)
         received += 1
 
     if received:
@@ -1055,34 +1027,57 @@ def invoice_upload(request):
     return render(request, "stock/invoice_upload.html")
 
 
+INVOICE_FIELDS = ("supplier_name", "order_ref", "invoice_number", "checksum", "source_name")
+# Invoices that changed nothing, so they can be checked and imported again.
+RECHECKABLE = [Invoice.Status.IGNORED, Invoice.Status.CONFLICT]
+# Why a manager imports a repeat anyway: picked, not typed.
+FORCE_REASONS = [
+    "It's a different invoice with the same number",
+    "The same order arrived twice",
+    "Something else",
+]
+
+
 def invoice_preview(request, invoice, lines):
-    """Check a parsed (unsaved) invoice and show what would be saved. Nothing
-    is written until invoice_confirm; also used by the invoice upload view
-    (assistant.views)."""
-    org = invoice.organisation
-    matches = Matcher(org).match_all([
-        {"name": line.description or line.sku, "sku": line.sku, "supplier": invoice.supplier, "price": line.unit_price}
-        for line in lines
-    ])
-    for index, (line, match) in enumerate(zip(lines, matches, strict=True)):
-        line.index, line.match = index, match
+    """Show a read invoice with its lines to check, and hold it in the session
+    until invoice_confirm. Used for a new upload (assistant.views) and for
+    checking a saved one again (invoice_check)."""
+    invoices.match_lines(invoice, lines)
+    for index, line in enumerate(lines):
+        line.index, line.adds_up = index, invoices.adds_up(line)
     request.session["pending_invoice"] = {
-        "supplier_name": invoice.supplier_name,
+        "invoice_id": invoice.pk,
         "supplier_id": invoice.supplier_id,
         "issued_on": invoice.issued_on.isoformat() if invoice.issued_on else None,
-        "order_ref": invoice.order_ref,
+        **{name: getattr(invoice, name) for name in INVOICE_FIELDS},
         "lines": [
             {
                 "sku": line.sku,
                 "description": line.description,
                 "qty": line.qty,
-                "unit_price": str(line.unit_price) if line.unit_price is not None else None,
+                "unit_price": _text_or_none(line.unit_price),
+                "line_total": _text_or_none(line.line_total),
                 "match": [line.match.item.pk, line.match.confidence, line.match.method] if line.match.item else None,
             }
             for line in lines
         ],
     }
-    return render(request, "stock/invoice_preview.html", {"invoice": invoice, "lines": lines})
+    repeat = invoice.status == Invoice.Status.IGNORED
+    return render(request, "stock/invoice_preview.html", {
+        "invoice": invoice,
+        "lines": lines,
+        "suppliers": Supplier.objects.for_org(invoice.organisation).filter(is_active=True).order_by("name"),
+        "force_reasons": FORCE_REASONS if repeat else None,
+        "original": invoices.find_original(invoice) if repeat else None,
+    })
+
+
+def _text_or_none(value):
+    return None if value is None else str(value)
+
+
+def _decimal_or_none(text):
+    return None if text is None else Decimal(text)
 
 
 def _edited_qty(raw, fallback):
@@ -1110,42 +1105,62 @@ def invoice_confirm(request):
         messages.error(request, "Nothing to import. Upload an invoice first.")
         return redirect("stock:invoice_upload")
 
-    supplier = Supplier.objects.for_org(org).filter(pk=pending["supplier_id"]).first() if pending["supplier_id"] else None
-    invoice = Invoice(
-        organisation=org,
-        supplier_name=pending["supplier_name"],
-        supplier=supplier,
-        issued_on=date.fromisoformat(pending["issued_on"]) if pending["issued_on"] else None,
-        order_ref=pending["order_ref"],
-    )
-    lines, merges = [], []
+    invoice, force_reason = Invoice(organisation=org), ""
+    if pending.get("invoice_id"):
+        invoice = Invoice.objects.for_org(org).filter(pk=pending["invoice_id"], status__in=RECHECKABLE).first()
+        if invoice is None:
+            messages.error(request, "That invoice has already been imported.")
+            return redirect("stock:invoice_detail", pending["invoice_id"])
+        if invoice.status == Invoice.Status.IGNORED:
+            force_reason = request.POST.get("force_reason", "")
+            if force_reason not in FORCE_REASONS:
+                messages.error(request, "Choose why you're importing it again.")
+                return redirect("stock:invoice_check", invoice.pk)
+    for name in INVOICE_FIELDS:
+        setattr(invoice, name, pending.get(name, ""))
+    invoice.issued_on = date.fromisoformat(pending["issued_on"]) if pending["issued_on"] else None
+    # A supplier picked in the preview, for an invoice from one StockRoom didn't recognise.
+    supplier_id = _id(request.POST.get("supplier")) or pending["supplier_id"]
+    invoice.supplier = Supplier.objects.for_org(org).filter(pk=supplier_id).first() if supplier_id else None
+
+    lines = []
     for index, row in enumerate(pending["lines"]):
         qty = _edited_qty(request.POST.get(f"qty_{index}"), row["qty"])
-        fallback_price = Decimal(row["unit_price"]) if row["unit_price"] is not None else None
-        unit_price = invoices.cents(_edited_price(request.POST.get(f"price_{index}"), fallback_price))
-        line_total = qty * unit_price if qty is not None and unit_price is not None else None
+        unit_price = invoices.cents(_edited_price(request.POST.get(f"price_{index}"), _decimal_or_none(row["unit_price"])))
+        line_total = invoices.cents(_edited_price(request.POST.get(f"total_{index}"),
+                                                  _decimal_or_none(row.get("line_total"))))
         line = InvoiceLine(organisation=org, sku=row["sku"], description=row["description"],
                            qty=qty, unit_price=unit_price, line_total=line_total)
         if row["match"]:
             pk, confidence, method = row["match"]
             match = Match(Item.objects.for_org(org).filter(pk=pk, is_active=True).first(), confidence, method)
             if match.item and (match.band == "sure" or request.POST.get(f"same_{index}")):
-                line.item = match.item
-                merges.append((match, row["description"] or row["sku"]))
+                line.item, line.match = match.item, match
         lines.append(line)
 
-    invoices.set_totals_ok(invoice, lines)
-    invoices.save_invoice(invoice, lines)
-    for match, name in merges:
-        record_merge(match, name=name, user=request.user, source=ItemAlias.Source.INVOICE, invoice=invoice)
-    messages.success(request, "Invoice added.")
+    invoice = invoices.ingest(invoice, lines, request.user, force_reason)
+    if invoice.status == Invoice.Status.CONFLICT:
+        messages.error(request, "Saved, but it needs checking before it counts.")
+    elif invoice.status != Invoice.Status.IGNORED:  # the invoice page says it was a repeat
+        messages.success(request, "Invoice added.")
     return redirect("stock:invoice_detail", invoice.pk)
+
+
+@admin_required
+def invoice_check(request, pk):
+    """A repeat to import anyway, or an invoice that needs checking, back in the preview."""
+    invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk, status__in=RECHECKABLE)
+    return invoice_preview(request, invoice, list(invoice.lines.order_by("pk")))
 
 
 @admin_required
 def invoice_detail(request, pk):
     invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
-    return render(request, "stock/invoice_detail.html", {"invoice": invoice, "lines": invoice.lines.order_by("pk")})
+    return render(request, "stock/invoice_detail.html", {
+        "invoice": invoice,
+        "lines": invoice.lines.select_related("item").order_by("pk"),
+        "original": invoices.find_original(invoice) if invoice.status == Invoice.Status.IGNORED else None,
+    })
 
 
 def _stocked_names(org):

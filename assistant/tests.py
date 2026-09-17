@@ -245,9 +245,64 @@ class InvoiceUploadTests(Practice):
     def test_editing_a_line_before_confirming_changes_what_is_saved(self):
         self.client.force_login(self.admin)
         self.upload()
-        self.client.post("/invoices/confirm/", {"qty_0": "3", "price_0": "8.50"})
-        line = Invoice.objects.get().lines.get()
-        self.assertEqual((line.qty, str(line.line_total)), (3, "25.50"))
+        self.client.post("/invoices/confirm/", {"qty_0": "3", "price_0": "9.00"})
+        invoice = Invoice.objects.get()
+        line = invoice.lines.get()
+        self.assertEqual((line.qty, str(line.unit_price), invoice.totals_ok), (3, "9.00", True))
+
+    def test_uploading_it_again_says_so_and_import_anyway_asks_why(self):
+        self.client.force_login(self.admin)
+        self.upload()
+        self.client.post("/invoices/confirm/", {})
+        response = self.upload(name="invoice (1).csv")
+        repeat = Invoice.objects.get(status=Invoice.Status.IGNORED)
+        self.assertRedirects(response, f"/invoices/{repeat.pk}/")
+        today = timezone.localdate()
+        page = self.client.get(f"/invoices/{repeat.pk}/")
+        self.assertContains(page, f"Already imported on {today.day} {today:%b} - nothing changed")
+        self.assertContains(page, f'href="/invoices/{repeat.pk}/check/"')
+
+        self.assertContains(self.client.get(f"/invoices/{repeat.pk}/check/"), "Why import it again?")
+        self.assertRedirects(self.client.post("/invoices/confirm/", {}), f"/invoices/{repeat.pk}/check/")
+        repeat.refresh_from_db()
+        self.assertEqual(repeat.status, Invoice.Status.IGNORED)
+
+        self.client.get(f"/invoices/{repeat.pk}/check/")
+        self.client.post("/invoices/confirm/", {"force_reason": "The same order arrived twice"})
+        repeat.refresh_from_db()
+        self.assertEqual((repeat.status, repeat.forced_by), (Invoice.Status.PARSED, self.admin))
+        self.assertContains(self.client.get(f"/invoices/{repeat.pk}/"),
+                            "Imported again by Sandy: The same order arrived twice")
+        self.assertEqual(self.client.get(f"/invoices/{repeat.pk}/check/").status_code, 404)  # not twice
+
+    def test_an_unknown_supplier_is_picked_from_the_practices_own(self):
+        theirs = Supplier.objects.create(organisation=Organisation.objects.create(name="Other"), name="Theirs")
+        self.client.force_login(self.admin)
+        response = self.upload(content=self.CSV.replace(b"Henry Schein", b"HS Dental"))
+        self.assertContains(response, 'No supplier called "HS Dental"')
+        self.client.post("/invoices/confirm/", {"supplier": theirs.pk})
+        invoice = Invoice.objects.get()
+        self.assertEqual((invoice.supplier, invoice.status), (None, Invoice.Status.CONFLICT))
+        self.assertContains(self.client.get(f"/invoices/{invoice.pk}/"), 'No supplier called "HS Dental"')
+
+        self.client.get(f"/invoices/{invoice.pk}/check/")
+        self.client.post("/invoices/confirm/", {"supplier": self.henry.pk})
+        invoice.refresh_from_db()
+        self.assertEqual((invoice.supplier, invoice.status, invoice.lines.count()), (self.henry, "parsed", 1))
+
+    def test_a_line_that_doesnt_add_up_is_saved_to_check_until_its_fixed(self):
+        csv = b"vendor,sku,description,qty,unit,line_total\nHenry Schein,,Gloves,2,8.50,25.50\n"
+        self.client.force_login(self.admin)
+        self.assertContains(self.upload(content=csv), "total: doesn't add up")
+        self.client.post("/invoices/confirm/", {"qty_0": "2", "price_0": "8.50", "total_0": "25.50"})
+        invoice = Invoice.objects.get()
+        self.assertEqual(invoice.status, Invoice.Status.CONFLICT)
+        self.assertContains(self.client.get(f"/invoices/{invoice.pk}/"), "Some lines don't add up")
+
+        self.client.get(f"/invoices/{invoice.pk}/check/")
+        self.client.post("/invoices/confirm/", {"qty_0": "3", "price_0": "8.50", "total_0": "25.50"})
+        invoice.refresh_from_db()
+        self.assertEqual((invoice.status, invoice.lines.get().qty), (Invoice.Status.PARSED, 3))
 
     def test_a_photo_is_sent_to_gemini(self):
         self.client.force_login(self.admin)

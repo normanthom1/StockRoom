@@ -265,23 +265,6 @@ def record_merge(match, *, name, user, source, invoice=None):
     return alias
 
 
-def match_invoice_lines(invoice, user):
-    """Match an invoice's unmatched lines to items. Sure matches are applied and
-    remembered; returns [(line, Match)] so the rest can be checked by hand."""
-    lines = list(invoice.lines.filter(item=None))
-    matches = Matcher(invoice.organisation).match_all([
-        {"name": line.description or line.sku, "sku": line.sku, "supplier": invoice.supplier, "price": line.unit_price}
-        for line in lines
-    ])
-    for line, match in zip(lines, matches, strict=True):
-        if match.band == "sure":
-            line.item = match.item
-            line.save(update_fields=["item"])
-            record_merge(match, name=line.description or line.sku, user=user, source=ItemAlias.Source.INVOICE,
-                         invoice=invoice)
-    return list(zip(lines, matches, strict=True))
-
-
 def undo_merge(alias, user):
     """That name isn't that item after all: stop matching it, and unmatch the
     invoice lines it matched. False if it's already undone or too old."""

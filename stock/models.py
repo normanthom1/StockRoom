@@ -122,12 +122,43 @@ class OrderLine(OrgOwned):
     def is_open(self):
         return self.received_at is None and self.cancelled_at is None
 
+    @property
+    def over_delivered(self):
+        return self.received_qty is not None and self.received_qty > self.qty
+
     def save(self, *args, **kwargs):
         if self.supplier_id is None:
             self.supplier = self.item.supplier
         if self.expected_at is None:
             self.expected_at = self.ordered_at + timedelta(days=self.supplier.lead_days)
         super().save(*args, **kwargs)
+
+    def receive(self, qty, user, unit_price=None):
+        """Receive this open line, from Deliveries or an invoice. Less than was
+        ordered splits the rest off into a new open line, so it stays tracked
+        as back-ordered. More is an over-delivery: all of it is received and
+        the line closes with received_qty above qty."""
+        remainder = self.qty - qty
+        self.received_qty = qty
+        self.received_at = timezone.now()
+        self.received_by = user
+        if unit_price is not None:
+            self.unit_price = unit_price
+            self.item.price = unit_price
+            self.item.save(update_fields=["price"])
+        self.save()
+        StockEvent.objects.create(organisation=self.organisation, item=self.item, user=user, kind="received", qty=qty)
+        if remainder > 0:
+            OrderLine.objects.create(
+                organisation=self.organisation,
+                item=self.item,
+                supplier=self.supplier,
+                qty=remainder,
+                unit_price=self.unit_price,
+                ordered_by=self.ordered_by,
+                ordered_at=self.ordered_at,
+                expected_at=self.expected_at,
+            )
 
 
 class Invoice(OrgOwned):
@@ -146,10 +177,39 @@ class Invoice(OrgOwned):
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, null=True, blank=True, related_name="invoices")
     issued_on = models.DateField(null=True, blank=True)
     order_ref = models.CharField(max_length=64, blank=True)
+    # The supplier's own number for it, which a re-scan or re-export keeps.
+    invoice_number = models.CharField(max_length=64, blank=True)
+    # SHA-256 of the file it was read from, and the file's name.
+    checksum = models.CharField(max_length=64, blank=True)
+    source_name = models.CharField(max_length=255, blank=True)
     # Every line's total is within 1c of qty x unit price.
     totals_ok = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=Status, default=Status.PARSED)
     created_at = models.DateTimeField(default=timezone.now)
+    # A repeat a manager imported anyway, and why.
+    forced_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    force_reason = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        # An invoice counts once: a repeat is saved as ignored, or forced. The
+        # database holds the line, so two uploads at once can't both get in.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organisation", "checksum"],
+                condition=~Q(checksum="") & ~Q(status="ignored") & Q(forced_by__isnull=True),
+                name="stock_invoice_file_once",
+            ),
+            models.UniqueConstraint(
+                "organisation",
+                "supplier",
+                Lower("invoice_number"),
+                condition=Q(supplier__isnull=False) & ~Q(invoice_number="") & ~Q(status="ignored")
+                & Q(forced_by__isnull=True),
+                name="stock_invoice_number_once_per_supplier",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.supplier_name or 'Invoice'} {self.issued_on or ''}".strip()

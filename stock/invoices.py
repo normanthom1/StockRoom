@@ -2,33 +2,41 @@
 
 Photos and PDFs go through Gemini; a CSV is read directly. Both come out in
 the same shape, keyed by MAPPING, so the checks below run once. Only the
-parsed lines are saved, never the file.
+parsed lines are saved, never the file. ingest() is the one way a read
+invoice is saved, and where repeats and conflicts are settled.
 """
 
 import csv
+import hashlib
 import io
+import logging
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 from assistant import gemini
 
-from .models import Invoice, InvoiceLine, Supplier
+from .matching import Matcher, record_merge
+from .models import Invoice, InvoiceLine, ItemAlias, Supplier
+
+logger = logging.getLogger(__name__)
 
 # Invoice field name -> ours. A CSV can use either name as its header.
 MAPPING = {
     "invoice_date": "date",
     "vendor": "supplier",
     "po_number": "order_id",
+    "invoice_number": "invoice_number",
     "sku": "sku",
     "description": "description",
     "qty": "qty",
     "unit": "unit_price",
     "line_total": "line_total",
 }
-HEADER_FIELDS = ("date", "supplier", "order_id")
+HEADER_FIELDS = ("date", "supplier", "order_id", "invoice_number")
 CSV_TYPES = ("text/csv", "application/vnd.ms-excel")  # Excel on Windows labels CSVs as the latter
 ONE_CENT = Decimal("0.01")
 DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d %b %Y", "%d %B %Y")
@@ -42,6 +50,7 @@ INVOICE_RULES = """You read a supplier invoice for a New Zealand dental practice
 - invoice_date: the date it was issued, as YYYY-MM-DD. New Zealand writes dates day first.
 - vendor: the supplier that sent it. If it's one of this practice's suppliers, use that name exactly as written here: {suppliers}.
 - po_number: the practice's order or purchase order number, if shown.
+- invoice_number: the supplier's own number for this invoice, if shown. Not the order number.
 - lines: one per product, in order. Skip freight, GST, discounts, subtotals and totals.
 - sku: the supplier's product code. description: the product as written.
 - qty: how many were supplied. unit: the price for one. line_total: the line's amount.
@@ -54,6 +63,7 @@ INVOICE_SCHEMA = {
         "invoice_date": {"type": "STRING"},
         "vendor": {"type": "STRING"},
         "po_number": {"type": "STRING"},
+        "invoice_number": {"type": "STRING"},
         "lines": {
             "type": "ARRAY",
             "items": {
@@ -73,19 +83,39 @@ INVOICE_SCHEMA = {
 }
 
 
-def parse_invoice(organisation, data, mime_type):
-    """Read an invoice file into a saved Invoice with its product lines. It lands
-    as parsed when every line adds up, otherwise as a conflict. Neither the
-    invoice nor its lines are saved yet; save_invoice does that once a preview
-    is confirmed. Raises gemini.GeminiError if a photo or PDF can't be read,
-    and ValueError for any other kind of file."""
-    if mime_type in CSV_TYPES:
-        header, lines = _read_csv(data)
-    elif mime_type == "application/pdf" or mime_type.startswith("image/"):
-        header, lines = _read_with_ai(organisation, data, mime_type)
-    else:
+def parse_invoice(organisation, data, mime_type, source_name=""):
+    """Read an invoice file into an unsaved Invoice and its product lines, as
+    parsed when it passes check_invoice, otherwise as a conflict. ingest saves
+    them. A file read before gets that reading instead of another Gemini call.
+    Raises gemini.GeminiError if a photo or PDF can't be read, and ValueError
+    for any other kind of file."""
+    if not (mime_type in CSV_TYPES or mime_type == "application/pdf" or mime_type.startswith("image/")):
         raise ValueError(f"Can't read an invoice from {mime_type}.")
-    return _build(organisation, header, lines)
+    checksum = hashlib.sha256(data).hexdigest()
+    if earlier := _imported(organisation).filter(checksum=checksum).order_by("created_at").first():
+        invoice, lines = _copy(earlier)
+    elif mime_type in CSV_TYPES:
+        invoice, lines = _build(organisation, *_read_csv(data))
+    else:
+        invoice, lines = _build(organisation, *_read_with_ai(organisation, data, mime_type))
+    invoice.checksum, invoice.source_name = checksum, source_name[:255]
+    return invoice, lines
+
+
+def _imported(organisation):
+    return Invoice.objects.for_org(organisation).exclude(status=Invoice.Status.IGNORED)
+
+
+def _copy(earlier):
+    fields = ("supplier_name", "supplier", "issued_on", "order_ref", "invoice_number")
+    invoice = Invoice(organisation=earlier.organisation, **{name: getattr(earlier, name) for name in fields})
+    lines = [
+        InvoiceLine(organisation=line.organisation, sku=line.sku, description=line.description, qty=line.qty,
+                    unit_price=line.unit_price, line_total=line.line_total)
+        for line in earlier.lines.order_by("pk")
+    ]
+    check_invoice(invoice, lines)
+    return invoice, lines
 
 
 def _read_with_ai(organisation, data, mime_type):
@@ -95,7 +125,7 @@ def _read_with_ai(organisation, data, mime_type):
                             attachment=(mime_type, data))
     if not isinstance(reply, dict):
         reply = {}
-    header = {MAPPING[key]: reply.get(key) for key in ("invoice_date", "vendor", "po_number")}
+    header = {MAPPING[key]: reply.get(key) for key in ("invoice_date", "vendor", "po_number", "invoice_number")}
     lines = [_rename(line) for line in reply.get("lines") or [] if isinstance(line, dict)]
     return header, lines
 
@@ -122,8 +152,6 @@ def _build(organisation, header, raw_lines):
         qty, unit_price, line_total = _number(raw.get("qty")), _number(raw.get("unit_price")), _number(raw.get("line_total"))
         if qty is not None:
             qty = int(qty) if qty == qty.to_integral_value() and qty >= 0 else None
-        if line_total is None and qty is not None and unit_price is not None:
-            line_total = qty * unit_price
         lines.append(InvoiceLine(organisation=organisation, sku=sku, description=description, qty=qty,
                                  unit_price=unit_price, line_total=line_total))
 
@@ -134,32 +162,93 @@ def _build(organisation, header, raw_lines):
         supplier=Supplier.objects.for_org(organisation).filter(name__iexact=supplier_name).first() if supplier_name else None,
         issued_on=_date(header.get("date")),
         order_ref=_text(header.get("order_id"), 64),
+        invoice_number=_text(header.get("invoice_number"), 64),
     )
-    set_totals_ok(invoice, lines)
+    check_invoice(invoice, lines)
     for line in lines:  # checked above at full precision; stored to the cent
         line.unit_price = cents(line.unit_price)
         line.line_total = cents(line.line_total)
     return invoice, lines
 
 
-def set_totals_ok(invoice, lines):
-    """Every line's total must be within 1c of qty x unit price. Sets
-    Invoice.totals_ok and status; also used to re-check after an admin edits
-    a line's qty or unit price in the preview."""
-    invoice.totals_ok = bool(lines) and all(
-        None not in (line.qty, line.unit_price, line.line_total)
-        and abs(line.line_total - line.qty * line.unit_price) <= ONE_CENT
+def adds_up(line):
+    """It has a qty and unit price, and the line total, if the invoice shows one, is their product to the cent."""
+    return None not in (line.qty, line.unit_price) and (
+        line.line_total is None or abs(line.line_total - line.qty * line.unit_price) <= ONE_CENT)
+
+
+def check_invoice(invoice, lines):
+    """The conflicts that block a whole invoice: no supplier of the practice's,
+    or a line whose total isn't qty x unit price to the cent. Either lands it as
+    a conflict for someone to check. Sets totals_ok and status."""
+    invoice.totals_ok = bool(lines) and all(adds_up(line) for line in lines)
+    invoice.status = Invoice.Status.PARSED if invoice.totals_ok and invoice.supplier_id else Invoice.Status.CONFLICT
+
+
+def match_lines(invoice, lines):
+    """Suggest an item for every line (line.match) and apply the sure ones. A
+    line still without an item after this, or after a manager checks it, is
+    an unknown product: it's saved unmatched, for someone to match by hand."""
+    matches = Matcher(invoice.organisation).match_all([
+        {"name": line.description or line.sku, "sku": line.sku, "supplier": invoice.supplier, "price": line.unit_price}
         for line in lines
-    )
-    invoice.status = Invoice.Status.PARSED if invoice.totals_ok else Invoice.Status.CONFLICT
+    ])
+    for line, match in zip(lines, matches, strict=True):
+        line.match = match
+        if match.band == "sure":
+            line.item = match.item
+
+
+def find_original(invoice):
+    """The earlier invoice this one repeats: the same file, or the same number from the same supplier."""
+    same = Q(checksum=invoice.checksum) if invoice.checksum else Q(pk__in=[])
+    if invoice.supplier_id and invoice.invoice_number:
+        same |= Q(supplier_id=invoice.supplier_id, invoice_number__iexact=invoice.invoice_number)
+    return _imported(invoice.organisation).filter(same).exclude(pk=invoice.pk).order_by("created_at").first()
+
+
+def ingest(invoice, lines, user, force_reason=""):
+    """Save a read invoice, from an upload or a batch. A repeat of one imported
+    before is saved as ignored and changes nothing, unless a manager imports it
+    anyway (force_reason). Lines matched this time (line.match) are remembered
+    for next time. An invoice checked again (one with a pk) has its lines replaced."""
+    if force_reason:
+        invoice.forced_by, invoice.force_reason = user, force_reason
+    check_invoice(invoice, lines)
+    if not invoice.forced_by_id and find_original(invoice):
+        return _ignore(invoice, lines)
+    try:
+        with transaction.atomic():
+            save_invoice(invoice, lines)
+            for line in lines:
+                match = getattr(line, "match", None)
+                if line.item_id and match and match.item == line.item:
+                    record_merge(match, name=line.description or line.sku, user=user,
+                                 source=ItemAlias.Source.INVOICE, invoice=invoice)
+    except IntegrityError:
+        # Another upload of it got in between find_original and here.
+        if invoice.forced_by_id or not find_original(invoice):
+            raise
+        return _ignore(invoice, lines)
+    return invoice
+
+
+def _ignore(invoice, lines):
+    invoice.status = Invoice.Status.IGNORED
+    save_invoice(invoice, lines)
+    logger.info("Ignored a repeat invoice for organisation %s: %r, sha256 %s",
+                invoice.organisation_id, invoice.source_name, invoice.checksum)
+    return invoice
 
 
 def save_invoice(invoice, lines):
-    """Persist a built invoice and its lines in one transaction."""
+    """Persist an invoice and its lines in one transaction, replacing the lines it had."""
     with transaction.atomic():
+        if invoice.pk:
+            invoice.lines.all().delete()
         invoice.save()
         for line in lines:
-            line.invoice = invoice
+            line.pk, line.invoice = None, invoice
         InvoiceLine.objects.bulk_create(lines)
     return invoice
 
