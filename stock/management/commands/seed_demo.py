@@ -16,7 +16,15 @@ from django.utils import timezone
 
 from accounts.models import Organisation, User
 from stock.forecast import round_order_qty
-from stock.models import Invoice, InvoiceBatch, Item, OrderLine, StockEvent, Supplier
+from stock.models import (
+    Invoice,
+    InvoiceBatch,
+    InvoiceDocument,
+    Item,
+    OrderLine,
+    StockEvent,
+    Supplier,
+)
 from stockroom.demo import DEMO_EMAIL, DEMO_ORG, DEMO_PASSWORD
 
 WEEK = timedelta(weeks=1)
@@ -129,11 +137,13 @@ def command(reset):
         if not reset:
             raise click.ClickException(f'"{DEMO_ORG}" already exists. Re-run with --reset to recreate it.')
         with transaction.atomic():
-            # Deleted in dependency order: invoices protect their supplier, user
-            # and the orders they were received against, StockEvent/OrderLine
-            # protect their user, Item protects its supplier, and Organisation is
-            # protected by its users - a plain cascade from the org can't resolve that.
+            # Deleted in dependency order: documents protect the invoice they're
+            # the record for, invoices protect their supplier, user and the orders
+            # they were received against, StockEvent/OrderLine protect their user,
+            # Item protects its supplier, and Organisation is protected by its
+            # users - a plain cascade from the org can't resolve that.
             InvoiceBatch.objects.filter(organisation=existing).delete()
+            InvoiceDocument.objects.filter(organisation=existing).delete()
             Invoice.objects.filter(organisation=existing).delete()
             StockEvent.objects.filter(organisation=existing).delete()
             OrderLine.objects.filter(organisation=existing).delete()
