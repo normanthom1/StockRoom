@@ -12,7 +12,10 @@
   {% elif item.reorder_requested_by %}
     <span class="chip border-primary bg-primary-tint text-primary-dark">{{ item.reorder_requested_by.name }} asked for it</span>
   {% endif %}
-  <span class="chip {% if f.confidence == 'low' %}border-dashed border-status-week text-status-week{% else %}border-status-ok text-status-ok{% endif %}">{{ confidence_label }}</span>
+  <span class="flex items-center gap-1">
+    <span class="chip {% if f.confidence == 'low' %}border-dashed border-status-week text-status-week{% else %}border-status-ok text-status-ok{% endif %}">{{ confidence_label }}</span>
+    {% include "stock/_explain.html" with key="confidence" term=confidence_label body=confidence_help %}
+  </span>
   <span class="text-[0.8125rem] text-gray-600">{{ chart_history_text }}</span>
 </div>
 
@@ -54,7 +57,10 @@
       <form method="post" action="{% url 'stock:item_set_order_size' item.pk %}" class="flex items-end gap-2.5">
         {% csrf_token %}
         <div class="min-w-0 flex-1">
-          <label for="order_size">Standard order size ({{ item.unit|plural }})</label>
+          <span class="flex items-center gap-1">
+            <label for="order_size" class="mb-0">Standard order size ({{ item.unit|plural }})</label>
+            {% include "stock/_explain.html" with key="order-size" term="Standard order size" body=order_size_help %}
+          </span>
           <input id="order_size" type="number" inputmode="numeric" min="1" name="order_size"
                  value="{{ item.order_size|default_if_none:'' }}" placeholder="{{ f.order_qty }}">
         </div>

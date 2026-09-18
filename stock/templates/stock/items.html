@@ -11,7 +11,10 @@
   <a href="#add-item" class="btn btn-tonal">Add one yourself</a>
   <a href="{% url 'stock:stocktake_step' %}" class="btn btn-tonal">Start a full stocktake</a>
   <a href="{% url 'stock:item_import' %}" class="btn btn-tonal">{% if ai_enabled %}Import a list or photo{% else %}Import a CSV{% endif %}</a>
-  <a href="{% url 'stock:merges' %}" class="btn btn-tonal col-span-2">Check matched names</a>
+  <span class="col-span-2 flex items-center gap-2">
+    <a href="{% url 'stock:merges' %}" class="btn btn-tonal flex-1">Check matched names</a>
+    {% include "stock/_explain.html" with key="matched-names" term="Matched names" body=matched_names_help %}
+  </span>
 </div>
 
 <input type="search" name="q" aria-label="Search items" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none"
