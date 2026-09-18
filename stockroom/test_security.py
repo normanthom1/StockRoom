@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from django.conf import settings
-from django.test import SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 
 TEMPLATE_DIRS = [Path(settings.BASE_DIR) / "templates", *Path(settings.BASE_DIR).glob("*/templates")]
 # What a CSP with no 'unsafe-inline' blocks: inline <script>, on*= handlers, style="".
@@ -66,3 +66,31 @@ class ContentSecurityPolicyTests(TestCase):
                     if expression and not re.fullmatch(r"[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*", expression):
                         found.append(f"{path.relative_to(settings.BASE_DIR)}: {m.group(0).strip()}")
         self.assertEqual(found, [], "The CSP build of Alpine only reads names; add a method or getter in app.js.")
+
+
+class CsrfFailureTests(TestCase):
+    """A page's CSRF token goes stale the moment anyone enters a code on the
+    same shared device (accounts.middleware.switch_to logs the new person in,
+    and Django's own login() always rotates the token). That used to dead-end
+    the next form post - Logout included - in Django's raw 403 page."""
+
+    def setUp(self):
+        self.client = Client(enforce_csrf_checks=True)
+
+    def test_a_stale_token_redirects_back_instead_of_a_raw_403(self):
+        response = self.client.post(
+            "/accounts/logout/", {}, HTTP_REFERER="http://testserver/",
+        )
+        self.assertRedirects(response, "http://testserver/", fetch_redirect_response=False)
+        self.assertContains(
+            self.client.get("/accounts/login/"),
+            "someone else signed in on this device",
+        )
+
+    def test_a_forged_cross_site_referer_is_not_followed(self):
+        """The same failure view catches a genuine attack attempt, so it must
+        never hand the browser back to whatever site the forged POST came from."""
+        response = self.client.post(
+            "/accounts/logout/", {}, HTTP_REFERER="https://evil.test/",
+        )
+        self.assertRedirects(response, "/", fetch_redirect_response=False)
