@@ -1,10 +1,23 @@
-{# An invoice line to match by hand: key names the choice (order_<key>), orders are what's on order from supplier. #}
-<details class="mt-1">
-  <summary class="link cursor-pointer">Match to…</summary>
-  <label class="sr-only" for="search_{{ key }}">Search what's on order from {{ supplier.name }}</label>
-  <input id="search_{{ key }}" type="search" name="q" placeholder="Search what's on order" autocomplete="off" class="my-2 w-full"
-         hx-get="{% url 'stock:invoice_order_search' %}?supplier={{ supplier.pk }}&amp;key={{ key }}"
-         hx-trigger="input changed delay:300ms, search" hx-target="#orders_{{ key }}">
+{% comment %}
+An invoice line to match by hand: key names the choice (order_<key>), orders are
+what's on order from supplier.
+
+Open by default. A line only gets this control because nothing matched it
+automatically, so the one thing the manager is here to do is pick an order -
+making them tap "Match to..." first hid the options behind a step that had no
+other purpose.
+
+The search box only appears once there are more orders than anyone would read
+down. Below that it's clutter on a list you can already see all of.
+{% endcomment %}
+<details class="mt-1" open>
+  <summary class="link cursor-pointer">What did this arrive against?</summary>
+  {% if orders|length > 6 %}
+    <label class="sr-only" for="search_{{ key }}">Search what's on order from {{ supplier.name }}</label>
+    <input id="search_{{ key }}" type="search" name="q" placeholder="Search what's on order" autocomplete="off" class="my-2 w-full"
+           hx-get="{% url 'stock:invoice_order_search' %}?supplier={{ supplier.pk }}&amp;key={{ key }}"
+           hx-trigger="input changed delay:300ms, search" hx-target="#orders_{{ key }}">
+  {% endif %}
   <div id="orders_{{ key }}">{% include "stock/_order_choices.html" %}</div>
   {% if receive_button %}<button type="submit" class="btn btn-fill mt-2 w-full">Receive</button>{% endif %}
 </details>
