@@ -9,6 +9,60 @@
 {% partialdef files inline %}
 <div id="batch-files"{% if waiting %} hx-get="{% url 'stock:invoice_batch' batch.pk %}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
   <p class="kicker mb-2">{{ done }} of {{ files|length }} done</p>
+
+  {% if summary %}
+    {# A batch has no preview, so this is the review step: what the run changed. #}
+    <div class="blueprint mb-5 p-4">
+      <p class="kicker mb-2 text-primary-dark">What this changed</p>
+      <ul class="flex flex-col gap-1.5 text-sm leading-relaxed text-gray-700">
+        <li><span class="font-heading text-base font-semibold text-gray-900">{{ summary.received_lines }}</span> line{{ summary.received_lines|pluralize }} received onto your shelves{% if summary.received_units %}, {{ summary.received_units }} item{{ summary.received_units|pluralize }} in all{% endif %}</li>
+        {% if summary.held_prices %}
+          <li class="text-status-week"><span class="font-heading text-base font-semibold">{{ summary.held_prices|length }}</span> price{{ summary.held_prices|pluralize }} held back, listed below</li>
+        {% endif %}
+        {% if summary.repeats %}
+          <li><span class="font-heading text-base font-semibold text-gray-900">{{ summary.repeats }}</span> skipped as {{ summary.repeats|pluralize:"a repeat,repeats" }}, so nothing was counted twice</li>
+        {% endif %}
+        {% if summary.needs_checking %}
+          <li class="text-status-week"><span class="font-heading text-base font-semibold">{{ summary.needs_checking|length }}</span> need{{ summary.needs_checking|length|pluralize:"s," }} checking, so nothing was received off {{ summary.needs_checking|length|pluralize:"it,them" }}</li>
+        {% endif %}
+        {% if summary.failed %}
+          <li class="text-status-now"><span class="font-heading text-base font-semibold">{{ summary.failed|length }}</span> couldn't be read at all</li>
+        {% endif %}
+      </ul>
+      {% if summary.can_undo %}
+        <form method="post" action="{% url 'stock:invoice_batch_undo' batch.pk %}" class="mt-3" data-disable-on-submit>
+          {% csrf_token %}
+          <button type="submit" class="btn btn-line w-full">Undo this whole import</button>
+        </form>
+        <p class="mt-1.5 text-xs text-gray-600">Puts everything back: nothing received, your orders left open, every price as it was. You have until {{ summary.undo_until|date:"g:i a" }}</p>
+      {% endif %}
+    </div>
+
+    {% if summary.held_prices %}
+      <h2 class="mb-1">Prices worth a look</h2>
+      <p class="mb-2 text-sm leading-relaxed text-gray-600">These invoices asked a lot more than you're paying now, so StockRoom left your prices alone rather than trust a misread. Check against the paperwork, then use the new one if it's right.</p>
+      <div class="-mx-4 mb-6 border-t border-gray-300">
+        {% for line in summary.held_prices %}
+          <div class="flex items-stretch border-b border-gray-300">
+            <span class="w-[5px] shrink-0 bg-status-week"></span>
+            <div class="flex min-w-0 flex-1 flex-col gap-1.5 py-3.5 pr-4 pl-3">
+              <span class="font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ line.item.name }}</span>
+              <span class="text-[0.8125rem] leading-snug text-gray-600">
+                You pay ${{ line.item.price|floatformat:2 }} &middot; this invoice says ${{ line.unit_price|floatformat:2 }}
+                {% if line.invoice.supplier_name %}&middot; {{ line.invoice.supplier_name }}{% endif %}
+              </span>
+              <form method="post" action="{% url 'stock:invoice_line_price' line.pk %}" data-disable-on-submit>
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button type="submit" class="btn btn-line mt-1 w-full">Use ${{ line.unit_price|floatformat:2 }} from now on</button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endif %}
+
   <ul class="mb-6 border-t border-gray-300">
     {% for file in files %}
       <li class="flex min-h-12 items-center gap-3 border-b border-gray-200 py-2">

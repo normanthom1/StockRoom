@@ -1,12 +1,13 @@
 import hashlib
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest import mock
 
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 
 from accounts.models import Organisation, User
 from assistant import gemini
@@ -519,3 +520,130 @@ class FindingInvoicesTests(TestCase):
         self.assertContains(response, f'href="/invoices/{mine.pk}/"')
         self.assertNotContains(response, f'href="/invoices/{theirs.pk}/"')
         self.assertNotContains(response, "Someone Else")
+
+
+class BatchReviewTests(TestCase):
+    """UX-06. A batch has no preview: every file is read and ingested as it
+    arrives. The only feedback was a state chip per file, which says a file was
+    read but not what changed because of it - and a price the import quietly
+    held back was invisible, so the manager believed an item had been repriced
+    when it hadn't."""
+
+    def setUp(self):
+        self.org = Organisation.objects.create(name="Test Dental")
+        self.admin = User.objects.create_user("sandy@example.com", "pw", organisation=self.org,
+                                              role=User.Role.ADMIN)
+        self.supplier = Supplier.objects.create(organisation=self.org, name="Henry Schein")
+        self.gloves = Item.objects.create(organisation=self.org, name="Gloves", unit="box",
+                                          supplier=self.supplier, price=Decimal("8.50"))
+        StockEvent.objects.create(organisation=self.org, item=self.gloves, user=self.admin, kind="count", qty=5)
+        OrderLine.objects.create(organisation=self.org, item=self.gloves, supplier=self.supplier,
+                                 qty=10, ordered_by=self.admin, unit_price=Decimal("8.50"))
+        self.client.force_login(self.admin)
+
+    def run_files(self, *rows):
+        batch = InvoiceBatch.objects.create(organisation=self.org, created_by=self.admin)
+        InvoiceBatchFile.objects.bulk_create([
+            InvoiceBatchFile(organisation=self.org, batch=batch, name=name, data=data, content_type="text/csv")
+            for name, data in rows
+        ])
+        run_batch(batch)
+        return batch
+
+    @staticmethod
+    def csv(number, description="Gloves", qty=10, price="8.50", vendor="Henry Schein"):
+        return (f"INV-{number}.csv",
+                f"vendor,invoice_number,description,qty,unit\n{vendor},INV-{number},{description},{qty},{price}\n".encode())
+
+    def summary(self, batch):
+        return invoices.batch_summary(batch, list(batch.files.defer("data").order_by("pk")))
+
+    def test_the_batch_page_says_what_the_run_changed(self):
+        batch = self.run_files(self.csv(1), self.csv(1), self.csv(2, vendor="Nobody Ltd"))
+
+        response = self.client.get(f"/invoices/batch/{batch.pk}/")
+
+        self.assertContains(response, "What this changed")
+        self.assertContains(response, "received onto your shelves")
+        self.assertContains(response, "skipped as a repeat")
+        self.assertContains(response, "needs checking")
+
+    def test_a_big_price_rise_is_held_back_and_said_so(self):
+        batch = self.run_files(self.csv(1, price="25.50"))  # 3x what they pay
+
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("8.50"))  # held, as it always was
+        summary = self.summary(batch)
+        self.assertEqual(len(summary["held_prices"]), 1)
+
+        response = self.client.get(f"/invoices/batch/{batch.pk}/")
+        self.assertContains(response, "Prices worth a look")
+        self.assertContains(response, "this invoice says $25.50")
+
+    def test_the_held_price_can_be_used_after_the_fact(self):
+        batch = self.run_files(self.csv(1, price="25.50"))
+        line = self.summary(batch)["held_prices"][0]
+
+        self.client.post(f"/invoices/line/{line.pk}/price/", {"next": f"/invoices/batch/{batch.pk}/"})
+
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("25.50"))
+        # Once applied it is no longer waiting for a decision.
+        self.assertEqual(self.summary(batch)["held_prices"], [])
+
+    def test_a_price_it_did_apply_is_not_listed_as_held(self):
+        batch = self.run_files(self.csv(1, price="9.00"))  # a rise it is happy with
+
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("9.00"))
+        self.assertEqual(self.summary(batch)["held_prices"], [])
+
+    def test_undoing_the_batch_puts_every_invoice_back(self):
+        before = on_hand(self.gloves.events.all())
+        batch = self.run_files(self.csv(1, qty=4), self.csv(2, qty=6))
+        self.assertEqual(on_hand(self.gloves.events.all()), before + 10)
+
+        response = self.client.post(f"/invoices/batch/{batch.pk}/undo/", follow=True)
+
+        self.assertEqual(on_hand(self.gloves.events.all()), before)
+        self.assertContains(response, "2 invoices put back")
+        for invoice in Invoice.objects.for_org(self.org):
+            self.assertEqual(invoice.status, Invoice.Status.PARSED)
+        order = OrderLine.objects.get(item=self.gloves, split_from__isnull=True)
+        self.assertIsNone(order.received_at)
+
+    def test_undoing_a_batch_puts_a_price_it_changed_back(self):
+        batch = self.run_files(self.csv(1, price="9.00"))
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("9.00"))
+
+        self.client.post(f"/invoices/batch/{batch.pk}/undo/")
+
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("8.50"))
+
+    def test_undo_is_gone_once_the_window_has_passed(self):
+        batch = self.run_files(self.csv(1))
+        Invoice.objects.for_org(self.org).update(undo_until=timezone.now() - timedelta(seconds=1))
+
+        response = self.client.post(f"/invoices/batch/{batch.pk}/undo/", follow=True)
+
+        self.assertContains(response, "Too late to undo this batch")
+        self.assertNotContains(response, "Undo this whole import")
+
+    def test_another_practice_cannot_undo_this_batch(self):
+        batch = self.run_files(self.csv(1))
+        other = Organisation.objects.create(name="Other Dental")
+        intruder = User.objects.create_user("them@other.test", "pw", organisation=other, role=User.Role.ADMIN)
+        self.client.force_login(intruder)
+
+        self.assertEqual(self.client.post(f"/invoices/batch/{batch.pk}/undo/").status_code, 404)
+        self.assertEqual(on_hand(self.gloves.events.all()), 15)  # 5 counted + 10 received, untouched
+
+    def test_a_price_form_cannot_bounce_the_manager_off_site(self):
+        batch = self.run_files(self.csv(1, price="25.50"))
+        line = self.summary(batch)["held_prices"][0]
+
+        response = self.client.post(f"/invoices/line/{line.pk}/price/", {"next": "https://evil.test/"})
+
+        self.assertEqual(response["Location"], "/items/")

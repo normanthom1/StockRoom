@@ -152,6 +152,9 @@ ORG_OBJECT_URLS: list[Case] = [
     Case("assistant:invoice_batch_resume", make=make_batch, method="post"),
     Case("stock:invoice_line_receive", make=make_invoice_line, method="post"),
     Case("stock:invoice_undo", make=make_invoice, method="post"),
+    Case("stock:invoice_batch_undo", make=make_batch, method="post"),
+    Case("stock:invoice_line_price", make=make_invoice_line, method="post"),
+    Case("stock:item_price_undo", make=make_item, method="post"),
 ]
 
 # Manager-only views. Assistants get a 403 for each.
@@ -214,6 +217,9 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:invoice_order_search"),
     Case("stock:invoice_line_receive", make=make_invoice_line, method="post"),
     Case("stock:invoice_undo", make=make_invoice, method="post"),
+    Case("stock:invoice_batch_undo", make=make_batch, method="post"),
+    Case("stock:invoice_line_price", make=make_invoice_line, method="post"),
+    Case("stock:item_price_undo", make=make_item, method="post"),
     Case("stock:setup"),
     Case("stock:setup_skip", method="post"),
     Case("stock:setup_draft"),

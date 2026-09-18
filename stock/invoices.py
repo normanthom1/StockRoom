@@ -525,6 +525,78 @@ def run_batch(batch):
             file.save()
 
 
+def batch_summary(batch, files):
+    """What a finished batch actually did to the practice's records.
+
+    A batch has no preview: each file is read and ingested as it arrives. Until
+    now the only feedback was a state chip per file, which says a file was read
+    but not what changed because of it. This is the review step, after the fact.
+
+    The prices are the part worth reading. receive() quietly declines to apply a
+    unit price that's a rise of more than PRICE_RISE_THRESHOLD on what the item
+    costs now, because an invoice read off a photo is a likelier explanation
+    than a 3x price rise. Nothing said so, so a held price was invisible: the
+    manager believed the import had priced the item, and it hadn't. They're
+    listed here with the choice the preview would have offered.
+    """
+    invoice_ids = [file.invoice_id for file in files if file.invoice_id]
+    invoices = {inv.pk: inv for inv in Invoice.objects.filter(pk__in=invoice_ids)}
+    lines = (InvoiceLine.objects.filter(invoice_id__in=invoice_ids)
+             .select_related("item", "invoice").order_by("pk"))
+
+    received = [line for line in lines if line.order_line_id or line.stock_event_id]
+    # Newest line per item wins: two invoices for the same product in one batch
+    # is one decision, not two.
+    held = {}
+    for line in received:
+        if line.item and price_needs_confirming(line.item.price, line.unit_price):
+            held[line.item_id] = line
+
+    undo_until = max((inv.undo_until for inv in invoices.values() if inv.undo_snapshot), default=None)
+    return {
+        "invoices": len(invoice_ids),
+        "received_lines": len(received),
+        "received_units": sum(line.qty or 0 for line in received),
+        "held_prices": sorted(held.values(), key=lambda line: line.item.name.lower()),
+        "repeats": sum(1 for file in files if file.state == InvoiceBatchFile.State.IGNORED),
+        "needs_checking": [inv for inv in invoices.values() if inv.status == Invoice.Status.CONFLICT],
+        "failed": [file for file in files if file.state == InvoiceBatchFile.State.FAILED],
+        "undo_until": undo_until,
+        "can_undo": bool(undo_until and undo_until > timezone.now()),
+    }
+
+
+def undo_batch(batch, files):
+    """Put back everything every invoice in this batch received.
+
+    Each invoice keeps its own snapshot and window, but the manager imported one
+    batch and undoes one batch, so this undoes them all while the batch's window
+    is open. The window is the latest of the invoices' own, because a 50-file
+    run reads the first file well before the last and the first one's ten
+    minutes shouldn't decide it.
+
+    Newest first, because the invoices in a batch can build on each other: a
+    part delivery splits the rest of an order into a back-order line, and a
+    later invoice in the same batch can receive against that line. Undoing the
+    earlier one first would try to delete a back-order the later one still
+    points at, which OrderLine's PROTECT refuses. Unwound in reverse, each
+    invoice releases what the one before it left.
+
+    ponytail: bounded by the batch's newest undo_until rather than each
+    invoice's. If a run ever takes long enough for that gap to matter, give
+    InvoiceBatch its own deadline set when the run finishes.
+    """
+    summary = batch_summary(batch, files)
+    if not summary["can_undo"]:
+        return 0
+    undone = 0
+    for invoice in (Invoice.objects.filter(pk__in=[file.invoice_id for file in files if file.invoice_id],
+                                           undo_snapshot__isnull=False).order_by("-pk")):
+        undo_ingest(invoice)
+        undone += 1
+    return undone
+
+
 def save_invoice(invoice, lines):
     """Persist an invoice and its lines in one transaction, replacing the lines it had."""
     with transaction.atomic():

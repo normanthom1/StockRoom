@@ -20,7 +20,7 @@ radio inputs sitting inside full-width 48px labels. The copy is genuinely NZ:
 how IRD talks, and no US spellings anywhere in user-facing text.
 
 The problems were all in one place: **what happens when something goes wrong, or
-when the practice's setup does not match the happy path.** Ten issues, five
+when the practice's setup does not match the happy path.** Ten issues, six
 fixed here.
 
 The worst of them was the first thing a new practice sees. On an install without
@@ -49,11 +49,12 @@ success.
 | [#129](https://github.com/normanthom1/StockRoom/pull/129) | UX-03 | "Needs checking" invoices unreachable | Listed at the top of `/invoices/`, counted on Deliveries |
 | [#130](https://github.com/normanthom1/StockRoom/pull/130) | UX-04 | Dates read "Sept. 18, 2026" | "18 September 2026", via a real `en_NZ` format module |
 | [#131](https://github.com/normanthom1/StockRoom/pull/131) | UX-05 | No instrumentation at all | Structured flow events and `manage.py ux_metrics` |
+| [#133](https://github.com/normanthom1/StockRoom/pull/133) | UX-06 | A batch import never said what it did | A summary of what changed, one-tap batch undo, held prices surfaced |
 
-All five are merged to `main`. Each PR carries before/after screenshots, its
+All six are merged to `main`. Each PR carries before/after screenshots, its
 acceptance criteria, and test steps.
 
-Two of the fixes are worth singling out for *how* they were done rather than
+Three of the fixes are worth singling out for *how* they were done rather than
 what they did. UX-04's obvious fix — setting `DATE_FORMAT` in `settings.py` —
 silently does nothing while `USE_I18N` is on, because `get_format()` reads the
 active locale's format module first. It took a real `en_NZ` module to work, and
@@ -63,6 +64,16 @@ StockRoom self-hosts everything, runs a strict CSP with no inline script, and
 tells practices it keeps nothing about patients. Python's own logging, one JSON
 object per line, breaks none of that and needed no dependency, no model and no
 migration.
+
+UX-06 is the one where the review had it wrong. This document's first draft said
+batch import "overwrites every price". It does not — a rise of more than 10% has
+always been held back rather than applied, which is the right instinct. The real
+defect was that **nothing ever said so**: the price was quietly not applied, the
+manager believed it had been, and there was no way to find out or to act on it.
+Building the extra threshold the issue originally asked for would have been
+redundant work on top of a mechanism that already existed. Surfacing the one
+already there was the fix. `UX_issues.md` records the correction and the
+measurement that found it.
 
 ## Metrics
 
@@ -95,7 +106,7 @@ loss, and the numbers will say from here whether that was enough.
 
 Every PR was merged only after all of these passed:
 
-- `python manage.py test` — **549 tests, OK** (24 added across the five fixes)
+- `python manage.py test` — **558 tests, OK** (33 added across the six fixes)
 - `python manage.py makemigrations --check --dry-run` — no changes
 - `python manage.py check` — no issues
 - `ruff check .` — passes
@@ -108,17 +119,18 @@ test that passes either way documents a fix without catching the bug.
 
 ## What to do next
 
-1. **UX-06 — batch import changes every price with no preview and no undo.**
-   The last place a manager can lose real money with no way back. Up to 50
-   invoices are ingested with no review step, every matched line overwrites its
-   item's price, and there is no batch-level undo. The setup flow pushes a
-   brand-new manager straight at it, so their first action is the least
-   reversible one in the app.
-2. **UX-08 — no plain English for the words StockRoom invented.** "Matched
+Every path where a manager could lose data with no way back is now closed. What
+is left is time and friction.
+
+1. **UX-08 — no plain English for the words StockRoom invented.** "Matched
    names", "Needs checking", "Confident" are never defined. Cheap to fix, and it
    is what stops an untrained manager using the merge review that keeps the
    stock list free of duplicates.
-3. **UX-07, UX-09, UX-10** — time and friction rather than money.
+2. **UX-07 — the stock list cannot tell you what is low.** The page called Stock
+   shows no status, so "is anything close to running out?" cannot be answered
+   there.
+3. **UX-09 and UX-10** — friction in matching an invoice line to an order, and a
+   failed upload that loses the manager's place.
 
 One thing outside the review worth mentioning: the test suite fails if a
 developer's local `.env` has `DEMO_MODE=1`, because several tests assert the
