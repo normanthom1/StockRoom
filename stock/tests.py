@@ -69,6 +69,8 @@ class HomeSmokeTest(TestCase):
     def setUpTestData(cls):
         org = Organisation.objects.create(name="Test Dental")
         cls.user = User.objects.create_user("liz@example.com", "pw", organisation=org)
+        supplier = Supplier.objects.create(organisation=org, name="Henry Schein")
+        cls.item = Item.objects.create(organisation=org, name="Gloves", unit="box", supplier=supplier)
 
     def setUp(self):
         self.client.force_login(self.user)
@@ -82,10 +84,16 @@ class HomeSmokeTest(TestCase):
         self.assertContains(response, "js/app.js")
 
     def test_csrf_is_enforced_on_posts(self):
+        """Refused, not carried out - stockroom.views.csrf_failure sends the
+        person back to what they were doing instead of a raw 403 (see
+        stockroom/test_security.py for that redirect itself)."""
+        event = StockEvent.objects.create(organisation=self.user.organisation, item=self.item,
+                                          user=self.user, kind="out")
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.user)
-        response = csrf_client.post("/log-usage/undo/1/")
-        self.assertEqual(response.status_code, 403)
+        response = csrf_client.post(f"/log-usage/undo/{event.pk}/")
+        self.assertEqual(response.status_code, 302)  # sent back, not carried out
+        self.assertTrue(StockEvent.objects.filter(pk=event.pk).exists())
 
 
 class AppShellTests(TestCase):

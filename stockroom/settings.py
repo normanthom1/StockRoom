@@ -87,6 +87,11 @@ ADMIN_URL = os.environ.get("ADMIN_URL", "platform/")
 
 ROOT_URLCONF = "stockroom.urls"
 
+# A stale CSRF token (a shared device switched who's signed in since this page
+# was rendered - see stockroom.views.csrf_failure) sends the person back to
+# what they were doing instead of Django's raw 403 page.
+CSRF_FAILURE_VIEW = "stockroom.views.csrf_failure"
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",

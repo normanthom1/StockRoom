@@ -1,13 +1,32 @@
 import hashlib
 import json
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.contrib.staticfiles import finders
 from django.db import connection
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+
+
+def csrf_failure(request, reason=""):
+    """CSRF_FAILURE_VIEW: called directly by CsrfViewMiddleware, never through
+    a URL, so LoginRequiredMiddleware never sees it - no @login_not_required needed.
+
+    A page's token goes stale the moment anyone enters a code on the same
+    device (accounts.middleware.switch_to logs the new person in, and Django's
+    login() always rotates the token) - a shared iPad left open on Home is
+    exactly this. static/js/sw.js already treats the same 403 on a queued tap
+    as "stale token, a fresh one will work" rather than a dead end; a plain
+    form post (Logout, an Undo button, ...) gets the same treatment: back to
+    where it came from, which renders with a token that matches again."""
+    messages.info(request, "That took too long, or someone else signed in on this device. Try again.")
+    referer = request.META.get("HTTP_REFERER", "")
+    safe = referer if url_has_allowed_host_and_scheme(referer, allowed_hosts={request.get_host()}) else "/"
+    return HttpResponseRedirect(safe)
 
 
 @login_not_required
