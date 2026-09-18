@@ -63,6 +63,13 @@ class ExplainTests(TestCase):
         self.assertIn('data-open-dialog="explain-order-size"', content)
         self.assertIn('<dialog id="explain-order-size"', content)
 
+    def test_every_explanation_is_one_sentence(self):
+        """What UX-08 asked for: a line to read mid-task, not a paragraph."""
+        import re
+
+        for text in [*CONFIDENCE_HELP.values(), *INVOICE_STATUS_HELP.values(), ORDER_SIZE_HELP, MATCHED_NAMES_HELP]:
+            self.assertIsNone(re.search(r"[.!?]\s+[A-Z]", text), text)
+
     def test_the_explanations_introduce_no_new_jargon(self):
         """An explanation that needs its own explanation is no use."""
         jargon = ("alias", "merge", "ingest", "parse", "normalise", "fuzzy", "embedding",

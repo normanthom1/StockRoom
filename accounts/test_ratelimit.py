@@ -87,6 +87,22 @@ class RateLimitTests(TestCase):
             self.assertRedirects(self.client.post(reverse("enter_code"), {"pin": "22"}), reverse("stock:home"),
                                  fetch_redirect_response=False)
 
+    def test_a_read_within_someones_hourly_limit_is_not_blamed_on_it(self):
+        """Their 20th read is allowed. If that's the one that runs out everyone's
+        daily total, the message has to say tomorrow, not "20 in the last hour"."""
+        from django.test import RequestFactory
+
+        from .ratelimit import AI_PER_HOUR, ai_limit_is_personal, ai_limited
+
+        request = RequestFactory().post("/")
+        request.user = User.objects.create_user("sandy@example.com", "pw",
+                                                organisation=Organisation.objects.create(name="Test Dental"))
+        with self.settings(AI_DAILY_LIMIT=AI_PER_HOUR - 1, DEMO_MODE=False):
+            for _ in range(AI_PER_HOUR - 1):
+                self.assertFalse(ai_limited(request))
+            self.assertTrue(ai_limited(request))
+        self.assertFalse(ai_limit_is_personal(request))
+
     def test_django_admin_login_is_limited_too(self):
         url = reverse("admin:login")
         for _ in range(5):

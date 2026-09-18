@@ -763,6 +763,35 @@ Where each requested guarantee already lives, and what this review changed.
 | Undoability generally | **Complete** | [UX-06](#ux-06--a-batch-import-never-says-what-it-did) closed the remaining hole |
 | Analytics + success metric | **Added** | [UX-05](#ux-05--nothing-measures-whether-any-of-this-works) |
 
+## Second pass
+
+Every fix above was re-checked against the code, and the running app at 390px,
+after it merged. Four of them had defects of their own, six in all. Each fix
+below has a test that fails on the code before it.
+
+| Issue | What was wrong | Fixed by |
+|---|---|---|
+| UX-02 | `undo_ingest()` played the snapshot back oldest first. A line received by hand after the confirm, against the back-order an earlier line split off, made Undo delete an order line still in use: a 500. It also compared prices against a copy of the item loaded before anything was put back, so a price changed twice was left at the one in between. | Newest first, as `undo_batch()` already did across invoices, and the price is always written back. |
+| UX-02 | An Undo tapped on the invoice page after the window closed got a plain redirect. htmx followed it out of sight and swapped the whole page into the button, taking the "Too late" message with it. | An `HX-Redirect` back to the invoice (`_go()`), so the message shows. |
+| UX-06 | The summary and "Undo this whole import" waited for no file to be *left*, and a failed file stays left until Resume. One unreadable file hid everything the other 49 did, including the "couldn't be read at all" line written for exactly that case. | Built once no file is *waiting*, which is also when polling stops. |
+| UX-06 | "N invoices put back" counted invoices that received nothing. | Only invoices with something to put back are undone and counted. |
+| UX-08 | Two explanations weren't one sentence (Matched names was three). The Matched names dialog sat inside the `<h1>` and took the heading's font; the invoice one sat inside a `<p>`, which the parser closes early. | Both rewritten as one sentence each, with a test for it; both dialogs moved beside their text. |
+| UX-10 | `ai_limit_is_personal()` used `>=` where `ai_limited()` uses `>`. When someone's 20th read, which is allowed, used up the day's total, the message blamed their hourly limit. Resuming a batch also still showed the old one-size message. | `>`, and Resume uses the same message as the upload page. |
+
+Also fixed: two invoice screens sent the manager to "the Items page", which is
+called Stock everywhere else, and promised "check this invoice again" where there
+is no way to.
+
+Seen but left, because none is a defect in a fix:
+
+- `/invoices/` puts the "need checking" list, an `<h2>`, above the page's `<h1>`.
+  That's UX-03's order on purpose, and axe doesn't flag it, but a screen reader
+  user meets the smaller heading first.
+- A batch file's chip keeps saying "Needs checking" after its invoice has been
+  sorted out, because the chip reads the file's state, not the invoice's.
+- A line on a received invoice that matches no item can only be received against
+  an order. There is no way to point it at an item after the fact.
+
 ## How to re-run this review
 
 ```bash

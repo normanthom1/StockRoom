@@ -395,7 +395,12 @@ def undo_ingest(invoice):
     """Put back everything receive() changed for this invoice: delete the stock
     events and any back-order split it made, and restore each order line and
     item price to what they were just before. Only valid while undo_until
-    hasn't passed - the view checks that."""
+    hasn't passed - the view checks that.
+
+    Newest first, for the same reason undo_batch goes newest first: a line
+    received by hand after the confirm joins this snapshot, and can have been
+    received against the back-order an earlier line split off, at a price that
+    earlier line set. Each entry's "before" is what the one ahead of it left."""
     snapshot = invoice.undo_snapshot or []
     with transaction.atomic():
         orders = {
@@ -403,7 +408,7 @@ def undo_ingest(invoice):
             OrderLine.objects.select_for_update().select_related("item")
             .filter(pk__in=[entry["order_line_id"] for entry in snapshot if entry["order_line_id"]])
         }
-        for entry in snapshot:
+        for entry in reversed(snapshot):
             line = InvoiceLine.objects.select_related("item").filter(pk=entry["invoice_line_id"]).first()
             order = orders.get(entry["order_line_id"])
             if order is None and not (entry["order_line_id"] is None and line):
@@ -419,9 +424,10 @@ def undo_ingest(invoice):
                 order.unit_price = Decimal(entry["unit_price"]) if entry["unit_price"] is not None else None
                 order.save()
             item = order.item if order is not None else line.item
-            item_price = Decimal(entry["item_price"]) if entry["item_price"] is not None else None
-            if item is not None and item.price != item_price:
-                item.price = item_price
+            # Written every time: two entries for one item hold separate copies
+            # of it, so comparing against this copy's price can skip a real change.
+            if item is not None:
+                item.price = Decimal(entry["item_price"]) if entry["item_price"] is not None else None
                 item.save(update_fields=["price"])
         invoice.status = Invoice.Status.PARSED
         invoice.undo_snapshot, invoice.undo_until = None, None
@@ -592,8 +598,9 @@ def undo_batch(batch, files):
     undone = 0
     for invoice in (Invoice.objects.filter(pk__in=[file.invoice_id for file in files if file.invoice_id],
                                            undo_snapshot__isnull=False).order_by("-pk")):
-        undo_ingest(invoice)
-        undone += 1
+        if invoice.undo_snapshot:  # [] is an invoice that received nothing, so there's nothing to put back
+            undo_ingest(invoice)
+            undone += 1
     return undone
 
 

@@ -58,7 +58,7 @@
           <label><input type="radio" name="same_{{ line.index }}" value="" checked> Not matched</label>
         </fieldset>
       {% else %}
-        <span class="text-sm text-gray-600">No item in StockRoom matches this, so it won't change your stock. Add it on the Items page, then check this invoice again.</span>
+        <span class="text-sm text-gray-600">No item in StockRoom matches this, so it won't change your stock. Add it on the Stock page, with how many are on the shelf now.</span>
       {% endif %}
       {% if invoice.supplier %}
         <span class="text-sm text-gray-600">{% if open_orders %}Not matched to anything on order{% else %}Nothing on order from {{ invoice.supplier.name }} to match it to{% endif %}</span>

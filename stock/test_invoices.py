@@ -452,6 +452,33 @@ Henry Schein,PO-9,INV-2,HS-GLV-M,Medium nitrile exam gloves,4,8.50
                          (Invoice.Status.PARSED, None, Decimal("8.00")))
         self.assertFalse(StockEvent.objects.filter(kind="received").exists())
 
+    def test_undo_unwinds_a_later_receipt_before_the_one_it_built_on(self):
+        """A line received by hand after the confirm joins the same undo. Played
+        back oldest first, undo deleted the back-order that later line was
+        received against (a 500). It also compared each price with a copy of the
+        item loaded before any were put back, so it left the one in between."""
+        self.gloves.price = Decimal("8.00")
+        self.gloves.save(update_fields=["price"])
+        order = self.order(self.gloves, 10)
+        invoice = self.upload(b"vendor,description,qty,unit\n"
+                              b"Henry Schein,Nitrile gloves size M,6,8.50\n"
+                              b"Henry Schein,NIT GLV M 100BX,4,8.00\n")
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("8.50"))
+        back_order = OrderLine.objects.get(split_from=order)
+        late = invoice.lines.get(description="NIT GLV M 100BX")
+        self.client.force_login(self.admin)
+        # Back to 8.00: the price the first line changed is changed again.
+        self.client.post(f"/invoices/line/{late.pk}/receive/", {f"order_{late.pk}": back_order.pk})
+
+        self.assertEqual(self.client.post(f"/invoices/{invoice.pk}/undo/").status_code, 200)
+
+        order.refresh_from_db()
+        self.gloves.refresh_from_db()
+        self.assertEqual((order.received_at, order.qty, self.gloves.price), (None, 10, Decimal("8.00")))
+        self.assertFalse(OrderLine.objects.filter(split_from=order).exists())
+        self.assertFalse(StockEvent.objects.filter(kind="received").exists())
+
     def test_a_line_already_on_the_shelf_is_not_added_twice(self):
         invoice = self.upload(b"vendor,description,qty,unit\nHenry Schein,Nitrile gloves size M,3,9.25\n")
         line = invoice.lines.get()
@@ -626,6 +653,32 @@ class BatchReviewTests(TestCase):
 
         self.gloves.refresh_from_db()
         self.assertEqual(self.gloves.price, Decimal("8.50"))
+
+    def test_a_file_that_could_not_be_read_does_not_hide_what_the_rest_did(self):
+        """A failed file waits to be tried again, and that kept the summary and
+        the batch's Undo hidden even though the run had finished."""
+        batch = InvoiceBatch.objects.create(organisation=self.org, created_by=self.admin)
+        name, data = self.csv(1)
+        InvoiceBatchFile.objects.create(organisation=self.org, batch=batch, name=name, data=data,
+                                        content_type="text/csv")
+        InvoiceBatchFile.objects.create(organisation=self.org, batch=batch, name="scan.zip", data=b"PK",
+                                        content_type="application/zip")
+        run_batch(batch)
+
+        response = self.client.get(f"/invoices/batch/{batch.pk}/")
+
+        self.assertContains(response, "What this changed")
+        self.assertContains(response, "couldn't be read at all")
+        self.assertContains(response, "Undo this whole import")
+        self.assertContains(response, "Resume")
+
+    def test_undo_counts_only_the_invoices_it_put_back(self):
+        """One invoice received, one had nothing on order: one was put back."""
+        batch = self.run_files(self.csv(1), self.csv(2, description="Bur block"))
+
+        response = self.client.post(f"/invoices/batch/{batch.pk}/undo/", follow=True)
+
+        self.assertContains(response, "1 invoice put back")
 
     def test_undo_is_gone_once_the_window_has_passed(self):
         batch = self.run_files(self.csv(1))

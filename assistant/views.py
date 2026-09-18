@@ -268,7 +268,7 @@ def invoice_batch_resume(request, pk):
     left = batch.files.filter(state__in=invoices.TO_READ)
     read_by_ai = left.exclude(content_type__in=invoices.CSV_TYPES).count()
     if read_by_ai and ai_limited(request, calls=read_by_ai):
-        messages.error(request, LIMITED)
+        messages.error(request, _limit_text(request))
     elif left.exists():
         invoices.start_batch(batch)
     return redirect("stock:invoice_batch", batch.pk)

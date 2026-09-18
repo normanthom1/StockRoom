@@ -6,7 +6,7 @@ signed up between patients get the practice's stock into it without being shown
 how?** Everything was found by using the running app at 390px, not by reading
 the code.
 
-Full detail, including the five issues still open, is in
+Full detail, including what a second pass over the fixes found, is in
 [UX_issues.md](UX_issues.md).
 
 ## What we found
@@ -149,10 +149,18 @@ list, and none of it is urgent:
    only ever looked at in passing, and it is the one the whole forecast depends
    on.
 
-One thing outside the review worth mentioning: the test suite fails if a
-developer's local `.env` has `DEMO_MODE=1`, because several tests assert the
-demo sign-in button is absent. It cost a confusing few minutes here. Either the
-tests should pin `DEMO_MODE=0` themselves or `CONTRIBUTING` should say so.
+One thing outside the review worth mentioning: the test suite used to fail if a
+developer's local `.env` had `DEMO_MODE=1`, because several tests assert the
+demo sign-in button is absent. `settings.py` now keeps `DEMO_MODE` off under
+`manage.py test`, and the tests that need the demo turn it on themselves.
+
+## Second pass
+
+Re-checking every fix against the code found six defects in the fixes
+themselves, all fixed with a test that fails on the old code. The two that
+mattered: undoing an invoice could crash with a 500 or leave the wrong price
+behind (UX-02), and any batch with one unreadable file hid its whole summary and
+its Undo (UX-06). Details are in [UX_issues.md](UX_issues.md#second-pass).
 
 ## How this was done
 
