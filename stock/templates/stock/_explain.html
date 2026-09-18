@@ -1,0 +1,25 @@
+{% comment %}
+A plain-English explanation of a word StockRoom invented, behind the same round
+"i" as the header's About. Needs key (unique on the page), term and body.
+
+A dialog opened with showModal() traps focus, closes on Escape and returns focus
+to the button that opened it, so none of that needs writing. A tooltip would need
+all three and still would not work under a gloved thumb.
+
+Use {% templatetag openblock %} comment {% templatetag closeblock %} and not
+{% templatetag openbrace %}# ... #{% templatetag closebrace %} for anything over
+one line: the short form is single-line only and a multi-line one is rendered
+into the page as text.
+{% endcomment %}
+<button type="button" class="tap-target -my-2 grid shrink-0 place-items-center"
+        data-open-dialog="explain-{{ key }}" aria-label='What "{{ term }}" means'>
+  <span class="grid size-6 place-items-center rounded-full border-[1.5px] border-primary font-heading text-xs font-semibold text-primary-dark" aria-hidden="true">i</span>
+</button>
+<dialog id="explain-{{ key }}" data-backdrop-close
+        class="m-auto w-[min(90vw,26rem)] border border-gray-300 p-0 backdrop:bg-gray-900/50">
+  <div class="p-5">
+    <h2 class="mb-2">{{ term }}</h2>
+    <p class="text-[0.9375rem] leading-relaxed text-gray-800">{{ body }}</p>
+    <button type="button" class="btn btn-line mt-4 w-full" data-close-dialog>Close</button>
+  </div>
+</dialog>

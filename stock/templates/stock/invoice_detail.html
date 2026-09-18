@@ -5,7 +5,10 @@
 
 {% block content %}
 <h1 class="mb-1">{{ invoice.supplier_name|default:"Invoice or receipt" }}</h1>
-<p class="mb-4 text-sm text-gray-600">{% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</p>
+<p class="mb-4 flex flex-wrap items-center gap-x-1 text-sm text-gray-600">
+  <span>{% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</span>
+  {% if status_help %}{% include "stock/_explain.html" with key="status" term=invoice.get_status_display body=status_help %}{% endif %}
+</p>
 
 {# The tax record: what was charged, and the file it was read from. #}
 <div class="blueprint mb-5 p-4">

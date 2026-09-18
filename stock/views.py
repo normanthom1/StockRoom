@@ -31,7 +31,11 @@ from .csv_import import parse_csv
 from .forecast import Status, forecast, outlier_mask, weekly_consumption
 from .forms import ItemForm, SupplierForm
 from .humanize import (
+    CONFIDENCE_HELP,
     CONFIDENCE_LABEL,
+    INVOICE_STATUS_HELP,
+    MATCHED_NAMES_HELP,
+    ORDER_SIZE_HELP,
     arriving_text,
     back_order_text,
     build_caveat,
@@ -179,6 +183,8 @@ def item_detail(request, pk):
         "f": f,
         "sentence": build_sentence(item, f, today),
         "confidence_label": CONFIDENCE_LABEL[f.confidence],
+        "confidence_help": CONFIDENCE_HELP[f.confidence],
+        "order_size_help": ORDER_SIZE_HELP,
         "caveat": build_caveat(f),
         "chart_history_text": _chart_history_text(len(weeks), sum(mask)),
         "chart_svg": usage_chart_svg(weeks, mask),
@@ -865,6 +871,7 @@ def _items_context(org, form=None, query=""):
         "form": form or ItemForm(instance=Item(organisation=org)),
         "query": query,
         "total_count": Item.objects.for_org(org).filter(is_active=True).count(),
+        "matched_names_help": MATCHED_NAMES_HELP,
     }
 
 
@@ -1361,6 +1368,7 @@ def invoice_detail(request, pk):
         "original": invoices.find_original(invoice) if invoice.status == Invoice.Status.IGNORED else None,
         "documents": invoice.documents.all(),
         "gst_number": nztax.format_gst_number(invoice.supplier_gst_number),
+        "status_help": INVOICE_STATUS_HELP.get(invoice.status, ""),
         "income_year_label": nztax.income_year_label(nztax.income_year(invoice.issued_on)) if invoice.issued_on else "",
     })
 
@@ -1453,7 +1461,9 @@ def merges(request):
         .select_related("item", "source_invoice", "created_by")
         .order_by("-created_at")
     )
-    return render(request, "stock/merges.html", {"aliases": aliases, "undo_days": UNDO_DAYS})
+    return render(request, "stock/merges.html", {
+        "aliases": aliases, "undo_days": UNDO_DAYS, "matched_names_help": MATCHED_NAMES_HELP,
+    })
 
 
 @require_POST

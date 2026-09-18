@@ -125,6 +125,33 @@ def arriving_text(expected, today):
 
 CONFIDENCE_LABEL = {"low": "Low confidence", "high": "Confident"}
 
+# Plain English for the words StockRoom made up. Every one of these is a word a
+# manager is asked to act on, so it has to mean something without training.
+# Kept beside the labels themselves so the two can't drift apart.
+CONFIDENCE_HELP = {
+    "high": "This item gets used at a steady enough rate that the runout date should be about right.",
+    "low": "This item's usage jumps around, or there isn't much history yet, so treat the runout date as a rough guide.",
+}
+
+INVOICE_STATUS_HELP = {
+    "parsed": "StockRoom read this invoice but hasn't ticked anything off an order, so your stock levels haven't changed yet.",
+    "complete": "Everything on this invoice was matched to something you had on order, received, and added to your stock.",
+    "partial": "Some lines were matched to an order and received; the rest are still sitting on the invoice.",
+    "conflict": "StockRoom couldn't read enough of this one to trust it, so nothing was received off it and your counts are short until you sort it out.",
+    "ignored": "You've uploaded this same invoice before, so it was left alone rather than counted twice.",
+}
+
+ORDER_SIZE_HELP = (
+    "How many you buy at a time, so the reorder list can suggest a sensible amount. "
+    "Leave it empty and StockRoom suggests about two weeks' worth instead."
+)
+
+MATCHED_NAMES_HELP = (
+    "Suppliers write the same product a different way on every invoice. When StockRoom is sure two names "
+    "are the same thing, it joins them up so you don't end up with the same item twice. This is the list of "
+    "what it joined, so you can undo any it got wrong."
+)
+
 
 def price_rise_text(name, old, new):
     """"Gloves went from $18.50 to $21.00 - up 13%."."""
