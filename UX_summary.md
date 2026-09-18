@@ -20,7 +20,7 @@ radio inputs sitting inside full-width 48px labels. The copy is genuinely NZ:
 how IRD talks, and no US spellings anywhere in user-facing text.
 
 The problems were all in one place: **what happens when something goes wrong, or
-when the practice's setup does not match the happy path.** Ten issues, nine
+when the practice's setup does not match the happy path.** Ten issues, all
 fixed here.
 
 The worst of them was the first thing a new practice sees. On an install without
@@ -53,8 +53,9 @@ success.
 | [#134](https://github.com/normanthom1/StockRoom/pull/134) | UX-08 | StockRoom's own words were never defined | A one-sentence explanation behind an "i" on every invented term |
 | [#135](https://github.com/normanthom1/StockRoom/pull/135) | UX-09 | Open orders listed with nothing to match on | Each shows when it was ordered and when it is due |
 | [#136](https://github.com/normanthom1/StockRoom/pull/136) | UX-10 | A failed upload told you in a vanishing toast | The reason stays on the page, names the file, and says what to do |
+| [#137](https://github.com/normanthom1/StockRoom/pull/137) | UX-07 | The Stock page showed no status | Every row carries Home's own chip, stripe and runout figure |
 
-All nine are merged to `main`. Each PR carries before/after screenshots, its
+All ten are merged to `main`. Each PR carries before/after screenshots, its
 acceptance criteria, and test steps.
 
 Three of the fixes are worth singling out for *how* they were done rather than
@@ -119,7 +120,7 @@ loss, and the numbers will say from here whether that was enough.
 
 Every PR was merged only after all of these passed:
 
-- `python manage.py test` — **577 tests, OK** (52 added across the nine fixes)
+- `python manage.py test` — **583 tests, OK** (58 added across the ten fixes)
 - `python manage.py makemigrations --check --dry-run` — no changes
 - `python manage.py check` — no issues
 - `ruff check .` — passes
@@ -132,15 +133,21 @@ test that passes either way documents a fix without catching the bug.
 
 ## What to do next
 
-**UX-07** is the only issue from this review still open: the page called Stock
-shows no status, so "is anything close to running out that I haven't been told
-about?" cannot be answered there. A manager has to hold Home in their head while
-scrolling Stock. It costs time rather than work, which is why it is last.
+Every issue this review found is fixed and merged. What is left is beyond the
+list, and none of it is urgent:
 
-Beyond the list: the shared `CatalogueProduct` never learns from what practices
-match by hand, so a name three hundred practices have each joined up
-individually is still joined up individually by the three hundred and first.
-Worth doing once there are enough practices for the signal to mean anything.
+1. **Let the shared catalogue learn.** `CatalogueProduct` never sees what
+   practices match by hand, so a name three hundred practices have each joined
+   up individually is still joined up individually by the three hundred and
+   first. Worth doing once there are enough practices for the signal to mean
+   anything.
+2. **Watch the metric.** `manage.py ux_metrics` now has a baseline. Setup
+   completion rate is the number UX-01 should have moved; check it once real
+   practices have been through the new checklist.
+3. **Re-run the review as a different person.** This one was done as a practice
+   manager. The assistant's path — gloves on, mid-procedure, three taps — was
+   only ever looked at in passing, and it is the one the whole forecast depends
+   on.
 
 One thing outside the review worth mentioning: the test suite fails if a
 developer's local `.env` has `DEMO_MODE=1`, because several tests assert the

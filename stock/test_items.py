@@ -1,5 +1,10 @@
+from datetime import timedelta
+
 from django.contrib.messages import get_messages
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from accounts.models import Organisation, User
 
@@ -85,3 +90,93 @@ class ItemManagementTests(TestCase):
         self.client.post(undo_url)
         self.item.refresh_from_db()
         self.assertTrue(self.item.is_active)
+
+
+class StockListStatusTests(TestCase):
+    """UX-07. The page called Stock listed name, unit, supplier and price and no
+    status at all, so "is anything close to running out that I haven't been told
+    about?" could only be answered by holding Home in your head while scrolling."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organisation.objects.create(name="Test Dental")
+        cls.admin = User.objects.create_user("sandy@example.com", "pw", organisation=cls.org, role=User.Role.ADMIN)
+        cls.supplier = Supplier.objects.create(organisation=cls.org, name="Henry Schein", lead_days=5)
+
+    def setUp(self):
+        self.client.force_login(self.admin)
+
+    def stocked(self, name, on_hand, used_per_week=0):
+        """An item with enough history for the forecast to have an opinion."""
+        item = Item.objects.create(organisation=self.org, name=name, unit="box", supplier=self.supplier)
+        StockEvent.objects.create(organisation=self.org, item=item, user=self.admin, kind="count",
+                                  qty=on_hand + used_per_week * 4,
+                                  created_at=timezone.now() - timedelta(weeks=4))
+        for week in range(4):
+            if used_per_week:
+                StockEvent.objects.create(organisation=self.org, item=item, user=self.admin, kind="used",
+                                          qty=used_per_week,
+                                          created_at=timezone.now() - timedelta(weeks=3 - week))
+        return item
+
+    def test_an_item_that_has_run_out_says_so_on_the_stock_page(self):
+        self.stocked("Suction tips", on_hand=0, used_per_week=35)
+
+        response = self.client.get("/items/")
+
+        self.assertContains(response, "Out of stock")
+        self.assertContains(response, "bg-status-out")  # the left stripe
+
+    def test_the_status_matches_what_home_says_about_the_same_item(self):
+        self.stocked("Suction tips", on_hand=0, used_per_week=35)
+
+        home = self.client.get("/").context["rows"][0]
+        stock_row = self.client.get("/items/").context["item_list"][0].status
+
+        self.assertEqual(stock_row["status_label"], home["status_label"])
+        self.assertEqual(stock_row["status_color"], home["status_color"])
+
+    def test_an_item_with_nothing_to_do_gets_a_figure_but_no_chip(self):
+        """An "OK" chip on every row is noise, and "~214 days" is false precision."""
+        self.stocked("Bib clips", on_hand=500, used_per_week=1)
+
+        row = self.client.get("/items/").context["item_list"][0].status
+
+        self.assertFalse(row["needs_doing"])
+        self.assertNotIn("days", row["fine_label"])  # "6 months+", not "~214 days"
+
+    def test_searching_keeps_the_status_on_what_is_left(self):
+        self.stocked("Suction tips", on_hand=0, used_per_week=35)
+        self.stocked("Bib clips", on_hand=500, used_per_week=1)
+
+        response = self.client.get("/items/?q=suction", headers={"HX-Request": "true"})
+
+        self.assertContains(response, "Out of stock")
+        self.assertNotContains(response, "Bib clips")
+
+    def test_a_row_keeps_its_status_after_an_edit_is_saved(self):
+        item = self.stocked("Suction tips", on_hand=0, used_per_week=35)
+
+        response = self.client.post(f"/items/{item.pk}/update/",
+                                    {"name": "Suction tips, disposable", "unit": "tip",
+                                     "supplier": self.supplier.pk})
+
+        self.assertContains(response, "Out of stock")
+
+    def test_the_page_does_not_query_once_per_item(self):
+        """The forecast needs every item's history, so this is the page's one
+        real N+1 risk. _org_items prefetches it; without that, 25 items would
+        cost 25 extra queries and the page would crawl for a real practice."""
+        for n in range(5):
+            self.stocked(f"Item {n}", on_hand=10, used_per_week=1)
+        self.client.get("/items/")  # warm any one-off lookups
+        with CaptureQueriesContext(connection) as small:
+            self.client.get("/items/")
+
+        for n in range(5, 25):
+            self.stocked(f"Item {n}", on_hand=10, used_per_week=1)
+        with CaptureQueriesContext(connection) as large:
+            self.client.get("/items/")
+
+        self.assertEqual(len(large.captured_queries), len(small.captured_queries),
+                         "queries grew with the number of items")

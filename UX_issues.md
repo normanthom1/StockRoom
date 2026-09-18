@@ -46,14 +46,16 @@ wrong, or when the practice's setup does not match the happy path.**
 | [UX-04](#ux-04--dates-render-in-us-format) | Dates render in US format | High | S | Fixed — [#130](https://github.com/normanthom1/StockRoom/pull/130) |
 | [UX-05](#ux-05--nothing-measures-whether-any-of-this-works) | Nothing measures whether any of this works | Medium | S | Fixed — [#131](https://github.com/normanthom1/StockRoom/pull/131) |
 | [UX-06](#ux-06--a-batch-import-never-says-what-it-did) | A batch import never says what it did | High | M | Fixed — [#133](https://github.com/normanthom1/StockRoom/pull/133) |
-| [UX-07](#ux-07--the-stock-list-cannot-tell-you-what-is-low) | The stock list cannot tell you what is low | Medium | M | Pending |
+| [UX-07](#ux-07--the-stock-list-cannot-tell-you-what-is-low) | The stock list cannot tell you what is low | Medium | S | Fixed — [#137](https://github.com/normanthom1/StockRoom/pull/137) |
 | [UX-08](#ux-08--no-plain-english-for-the-words-stockroom-invented) | No plain English for the words StockRoom invented | Medium | S | Fixed — [#134](https://github.com/normanthom1/StockRoom/pull/134) |
 | [UX-09](#ux-09--matching-a-delivery-by-hand-gave-you-nothing-to-match-on) | Matching a delivery by hand gave you nothing to match on | Medium | S | Fixed — [#135](https://github.com/normanthom1/StockRoom/pull/135) |
 | [UX-10](#ux-10--a-failed-invoice-read-loses-the-managers-place) | A failed invoice read loses the manager's place | Low | S | Fixed — [#136](https://github.com/normanthom1/StockRoom/pull/136) |
 
-Nine of the ten are done. **UX-07** is the only one left: the page called Stock
-shows no status, so "is anything close to running out that I haven't been told
-about?" can't be answered there. It costs time, not work.
+All ten are done. What's left is beyond the list: the shared `CatalogueProduct`
+never learns from what practices match by hand, so a name three hundred
+practices have each joined up individually is still joined up individually by
+the three hundred and first. Worth doing once there are enough practices for the
+signal to mean anything. See [the gap](#the-gap).
 
 Severity is the `ui-ux-pro-max` scale: **Critical** blocks the task outright,
 **High** costs real money or data, **Medium** costs time, **Low** is friction.
@@ -443,6 +445,45 @@ Item.objects.get(supplier_sku="HS-4471").price  # -> Decimal("8.50")
 
 ---
 
+### UX-07 — The stock list cannot tell you what is low
+
+**Labels:** `frontend`
+
+**Problem.** `/items/` lists all 44 items alphabetically with name, unit,
+supplier and price. No status, no days left, no stripe. Home has all of that
+but only shows what needs attention. So "is anything close to running out that
+I have not been told about yet?" cannot be answered on the page called Stock;
+the manager has to hold Home in their head while scrolling Stock.
+
+**Impact.** Time, not money. The split is defensible — Home is the to-do list,
+Stock is the catalogue — but an untrained manager reads "Stock" as "my stock"
+and expects the state of it.
+
+**Acceptance criteria**
+1. Each row on `/items/` shows its status chip and days-left figure, using the
+   same `_status_chip.html` and colours as Home.
+2. Rows keep their left status stripe, and status is readable without colour.
+3. The search box filters without losing the status on filtered rows.
+4. The page does not query once per item. The forecast needs every item's
+   history, so this is the page's one real N+1 risk: without `_org_items`'s
+   prefetch, 25 items cost 60 extra queries (81 against 21, measured).
+
+**Test steps**
+1. Sign in as `0000`, open `/items/`.
+2. Check "Suction tips, disposable" shows "Out of stock" and "Nitrile gloves,
+   size M" shows "Order now", matching Home.
+3. Type "gloves" in the search box; confirm the filtered row keeps its chip.
+4. Sign in as `11` (assistant) and confirm `/items/` is still 403.
+
+**UI note.** Reuse `stock/_item_row.html` and the `status_color` annotation the
+home view already computes; do not recompute the forecast per row.
+
+**Sample invoice mapping.** Not applicable — no invoice data on this screen.
+Status comes from `StockEvent` history via `stock/forecast.py`.
+
+---
+
+
 ### UX-08 — No plain English for the words StockRoom invented
 
 **Labels:** `frontend`
@@ -593,47 +634,6 @@ invoices.parse_invoice(...)   # raises GeminiError -> redirect with a toast
 ```
 
 ---
-
-## Pending
-
-Not implemented in this review. Each one is ready to pick up: acceptance
-criteria are observable, and the test steps are what to do in the running app.
-
-### UX-07 — The stock list cannot tell you what is low
-
-**Labels:** `frontend`
-
-**Problem.** `/items/` lists all 44 items alphabetically with name, unit,
-supplier and price. No status, no days left, no stripe. Home has all of that
-but only shows what needs attention. So "is anything close to running out that
-I have not been told about yet?" cannot be answered on the page called Stock;
-the manager has to hold Home in their head while scrolling Stock.
-
-**Impact.** Time, not money. The split is defensible — Home is the to-do list,
-Stock is the catalogue — but an untrained manager reads "Stock" as "my stock"
-and expects the state of it.
-
-**Acceptance criteria**
-1. Each row on `/items/` shows its status chip and days-left figure, using the
-   same `_status_chip.html` and colours as Home.
-2. Rows keep their left status stripe, and status is readable without colour.
-3. The search box filters without losing the status on filtered rows.
-
-**Test steps**
-1. Sign in as `0000`, open `/items/`.
-2. Check "Suction tips, disposable" shows "Out of stock" and "Nitrile gloves,
-   size M" shows "Order now", matching Home.
-3. Type "gloves" in the search box; confirm the filtered row keeps its chip.
-4. Sign in as `11` (assistant) and confirm `/items/` is still 403.
-
-**UI note.** Reuse `stock/_item_row.html` and the `status_color` annotation the
-home view already computes; do not recompute the forecast per row.
-
-**Sample invoice mapping.** Not applicable — no invoice data on this screen.
-Status comes from `StockEvent` history via `stock/forecast.py`.
-
----
-
 
 ## Product canonicalisation and dedup
 

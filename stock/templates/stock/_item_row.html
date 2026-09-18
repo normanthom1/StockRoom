@@ -38,11 +38,20 @@
   </div>
 </form>
 {% else %}
-<div id="item-row-{{ item.pk }}" class="flex items-center gap-1 border-b border-gray-200">
+<div id="item-row-{{ item.pk }}" class="flex items-stretch gap-1 border-b border-gray-200">
+  {% if item.status %}<span class="w-[5px] shrink-0 bg-status-{{ item.status.status_color }}"></span>{% endif %}
   {# Tapping an item opens it, as it does on Home; Edit is the quick fix in place. #}
-  <a href="{% url 'stock:item_detail' item.pk %}" class="flex min-h-14 min-w-0 flex-1 flex-col items-start justify-center gap-0.5 py-2">
-    <span class="font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ item.name }}</span>
+  <a href="{% url 'stock:item_detail' item.pk %}" class="flex min-h-14 min-w-0 flex-1 flex-col items-start justify-center gap-0.5 py-2 {% if item.status %}pl-2{% endif %}">
+    <span class="flex w-full items-baseline gap-2">
+      <span class="min-w-0 flex-1 truncate font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ item.name }}</span>
+      {% if item.status %}
+        <span class="shrink-0 font-heading text-sm font-semibold whitespace-nowrap text-status-{{ item.status.status_color }}">{% if item.status.needs_doing %}{{ item.status.days_label }}{% else %}{{ item.status.fine_label }}{% endif %}</span>
+      {% endif %}
+    </span>
     <span class="text-xs text-gray-600">{{ item.unit }} &middot; {{ item.supplier.name }} &middot; {% if item.price is not None %}${{ item.price }}{% else %}No price{% endif %}</span>
+    {% if item.status.needs_doing %}
+      <span class="mt-0.5">{% include "stock/_status_chip.html" with s=item.status %}</span>
+    {% endif %}
   </a>
   <button type="button" hx-get="{% url 'stock:item_edit_row' item.pk %}"
           hx-target="#item-row-{{ item.pk }}" hx-swap="outerHTML" aria-label="Edit {{ item.name }}"
