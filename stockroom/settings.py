@@ -212,6 +212,12 @@ LOGGING = {
     },
 }
 
+if "test" in sys.argv:
+    # These INFO lines are meant to be read in a log, not interleaved with test
+    # output. assertLogs attaches its own handler, so the tests that check for
+    # them still see them.
+    LOGGING["handlers"]["console"] = {"class": "logging.NullHandler"}
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/

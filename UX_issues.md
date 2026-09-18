@@ -45,15 +45,15 @@ wrong, or when the practice's setup does not match the happy path.**
 | [UX-03](#ux-03--invoices-that-need-checking-become-invisible) | Invoices that need checking become invisible | High | M | Fixed — [#129](https://github.com/normanthom1/StockRoom/pull/129) |
 | [UX-04](#ux-04--dates-render-in-us-format) | Dates render in US format | High | S | Fixed — [#130](https://github.com/normanthom1/StockRoom/pull/130) |
 | [UX-05](#ux-05--nothing-measures-whether-any-of-this-works) | Nothing measures whether any of this works | Medium | S | Fixed — [#131](https://github.com/normanthom1/StockRoom/pull/131) |
-| [UX-06](#ux-06--batch-import-changes-every-price-with-no-preview-and-no-undo) | Batch import changes every price with no preview and no undo | High | L | Pending |
+| [UX-06](#ux-06--a-batch-import-never-says-what-it-did) | A batch import never says what it did | High | M | Fixed — [#133](https://github.com/normanthom1/StockRoom/pull/133) |
 | [UX-07](#ux-07--the-stock-list-cannot-tell-you-what-is-low) | The stock list cannot tell you what is low | Medium | M | Pending |
 | [UX-08](#ux-08--no-plain-english-for-the-words-stockroom-invented) | No plain English for the words StockRoom invented | Medium | S | Pending |
 | [UX-09](#ux-09--match-to-assumes-you-remember-what-you-ordered) | "Match to" assumes you remember what you ordered | Medium | M | Pending |
 | [UX-10](#ux-10--a-failed-invoice-read-loses-the-managers-place) | A failed invoice read loses the manager's place | Low | S | Pending |
 
-Pending issues are ordered by severity, not by number. **UX-06 is the one to do
-next**: it is the last place where a manager can lose real money with no way
-back, and the setup flow pushes them straight at it.
+Pending issues are ordered by severity, not by number. **UX-08 is the one to do
+next**: it is cheap, and it is what stops an untrained manager using the merge
+review that keeps the stock list free of duplicates.
 
 Severity is the `ui-ux-pro-max` scale: **Critical** blocks the task outright,
 **High** costs real money or data, **Medium** costs time, **Low** is friction.
@@ -364,62 +364,89 @@ track("invoice_imported", org=invoice.organisation_id,
 
 ---
 
-## Pending
-
-Not implemented in this review. Each one is ready to pick up: acceptance
-criteria are observable, and the test steps are what to do in the running app.
-
-### UX-06 — Batch import changes every price with no preview and no undo
+### UX-06 — A batch import never says what it did
 
 **Labels:** `frontend` `backend`
 
 **Problem.** The single-file path is careful: read, preview, edit the lines,
 confirm, undo. The batch path is not. `/invoices/` says so plainly — "Each one
-is imported as it's read, without a preview" — and up to 50 invoices are
-ingested straight into the practice's records. Every matched line receives
-stock and **overwrites the item's price**. There is no batch-level undo; each
-invoice's own 30-second window (10 minutes after UX-02) expires while the batch
-is still running.
+is imported as it's read, without a preview" — and up to 50 invoices go straight
+into the practice's records. The only feedback was a state chip per file, which
+says a file was *read*, not what changed because of it. There was no batch-level
+undo, so putting a bad run back meant opening each invoice inside its own
+ten-minute window.
 
 This is also the path the setup flow pushes hardest ("Read my invoices"), so a
-brand-new manager's first action is the least reversible one in the app.
+brand-new manager's first action was the least reviewable one in the app.
 
-**Impact.** One bad photo in a folder of 50 silently rewrites a price, and the
-manager has no list of what changed and no way back. Highest-value pending
-issue.
+**Corrected from the first draft of this review.** This entry originally said
+every matched line "overwrites the item's price". That is wrong, and the truth
+is more interesting. `receive()` already declines to apply a unit price that is
+a rise of more than `PRICE_RISE_THRESHOLD` (10%) on what the item costs now,
+because a misread photo is likelier than a 3x price rise. Measured on the real
+code:
+
+```
+tripled      8.50 -> invoice 25.50   item price now 8.50   HELD
+small rise   8.50 -> invoice  9.00   item price now 9.00   APPLIED
+fall         8.50 -> invoice  4.00   item price now 4.00   APPLIED
+```
+
+So the threshold this entry asked for already existed, at a stricter 10% than
+the 25% proposed. The actual defect was worse and quieter: **the batch held the
+price and never told anyone.** The manager believed the import had repriced the
+item, it had not, and there was no way to find that out or to act on it. Adding
+a second threshold on top would have been redundant; surfacing the first one was
+the fix.
+
+**Impact.** A folder of 50 invoices changed stock levels, order status and some
+prices, and the manager had no list of what happened and no way back. A held
+price stayed wrong indefinitely because nothing mentioned it.
 
 **Acceptance criteria**
-1. A finished batch shows what it changed — items priced, stock received,
-   invoices skipped as repeats — as a reviewable list, not just per-file chips.
-2. A batch has a single "Undo this batch" action valid for the same window as a
-   single import, restoring every invoice in it.
-3. A price change above a configurable threshold (default 25%) is held for
-   confirmation rather than applied, and is listed on the batch page.
+1. A finished batch shows what it changed — lines received, prices held,
+   invoices skipped as repeats, invoices needing checking, files that could not
+   be read — as a reviewable summary, not just per-file chips.
+2. A batch has a single "Undo this batch" action valid while the batch's window
+   is open, restoring every invoice in it: stock, order status and prices.
+3. A price the import held back is listed with what the practice pays now, what
+   the invoice asked, and a one-tap way to accept it.
 
 **Test steps**
 1. `python manage.py seed_demo --reset`, sign in as `0000`.
-2. Upload 3 CSV invoices at `/invoices/`, one containing a line whose unit
-   price is triple the item's current price.
-3. On the batch page, confirm the summary lists the two applied imports and
-   holds the tripled price for confirmation.
-4. Tap "Undo this batch"; check `/items/` shows every price as it was, and
-   `/activity/` shows the receipts reversed.
+2. Upload 4 CSV invoices at `/invoices/`: one whose unit price is triple the
+   item's current price, two ordinary ones, and a duplicate of one of those.
+3. On the batch page, confirm the summary reads "3 lines received", "1 price
+   held back" and "1 skipped as a repeat", and that the held price is listed
+   with both figures.
+4. Tap "Use $X from now on" — the item is repriced and leaves the held list.
+5. Tap "Undo this whole import" — check `/items/` shows every price as it was,
+   `/deliveries/` shows the orders open again, and the undo button is gone.
 
-**UI note.** The batch page already polls with htmx every 2s; the summary
-replaces the same `#batch-files` fragment when the run finishes, so no new
-page. Undo sits with the summary as `btn btn-line`.
+**UI note.** The batch page already polls with htmx every 2s; the summary is
+built only once the run finishes, so mid-run totals do not move under the
+manager every two seconds. It replaces the same `#batch-files` fragment, so no
+new page. Undo is `btn btn-line` — a secondary action, not a primary one.
 
 **Sample invoice mapping.**
 
 ```python
 # The held case: line price vs Item.price at ingest time
-{"sku": "HS-4471", "description": "Nitrile gloves M", "qty": 10,
- "unit": "85.50", "line_total": "855.00"}          # invoice says 85.50
-Item.objects.get(supplier_sku="HS-4471").price      # -> Decimal("28.50")
-# 85.50 / 28.50 = 3.0 -> above PRICE_RISE_THRESHOLD, hold for confirmation
+{"sku": "HS-4471", "description": "Nitrile gloves, size M", "qty": 6,
+ "unit": "25.50", "line_total": "153.00"}       # invoice says 25.50
+Item.objects.get(supplier_sku="HS-4471").price  # -> Decimal("8.50")
+# price_needs_confirming(8.50, 25.50) -> 25.50 > 8.50 * 1.10 -> True
+# receive(..., update_item_price=False): the line is still received and the
+# order still closes; only Item.price is left alone, and batch_summary()
+# lists it as waiting for a decision.
 ```
 
 ---
+
+## Pending
+
+Not implemented in this review. Each one is ready to pick up: acceptance
+criteria are observable, and the test steps are what to do in the running app.
 
 ### UX-07 — The stock list cannot tell you what is low
 
@@ -706,7 +733,7 @@ Where each requested guarantee already lives, and what this review changed.
 | Undo for imports | **Fixed** | [UX-02](#ux-02--undo-on-an-invoice-import-is-gone-in-six-seconds) |
 | NZ localisation | Strong, one defect **fixed** | [UX-04](#ux-04--dates-render-in-us-format) |
 | Minimal clicks | Already met | Logging is 1-2 taps; the reorder list orders a whole supplier in one |
-| Undoability generally | Good, except batch | [UX-06](#ux-06--batch-import-changes-every-price-with-no-preview-and-no-undo) is the remaining hole |
+| Undoability generally | **Complete** | [UX-06](#ux-06--a-batch-import-never-says-what-it-did) closed the remaining hole |
 | Analytics + success metric | **Added** | [UX-05](#ux-05--nothing-measures-whether-any-of-this-works) |
 
 ## How to re-run this review

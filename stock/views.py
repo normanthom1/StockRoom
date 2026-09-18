@@ -11,7 +11,7 @@ from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, Min, Q
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -312,7 +312,7 @@ def _id(raw):
 
 def _back_to(request, default):
     """Where to go after a switch: the page it came from, if it's one of ours."""
-    target = request.GET.get("next", "")
+    target = request.POST.get("next") or request.GET.get("next", "")
     return target if url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}) else default
 
 
@@ -1090,6 +1090,9 @@ def invoice_batch(request, pk):
         # Where a practice setting up goes next: the draft these files just built.
         # Only once they're all read, so the 2-second poll isn't rebuilding it each time.
         "drafts": 0 if left else len(setup_module.draft_items(batch.organisation)),
+        # What the run actually changed. Only once it's finished: mid-run totals
+        # would move under the manager every two seconds.
+        "summary": None if left else invoices.batch_summary(batch, files),
     }
     template = "stock/invoice_batch.html#files" if request.headers.get("HX-Request") else "stock/invoice_batch.html"
     return render(request, template, context)
@@ -1286,6 +1289,51 @@ def invoice_undo(request, pk):
     invoices.undo_ingest(invoice)
     track("invoice_undone", org=invoice.organisation_id,
           seconds_after=int((timezone.now() - invoice.created_at).total_seconds()))
+    return _toast_response(request, "Undone.")
+
+
+@require_POST
+@admin_required
+def invoice_batch_undo(request, pk):
+    """Undo everything a batch received, in one tap. A batch has no preview, so
+    this is the only review step it gets."""
+    batch = get_object_or_404(InvoiceBatch.objects.for_org(request.user.organisation), pk=pk)
+    files = list(batch.files.defer("data").order_by("pk"))
+    undone = invoices.undo_batch(batch, files)
+    if undone:
+        track("invoice_undone", org=batch.organisation_id, invoices=undone, source="batch")
+        messages.success(request, f"Undone. {undone} invoice{'s' if undone != 1 else ''} put back.")
+    else:
+        messages.error(request, "Too late to undo this batch. Change what's wrong on the item or the order instead.")
+    return redirect("stock:invoice_batch", batch.pk)
+
+
+@require_POST
+@admin_required
+def invoice_line_price(request, pk):
+    """Apply a price the import held back because it was a big rise. The same
+    choice the preview offers on a single upload, offered after the fact
+    because a batch has no preview."""
+    org = request.user.organisation
+    line = get_object_or_404(InvoiceLine.objects.for_org(org).select_related("item"), pk=pk)
+    if line.item is None or line.unit_price is None:
+        raise Http404
+    item, was = line.item, line.item.price
+    item.price = line.unit_price
+    item.save(update_fields=["price"])
+    messages.success(request, f"{item.name} is now ${line.unit_price} each, was ${was}.",
+                     extra_tags=reverse("stock:item_price_undo", args=[item.pk]) + f"?to={was or ''}")
+    return redirect(_back_to(request, reverse("stock:items")))
+
+
+@require_POST
+@admin_required
+def item_price_undo(request, pk):
+    """Put an item's price back to what the toast says it was."""
+    item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
+    was = request.GET.get("to", "")
+    item.price = Decimal(was) if was else None
+    item.save(update_fields=["price"])
     return _toast_response(request, "Undone.")
 
 
