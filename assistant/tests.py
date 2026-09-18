@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from accounts.models import Organisation, User
 from accounts.ratelimit import AI_PER_HOUR
+from assistant.views import MAX_BATCH
 from stock.forecast import on_hand
 from stock.invoices import run_batch
 from stock.models import (
@@ -517,7 +518,9 @@ class InvoiceUploadTests(Practice):
         photo = SimpleUploadedFile("invoice.jpg", b"x", content_type="image/jpeg")
         with mock.patch("assistant.gemini.generate", side_effect=gemini.GeminiError):
             response = self.client.post("/invoices/upload/", {"invoice_file": photo}, follow=True)
-        self.assertContains(response, "Couldn&#x27;t read that")
+        # On the page, not only in a toast, and it names the file (UX-10).
+        self.assertContains(response, "Couldn't read invoice.jpg")
+        self.assertContains(response, "A clearer photo usually does it")
 
     def test_cancelling_leaves_no_rows_behind(self):
         self.client.force_login(self.admin)
@@ -589,7 +592,10 @@ class InvoiceBatchTests(Practice):
         photos = [SimpleUploadedFile(f"{n}.jpg", b"jpeg bytes", "image/jpeg") for n in range(4)]
         response, _ = self.upload(photos)
         self.assertRedirects(response, "/invoices/", fetch_redirect_response=False)
-        self.assertContains(self.client.get("/invoices/"), "the limit for now")
+        # Says when it will work again, and points at the path that still does (UX-10).
+        page = self.client.get("/invoices/")
+        self.assertContains(page, "as many files as it can today")
+        self.assertContains(page, "upload a CSV instead")
         self.assertFalse(InvoiceBatch.objects.exists())
 
     def test_managers_only(self):
@@ -655,3 +661,88 @@ class GeminiClientTests(SimpleTestCase):
         ):
             gemini.generate("x", [("user", "Hi")])
         self.assertIn("429", logs.output[0])
+
+
+@override_settings(AI_API_KEY="test-key")
+class UploadFailureTests(Practice):
+    """UX-10. Every failed read redirected to the upload page with a toast. The
+    toast hides itself after six seconds and the page looks exactly as it did
+    before, so a manager who glanced away couldn't tell whether anything had
+    happened - and uploaded the same failing file again, spending another AI
+    call on it."""
+
+    CSV = b"vendor,sku,description,qty,unit\nHenry Schein,,Gloves,2,8.50\n"
+
+    def post(self, upload):
+        return self.client.post("/invoices/upload/", {"invoice_file": upload}, follow=True)
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def test_a_file_that_is_too_big_says_so_and_says_how_big(self):
+        big = SimpleUploadedFile("scan.jpg", b"x" * (6 * 1024 * 1024), content_type="image/jpeg")
+
+        response = self.post(big)
+
+        self.assertContains(response, "Couldn't read scan.jpg")
+        self.assertContains(response, "6.0 MB")
+        self.assertContains(response, "takes up to 5 MB")
+
+    def test_the_wrong_sort_of_file_says_what_it_does_take(self):
+        response = self.post(SimpleUploadedFile("notes.docx", b"x", content_type="application/msword"))
+
+        self.assertContains(response, "Couldn't read notes.docx")
+        self.assertContains(response, "reads photos, PDFs and CSVs")
+
+    def test_choosing_nothing_says_so_rather_than_naming_no_file(self):
+        response = self.client.post("/invoices/upload/", {}, follow=True)
+
+        self.assertContains(response, "Nothing was read")
+        self.assertContains(response, "No file was chosen")
+
+    def test_the_message_is_in_the_page_not_only_in_a_toast(self):
+        self.client.post("/invoices/upload/",
+                         {"invoice_file": SimpleUploadedFile("notes.docx", b"x", content_type="application/msword")})
+
+        # In the page's own HTML, so it is still there after the toast has gone.
+        page = self.client.get("/invoices/")
+        self.assertContains(page, "Couldn't read notes.docx")
+        self.assertContains(page, 'role="alert"')
+        # But not on the next load: a message, not a nag.
+        self.assertNotContains(self.client.get("/invoices/"), "Couldn't read notes.docx")
+
+    def test_a_personal_limit_says_an_hour_and_offers_the_csv_path(self):
+        cache.clear()
+        with mock.patch("assistant.views.ai_limited", return_value=True), \
+             mock.patch("assistant.views.ai_limit_is_personal", return_value=True):
+            response = self.post(SimpleUploadedFile("inv.jpg", b"x", content_type="image/jpeg"))
+
+        self.assertContains(response, "Try again in an hour")
+        self.assertContains(response, "upload a CSV instead")
+
+    def test_the_shared_daily_limit_says_tomorrow_instead(self):
+        cache.clear()
+        with mock.patch("assistant.views.ai_limited", return_value=True), \
+             mock.patch("assistant.views.ai_limit_is_personal", return_value=False):
+            response = self.post(SimpleUploadedFile("inv.jpg", b"x", content_type="image/jpeg"))
+
+        self.assertContains(response, "as many files as it can today")
+        self.assertContains(response, "Try again tomorrow")
+
+    def test_a_csv_still_works_when_the_ai_limit_is_hit(self):
+        """The advice has to be true: a CSV is read without Gemini."""
+        cache.clear()
+        with mock.patch("assistant.views.ai_limited", return_value=True):
+            response = self.post(SimpleUploadedFile("inv.csv", self.CSV, content_type="text/csv"))
+
+        self.assertNotContains(response, "upload a CSV instead")
+        self.assertContains(response, "Gloves")
+
+    def test_too_many_files_at_once_says_how_many_is_too_many(self):
+        files = [SimpleUploadedFile(f"{n}.csv", self.CSV, "text/csv") for n in range(MAX_BATCH + 1)]
+
+        response = self.client.post("/invoices/batch/", {"invoice_files": files}, follow=True)
+
+        self.assertContains(response, f"{MAX_BATCH + 1} files")
+        self.assertContains(response, "smaller lots")

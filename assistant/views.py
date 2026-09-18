@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import admin_required, ai_required
-from accounts.ratelimit import AI_PER_HOUR, ai_limited
+from accounts.ratelimit import AI_PER_HOUR, ai_limit_is_personal, ai_limited
 from stock import invoices
 from stock.csv_import import REQUIRED_COLUMNS
 from stock.models import InvoiceBatch, InvoiceBatchFile, Supplier
@@ -24,6 +24,30 @@ HISTORY_TURNS = 6  # question-and-answer pairs sent back with each new question
 MAX_QUESTION = 500
 MAX_UPLOAD = 5 * 1024 * 1024
 LIMITED = f"That's the limit for now ({AI_PER_HOUR} an hour each). Try again a bit later."
+
+# Where the reason for a failed invoice read is left for the upload page to show.
+# A toast is gone in six seconds and the page looks untouched, so a manager who
+# glanced away can't tell whether anything happened - and uploads the same
+# failing file again, spending another AI call on it.
+UPLOAD_ERROR_KEY = "invoice_upload_error"
+
+
+def _upload_failed(request, filename, text):
+    """Leave the reason on the upload page itself, not only in a toast."""
+    request.session[UPLOAD_ERROR_KEY] = {"file": filename, "text": text}
+    return redirect("stock:invoice_upload")
+
+
+def _limit_text(request):
+    """Why the read was refused and when it will work again. Which limit was hit
+    decides whether "later" means an hour or tomorrow."""
+    if ai_limit_is_personal(request):
+        return (f"That's {AI_PER_HOUR} files read in the last hour, which is the limit. "
+                "Try again in an hour, or upload a CSV instead - those are read without AI, "
+                "so they always work.")
+    return ("StockRoom has read as many files as it can today, across every practice. "
+            "Try again tomorrow, or upload a CSV instead - those are read without AI, "
+            "so they always work.")
 
 SUGGESTIONS = ["What's running low?", "How do I receive a delivery?"]
 MANAGER_SUGGESTIONS = [
@@ -162,16 +186,13 @@ def invoice_upload(request):
     A repeat of one already imported is saved as ignored and says so instead."""
     upload = request.FILES.get("invoice_file")
     if not upload:
-        messages.error(request, "Choose an invoice or receipt first.")
-        return redirect("stock:invoice_upload")
+        return _upload_failed(request, "", "No file was chosen. Pick an invoice or receipt and try again.")
     mime_type = upload.content_type or ""
     is_csv = mime_type in invoices.CSV_TYPES
     if not _invoice_file_ok(upload):
-        messages.error(request, "Choose a PDF, photo or CSV under 5 MB.")
-        return redirect("stock:invoice_upload")
+        return _upload_failed(request, upload.name, _wrong_file_text(upload))
     if not is_csv and ai_limited(request):
-        messages.error(request, LIMITED)
-        return redirect("stock:invoice_upload")
+        return _upload_failed(request, upload.name, _limit_text(request))
 
     data = upload.read()
     # Kept before it's read, not after, so an invoice can never be parsed into
@@ -180,8 +201,10 @@ def invoice_upload(request):
     try:
         invoice, lines = invoices.parse_invoice(request.user.organisation, data, mime_type, upload.name)
     except gemini.GeminiError:
-        messages.error(request, "Couldn't read that invoice. Try a clearer photo, or import a CSV instead.")
-        return redirect("stock:invoice_upload")
+        return _upload_failed(request, upload.name,
+                              "StockRoom couldn't read this one. A clearer photo usually does it: flat, "
+                              "in good light, with the whole invoice in frame. A PDF or CSV from the "
+                              "supplier works better still, and is read without AI.")
     if invoices.find_original(invoice):
         invoices.ingest(invoice, lines, request.user)
         return redirect("stock:invoice_detail", invoice.pk)
@@ -189,6 +212,16 @@ def invoice_upload(request):
 
 
 MAX_BATCH = 50
+
+
+def _wrong_file_text(upload):
+    """Why this particular file was turned away: too big, or the wrong sort."""
+    if upload.size > MAX_UPLOAD:
+        return (f"That file is {upload.size / 1024 / 1024:.1f} MB, and StockRoom takes up to "
+                f"{MAX_UPLOAD // 1024 // 1024} MB. A photo taken on a lower setting, or the supplier's "
+                "own PDF, will be small enough.")
+    return ("StockRoom reads photos, PDFs and CSVs. That one is none of those, so there was nothing "
+            "to read. Most suppliers will email a PDF if you ask.")
 
 
 def _invoice_file_ok(upload):
@@ -203,13 +236,16 @@ def invoice_batch_upload(request):
     """Several invoices at once, saved as a batch and imported in the background
     without a preview. Any that need checking are listed on the batch page."""
     uploads = request.FILES.getlist("invoice_files")
-    if not uploads or len(uploads) > MAX_BATCH or not all(_invoice_file_ok(upload) for upload in uploads):
-        messages.error(request, f"Choose up to {MAX_BATCH} PDFs, photos or CSVs, each under 5 MB.")
-        return redirect("stock:invoice_upload")
+    if not uploads:
+        return _upload_failed(request, "", "No files were chosen. Pick your invoices and try again.")
+    if len(uploads) > MAX_BATCH:
+        return _upload_failed(request, "", f"That's {len(uploads)} files, and StockRoom reads up to "
+                                           f"{MAX_BATCH} at a time. Send them in smaller lots.")
+    if bad := [upload for upload in uploads if not _invoice_file_ok(upload)]:
+        return _upload_failed(request, ", ".join(upload.name for upload in bad[:3]), _wrong_file_text(bad[0]))
     read_by_ai = sum(upload.content_type not in invoices.CSV_TYPES for upload in uploads)
     if read_by_ai and ai_limited(request, calls=read_by_ai):
-        messages.error(request, LIMITED)
-        return redirect("stock:invoice_upload")
+        return _upload_failed(request, "", _limit_text(request))
 
     org = request.user.organisation
     with transaction.atomic():

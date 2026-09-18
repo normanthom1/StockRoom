@@ -20,7 +20,7 @@ radio inputs sitting inside full-width 48px labels. The copy is genuinely NZ:
 how IRD talks, and no US spellings anywhere in user-facing text.
 
 The problems were all in one place: **what happens when something goes wrong, or
-when the practice's setup does not match the happy path.** Ten issues, six
+when the practice's setup does not match the happy path.** Ten issues, nine
 fixed here.
 
 The worst of them was the first thing a new practice sees. On an install without
@@ -50,12 +50,16 @@ success.
 | [#130](https://github.com/normanthom1/StockRoom/pull/130) | UX-04 | Dates read "Sept. 18, 2026" | "18 September 2026", via a real `en_NZ` format module |
 | [#131](https://github.com/normanthom1/StockRoom/pull/131) | UX-05 | No instrumentation at all | Structured flow events and `manage.py ux_metrics` |
 | [#133](https://github.com/normanthom1/StockRoom/pull/133) | UX-06 | A batch import never said what it did | A summary of what changed, one-tap batch undo, held prices surfaced |
+| [#134](https://github.com/normanthom1/StockRoom/pull/134) | UX-08 | StockRoom's own words were never defined | A one-sentence explanation behind an "i" on every invented term |
+| [#135](https://github.com/normanthom1/StockRoom/pull/135) | UX-09 | Open orders listed with nothing to match on | Each shows when it was ordered and when it is due |
+| [#136](https://github.com/normanthom1/StockRoom/pull/136) | UX-10 | A failed upload told you in a vanishing toast | The reason stays on the page, names the file, and says what to do |
 
-All six are merged to `main`. Each PR carries before/after screenshots, its
+All nine are merged to `main`. Each PR carries before/after screenshots, its
 acceptance criteria, and test steps.
 
 Three of the fixes are worth singling out for *how* they were done rather than
-what they did. UX-04's obvious fix — setting `DATE_FORMAT` in `settings.py` —
+what they did, and there is a pattern in them worth naming: **three of the ten
+issues were wrong as first written, and only measuring found out.** UX-04's obvious fix — setting `DATE_FORMAT` in `settings.py` —
 silently does nothing while `USE_I18N` is on, because `get_format()` reads the
 active locale's format module first. It took a real `en_NZ` module to work, and
 that now fixes every date in the app rather than the two templates that happened
@@ -74,6 +78,15 @@ Building the extra threshold the issue originally asked for would have been
 redundant work on top of a mechanism that already existed. Surfacing the one
 already there was the fix. `UX_issues.md` records the correction and the
 measurement that found it.
+
+The same happened twice more. UX-09 claimed the "Match to" control was a text
+box you had to type into; in fact it had always listed every open order on load,
+and the real gap was that the options carried no dates. UX-10's acceptance
+criteria assumed one AI limit; there are two, a personal hourly one and a shared
+daily one, and they reset at different times, so the message has to know which
+was hit. In all three cases the first write-up was a reasonable reading of the
+code and wrong about the behaviour. The habit that caught them — measure the
+current behaviour before writing the fix, not after — is the one worth keeping.
 
 ## Metrics
 
@@ -106,7 +119,7 @@ loss, and the numbers will say from here whether that was enough.
 
 Every PR was merged only after all of these passed:
 
-- `python manage.py test` — **558 tests, OK** (33 added across the six fixes)
+- `python manage.py test` — **577 tests, OK** (52 added across the nine fixes)
 - `python manage.py makemigrations --check --dry-run` — no changes
 - `python manage.py check` — no issues
 - `ruff check .` — passes
@@ -119,18 +132,15 @@ test that passes either way documents a fix without catching the bug.
 
 ## What to do next
 
-Every path where a manager could lose data with no way back is now closed. What
-is left is time and friction.
+**UX-07** is the only issue from this review still open: the page called Stock
+shows no status, so "is anything close to running out that I haven't been told
+about?" cannot be answered there. A manager has to hold Home in their head while
+scrolling Stock. It costs time rather than work, which is why it is last.
 
-1. **UX-08 — no plain English for the words StockRoom invented.** "Matched
-   names", "Needs checking", "Confident" are never defined. Cheap to fix, and it
-   is what stops an untrained manager using the merge review that keeps the
-   stock list free of duplicates.
-2. **UX-07 — the stock list cannot tell you what is low.** The page called Stock
-   shows no status, so "is anything close to running out?" cannot be answered
-   there.
-3. **UX-09 and UX-10** — friction in matching an invoice line to an order, and a
-   failed upload that loses the manager's place.
+Beyond the list: the shared `CatalogueProduct` never learns from what practices
+match by hand, so a name three hundred practices have each joined up
+individually is still joined up individually by the three hundred and first.
+Worth doing once there are enough practices for the signal to mean anything.
 
 One thing outside the review worth mentioning: the test suite fails if a
 developer's local `.env` has `DEMO_MODE=1`, because several tests assert the

@@ -1072,6 +1072,9 @@ def invoice_upload(request):
     )
     return render(request, "stock/invoice_upload.html", {
         "unfinished": unfinished,
+        # Why the last read failed, left here by assistant/views.py. Popped, so
+        # it clears once it's been read rather than nagging forever.
+        "upload_error": request.session.pop("invoice_upload_error", None),
         # Nothing else in the app links to an invoice once you've left the batch
         # page, so this is the way back to one.
         "needs_checking": _needs_checking(org),
