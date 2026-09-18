@@ -862,10 +862,26 @@ def delivery_submit(request, pk):
     return redirect("stock:deliveries")
 
 
+def _with_status(item, now, today):
+    """Hang Home's own status figures on an item, so a row on Stock shows the
+    same chip and the same number rather than a second opinion. Needs the item's
+    events and order lines prefetched, which _org_items does."""
+    f = _forecast_for(item, now)
+    item.status = _row(item, f, today)
+    # An "OK" chip on 35 of 44 rows is noise, so only the ones that want doing
+    # something about get one. The rest keep the plain runout figure Home's
+    # "nothing to do" list uses, which is vaguer on purpose: no "~214 days".
+    item.status["needs_doing"] = f.status != Status.OK
+    return item
+
+
 def _items_context(org, form=None, query=""):
-    item_list = Item.objects.for_org(org).filter(is_active=True).select_related("supplier").order_by("name")
+    now = timezone.localtime()
+    today = now.date()
+    item_list = _org_items(org).order_by("name")
     if query:
         item_list = item_list.filter(name__icontains=query)
+    item_list = [_with_status(item, now, today) for item in item_list]
     return {
         "item_list": item_list,
         "form": form or ItemForm(instance=Item(organisation=org)),
@@ -901,8 +917,9 @@ def item_add(request):
 
 @admin_required
 def item_view_row(request, pk):
-    item = get_object_or_404(Item.objects.for_org(request.user.organisation).select_related("supplier"), pk=pk)
-    return render(request, "stock/_item_row.html", {"item": item})
+    item = get_object_or_404(_org_items(request.user.organisation), pk=pk)
+    now = timezone.localtime()
+    return render(request, "stock/_item_row.html", {"item": _with_status(item, now, now.date())})
 
 
 @admin_required
@@ -920,8 +937,9 @@ def item_update_row(request, pk):
     if form.is_valid():
         item = form.save()
         item.other_suppliers.remove(item.supplier)  # now the preferred one, so no longer a backup
-        item = Item.objects.select_related("supplier").get(pk=item.pk)
-        return render(request, "stock/_item_row.html", {"item": item})
+        item = _org_items(request.user.organisation).get(pk=item.pk)
+        now = timezone.localtime()
+        return render(request, "stock/_item_row.html", {"item": _with_status(item, now, now.date())})
     return render(request, "stock/_item_row.html", {"item": item, "edit_form": form})
 
 
