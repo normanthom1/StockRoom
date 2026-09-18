@@ -142,14 +142,14 @@ INVOICE_STATUS_HELP = {
 }
 
 ORDER_SIZE_HELP = (
-    "How many you buy at a time, so the reorder list can suggest a sensible amount. "
-    "Leave it empty and StockRoom suggests about two weeks' worth instead."
+    "How many you buy at a time, which the reorder list suggests when it's time to order, "
+    "or about two weeks' worth if you leave it empty."
 )
 
 MATCHED_NAMES_HELP = (
-    "Suppliers write the same product a different way on every invoice. When StockRoom is sure two names "
-    "are the same thing, it joins them up so you don't end up with the same item twice. This is the list of "
-    "what it joined, so you can undo any it got wrong."
+    "Suppliers write the same product in different ways, so when StockRoom is sure a new name is something "
+    "already on your stock list it joins the two up rather than adding it twice, and undoing one it got wrong "
+    "stops that product being counted as the wrong item."
 )
 
 

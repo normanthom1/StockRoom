@@ -392,6 +392,22 @@ class InvoiceUploadTests(Practice):
         self.assertContains(response, "Too late to undo this import")
         self.assertNotContains(response, "Undo this import")
 
+    def test_a_late_undo_from_the_invoice_page_goes_back_to_the_invoice(self):
+        """The page's Undo posts through htmx. A plain redirect is followed out of
+        sight and its page swapped into the button, taking the "too late" message
+        with it, so it has to be an HX-Redirect."""
+        self.client.force_login(self.admin)
+        self.upload()
+        self.client.post("/invoices/confirm/", {})
+        invoice = Invoice.objects.get()
+        invoice.undo_until = timezone.now() - timedelta(seconds=1)
+        invoice.save(update_fields=["undo_until"])
+
+        response = self.client.post(f"/invoices/{invoice.pk}/undo/", headers={"HX-Request": "true"})
+
+        self.assertEqual((response.status_code, response["HX-Redirect"]), (200, f"/invoices/{invoice.pk}/"))
+        self.assertContains(self.client.get(response["HX-Redirect"]), "Too late to undo this import")
+
     def test_the_invoice_keeps_an_undo_button_after_the_toast_has_gone(self):
         """UX-02. The toast carrying Undo hides itself after 6 seconds, so the
         invoice page has to carry one too for as long as the window is open."""

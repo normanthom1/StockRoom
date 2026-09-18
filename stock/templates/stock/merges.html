@@ -3,10 +3,11 @@
 {% block title %}Matched names · StockRoom{% endblock %}
 
 {% block content %}
-<h1 class="mb-1 flex items-center gap-2">
-  <span>Matched names</span>
+{# Beside the heading, not in it: inside the h1 the dialog took the heading's font. #}
+<div class="mb-1 flex items-center gap-2">
+  <h1>Matched names</h1>
   {% include "stock/_explain.html" with key="matched-names" term="Matched names" body=matched_names_help %}
-</h1>
+</div>
 <p class="mb-4 text-sm text-gray-600">Names from invoices and imports that StockRoom matched to something already on your stock list, over the last {{ undo_days }} days. Undo any that aren't the same thing, and they won't be matched again.</p>
 
 <div class="mb-6 border-t border-gray-300">

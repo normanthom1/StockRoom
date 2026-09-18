@@ -1109,18 +1109,21 @@ def invoice_batch(request, pk):
     batch = get_object_or_404(InvoiceBatch.objects.for_org(request.user.organisation), pk=pk)
     files = list(batch.files.defer("data").order_by("pk"))
     left = any(file.state in invoices.TO_READ for file in files)
+    waiting = any(file.state == InvoiceBatchFile.State.PENDING for file in files)
     context = {
         "batch": batch,
         "files": files,
         "done": sum(file.state not in invoices.TO_READ for file in files),
-        "waiting": any(file.state == InvoiceBatchFile.State.PENDING for file in files),
+        "waiting": waiting,
         "left": left,
         # Where a practice setting up goes next: the draft these files just built.
         # Only once they're all read, so the 2-second poll isn't rebuilding it each time.
         "drafts": 0 if left else len(setup_module.draft_items(batch.organisation)),
-        # What the run actually changed. Only once it's finished: mid-run totals
-        # would move under the manager every two seconds.
-        "summary": None if left else invoices.batch_summary(batch, files),
+        # What the run actually changed, once it's finished: mid-run totals would
+        # move under the manager every two seconds. Finished is nothing waiting,
+        # not nothing left: a file that failed waits for Resume, and mustn't hide
+        # what the rest did or the Undo for it.
+        "summary": None if waiting else invoices.batch_summary(batch, files),
     }
     template = "stock/invoice_batch.html#files" if request.headers.get("HX-Request") else "stock/invoice_batch.html"
     return render(request, template, context)
@@ -1313,7 +1316,9 @@ def invoice_undo(request, pk):
     invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
     if not invoice.undo_snapshot or invoice.undo_until < timezone.now():
         messages.error(request, "Too late to undo this import. Change what's wrong on the item or the order instead.")
-        return redirect("stock:invoice_detail", invoice.pk)
+        # The page's Undo posts through htmx, which would follow a plain redirect
+        # out of sight and swap the page into the button, message and all.
+        return _go(request, reverse("stock:invoice_detail", args=[invoice.pk]))
     invoices.undo_ingest(invoice)
     track("invoice_undone", org=invoice.organisation_id,
           seconds_after=int((timezone.now() - invoice.created_at).total_seconds()))

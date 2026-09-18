@@ -129,7 +129,9 @@ SESSION_COOKIE_AGE = 60 * 60 * 24 * 60  # 60 days
 # reset of it (see stockroom.demo.DemoResetMiddleware), and
 # sign-up hidden by default (a demo visitor uses the demo practice, not
 # their own) unless explicitly turned back on.
-DEMO_MODE = env_bool("DEMO_MODE", False)
+# Always off under `manage.py test`, whatever .env says: the suite is written
+# for a normal install, and the tests that need the demo turn it on themselves.
+DEMO_MODE = env_bool("DEMO_MODE", False) and "test" not in sys.argv
 SIGNUP_ENABLED = env_bool("SIGNUP_ENABLED", not DEMO_MODE)
 
 # Ask StockRoom (chat) and the AI stock-list import, through Google Gemini

@@ -106,4 +106,6 @@ def ai_limit_is_personal(request):
     yes, and it has to be a plain cache read like code_entry_locked - counting
     another attempt here would spend quota to write an error message."""
     who = f"ip:{client_ip(request)}" if settings.DEMO_MODE else f"user:{request.user.pk}"
-    return cache.get(_cache_key(f"ai:{who}"), 0) >= AI_PER_HOUR
+    # ">" like _over_limit: their 20th read is allowed, so a count of exactly 20
+    # means the daily total ran out, not theirs.
+    return cache.get(_cache_key(f"ai:{who}"), 0) > AI_PER_HOUR

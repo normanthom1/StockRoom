@@ -5,10 +5,11 @@
 
 {% block content %}
 <h1 class="mb-1">{{ invoice.supplier_name|default:"Invoice or receipt" }}</h1>
-<p class="mb-4 flex flex-wrap items-center gap-x-1 text-sm text-gray-600">
+{# A div, not a p: the explanation's <dialog> can't sit inside a paragraph, and the parser ends it early. #}
+<div class="mb-4 flex flex-wrap items-center gap-x-1 text-sm text-gray-600">
   <span>{% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on }} &middot; {% endif %}{{ invoice.get_status_display }}</span>
   {% if status_help %}{% include "stock/_explain.html" with key="status" term=invoice.get_status_display body=status_help %}{% endif %}
-</p>
+</div>
 
 {# The tax record: what was charged, and the file it was read from. #}
 <div class="blueprint mb-5 p-4">
@@ -109,7 +110,7 @@
             <button type="submit" name="to_stock" value="1" class="btn btn-line mt-2 w-full">Add {{ line.qty }} {{ line.item.unit|plural:line.qty }} to stock</button>
             <p class="mt-1 text-sm text-gray-600">Adds it without an order and sets the price to ${{ line.unit_price|default_if_none:"?"|floatformat:2 }}. For a receipt, or anything ordered outside StockRoom.</p>
           {% elif not line.item %}
-            <p class="mt-1 text-sm text-gray-600">No item in StockRoom matches this. Add it on the Items page, then check this invoice again.</p>
+            <p class="mt-1 text-sm text-gray-600">No item in StockRoom matches this. Add it on the Stock page, with how many are on the shelf now.</p>
           {% endif %}
         </form>
       {% endif %}
