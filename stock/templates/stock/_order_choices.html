@@ -1,6 +1,20 @@
 {% load stock_units %}
 {% for order in orders %}
-  <label><input type="radio" name="order_{{ key }}" value="{{ order.pk }}"> {{ order.item.name }} &middot; {{ order.qty }} {{ order.item.unit|plural:order.qty }} on order</label>
+  {% comment %}
+  Name, quantity and both dates. A supplier's own description of a product on an
+  invoice ("NIT GLV M 100BX") often looks nothing like the item's name here, so
+  the name alone is not enough to pick the right order by: when it was ordered
+  and when it is due are what a manager actually recognises.
+  {% endcomment %}
+  <label class="items-start">
+    <input type="radio" name="order_{{ key }}" value="{{ order.pk }}">
+    <span class="flex min-w-0 flex-col gap-0.5 py-1">
+      <span class="font-medium text-gray-900">{{ order.item.name }} &middot; {{ order.qty }} {{ order.item.unit|plural:order.qty }}</span>
+      <span class="text-[0.8125rem] leading-snug text-gray-600">
+        Ordered {{ order.ordered_at|date:"j M" }}{% if order.expected_at %} &middot; due ~{{ order.expected_at|date:"j M" }}{% endif %}{% if order.split_from_id %} &middot; the rest of an earlier delivery{% endif %}
+      </span>
+    </span>
+  </label>
 {% empty %}
   <p class="py-2 text-sm text-gray-600">Nothing on order matches that.</p>
 {% endfor %}

@@ -421,7 +421,7 @@ class InvoiceUploadTests(Practice):
         self.client.force_login(self.admin)
         response = self.upload(content=csv)
         self.assertContains(response, "1 matched")
-        self.assertContains(response, "Match to…", count=2)
+        self.assertContains(response, "What did this arrive against?", count=2)
 
         search = self.client.get("/invoices/open-orders/", {"supplier": self.henry.pk, "q": "bib", "key": 1})
         self.assertContains(search, f'name="order_1" value="{bibs_order.pk}"')
@@ -436,7 +436,7 @@ class InvoiceUploadTests(Practice):
 
         clamps_order = OrderLine.objects.create(organisation=self.org, item=clamps, qty=1, ordered_by=self.admin)
         line = invoice.lines.get(description="Rubber dam clamps")
-        self.assertContains(self.client.get(f"/invoices/{invoice.pk}/"), "Match to…", count=1)
+        self.assertContains(self.client.get(f"/invoices/{invoice.pk}/"), "What did this arrive against?", count=1)
         response = self.client.post(f"/invoices/line/{line.pk}/receive/", {f"order_{line.pk}": clamps_order.pk},
                                     follow=True)
         self.assertContains(response, "Received 1 clamp of Rubber dam clamps.")

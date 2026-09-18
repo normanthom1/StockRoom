@@ -1,12 +1,14 @@
 import hashlib
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest import mock
+from zoneinfo import ZoneInfo
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from accounts.models import Organisation, User
@@ -51,6 +53,9 @@ CSV = b"""\xef\xbb\xbfinvoice_date,vendor,po_number,sku,description,qty,unit,lin
 ,,,,GST,,,21.02
 ,,,,Total,,,161.18
 """
+
+
+NZT = ZoneInfo("Pacific/Auckland")
 
 
 class ParseInvoiceTests(TestCase):
@@ -647,3 +652,71 @@ class BatchReviewTests(TestCase):
         response = self.client.post(f"/invoices/line/{line.pk}/price/", {"next": "https://evil.test/"})
 
         self.assertEqual(response["Location"], "/items/")
+
+
+@override_settings(AI_API_KEY="test-key")
+class MatchToTests(TestCase):
+    """UX-09. A supplier's own description of a product ("NIT GLV M 100BX")
+    often looks nothing like the item's name in StockRoom, so a list of open
+    orders showing only names gave a manager no way to tell which one a delivery
+    belonged to."""
+
+    def setUp(self):
+        self.org = Organisation.objects.create(name="Test Dental")
+        self.admin = User.objects.create_user("sandy@example.com", "pw", organisation=self.org,
+                                              role=User.Role.ADMIN)
+        self.supplier = Supplier.objects.create(organisation=self.org, name="Henry Schein")
+        self.gloves = Item.objects.create(organisation=self.org, name="Nitrile gloves, size M",
+                                          unit="box", supplier=self.supplier)
+        self.order = OrderLine.objects.create(
+            organisation=self.org, item=self.gloves, supplier=self.supplier, qty=10,
+            ordered_by=self.admin, ordered_at=datetime(2026, 9, 12, 9, 0, tzinfo=NZT))
+        self.client.force_login(self.admin)
+
+    def preview(self):
+        """An invoice whose description matches nothing, so the line needs matching by hand."""
+        csv = b"vendor,description,qty,unit\nHenry Schein,NIT GLV M 100BX,10,8.50\n"
+        return self.client.post("/invoices/upload/", {
+            "invoice_file": SimpleUploadedFile("inv.csv", csv, content_type="text/csv"),
+        }, follow=True)
+
+    def test_the_open_orders_are_listed_without_typing_anything(self):
+        response = self.preview()
+
+        self.assertContains(response, "What did this arrive against?")
+        self.assertContains(response, "Nitrile gloves, size M &middot; 10 boxes")
+        # open, so the options are on screen rather than behind a tap
+        self.assertContains(response, "<details class=\"mt-1\" open>")
+
+    def test_each_option_says_when_it_was_ordered_and_when_it_is_due(self):
+        response = self.preview()
+
+        self.assertContains(response, "Ordered 12 Sep")
+        self.assertContains(response, "due ~")
+
+    def test_a_back_order_says_that_is_what_it_is(self):
+        first = OrderLine.objects.create(organisation=self.org, item=self.gloves, supplier=self.supplier,
+                                         qty=4, ordered_by=self.admin)
+        OrderLine.objects.create(organisation=self.org, item=self.gloves, supplier=self.supplier, qty=6,
+                                 ordered_by=self.admin, split_from=first)
+
+        self.assertContains(self.preview(), "the rest of an earlier delivery")
+
+    def test_the_search_box_only_shows_up_when_the_list_is_long(self):
+        self.assertNotContains(self.preview(), 'placeholder="Search what\'s on order"')
+
+        for n in range(8):
+            item = Item.objects.create(organisation=self.org, name=f"Thing {n}", unit="box", supplier=self.supplier)
+            OrderLine.objects.create(organisation=self.org, item=item, supplier=self.supplier,
+                                     qty=1, ordered_by=self.admin)
+
+        self.assertContains(self.preview(), 'placeholder="Search what\'s on order"')
+
+    def test_picking_an_order_receives_against_it(self):
+        self.preview()
+
+        self.client.post("/invoices/confirm/", {"order_0": str(self.order.pk)})
+
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.received_at)
+        self.assertEqual(self.order.received_qty, 10)

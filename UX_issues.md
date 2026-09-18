@@ -47,13 +47,13 @@ wrong, or when the practice's setup does not match the happy path.**
 | [UX-05](#ux-05--nothing-measures-whether-any-of-this-works) | Nothing measures whether any of this works | Medium | S | Fixed — [#131](https://github.com/normanthom1/StockRoom/pull/131) |
 | [UX-06](#ux-06--a-batch-import-never-says-what-it-did) | A batch import never says what it did | High | M | Fixed — [#133](https://github.com/normanthom1/StockRoom/pull/133) |
 | [UX-07](#ux-07--the-stock-list-cannot-tell-you-what-is-low) | The stock list cannot tell you what is low | Medium | M | Pending |
-| [UX-08](#ux-08--no-plain-english-for-the-words-stockroom-invented) | No plain English for the words StockRoom invented | Medium | S | Pending |
-| [UX-09](#ux-09--match-to-assumes-you-remember-what-you-ordered) | "Match to" assumes you remember what you ordered | Medium | M | Pending |
+| [UX-08](#ux-08--no-plain-english-for-the-words-stockroom-invented) | No plain English for the words StockRoom invented | Medium | S | Fixed — [#134](https://github.com/normanthom1/StockRoom/pull/134) |
+| [UX-09](#ux-09--matching-a-delivery-by-hand-gave-you-nothing-to-match-on) | Matching a delivery by hand gave you nothing to match on | Medium | S | Fixed — [#135](https://github.com/normanthom1/StockRoom/pull/135) |
 | [UX-10](#ux-10--a-failed-invoice-read-loses-the-managers-place) | A failed invoice read loses the manager's place | Low | S | Pending |
 
-Pending issues are ordered by severity, not by number. **UX-08 is the one to do
-next**: it is cheap, and it is what stops an untrained manager using the merge
-review that keeps the stock list free of duplicates.
+Every path where a manager could lose work with no way back is now closed. The
+two left are time and friction: **UX-07** (the Stock page shows no status) and
+**UX-10** (a failed upload tells you in a toast that is gone six seconds later).
 
 Severity is the `ui-ux-pro-max` scale: **Critical** blocks the task outright,
 **High** costs real money or data, **Medium** costs time, **Low** is friction.
@@ -443,46 +443,6 @@ Item.objects.get(supplier_sku="HS-4471").price  # -> Decimal("8.50")
 
 ---
 
-## Pending
-
-Not implemented in this review. Each one is ready to pick up: acceptance
-criteria are observable, and the test steps are what to do in the running app.
-
-### UX-07 — The stock list cannot tell you what is low
-
-**Labels:** `frontend`
-
-**Problem.** `/items/` lists all 44 items alphabetically with name, unit,
-supplier and price. No status, no days left, no stripe. Home has all of that
-but only shows what needs attention. So "is anything close to running out that
-I have not been told about yet?" cannot be answered on the page called Stock;
-the manager has to hold Home in their head while scrolling Stock.
-
-**Impact.** Time, not money. The split is defensible — Home is the to-do list,
-Stock is the catalogue — but an untrained manager reads "Stock" as "my stock"
-and expects the state of it.
-
-**Acceptance criteria**
-1. Each row on `/items/` shows its status chip and days-left figure, using the
-   same `_status_chip.html` and colours as Home.
-2. Rows keep their left status stripe, and status is readable without colour.
-3. The search box filters without losing the status on filtered rows.
-
-**Test steps**
-1. Sign in as `0000`, open `/items/`.
-2. Check "Suction tips, disposable" shows "Out of stock" and "Nitrile gloves,
-   size M" shows "Order now", matching Home.
-3. Type "gloves" in the search box; confirm the filtered row keeps its chip.
-4. Sign in as `11` (assistant) and confirm `/items/` is still 403.
-
-**UI note.** Reuse `stock/_item_row.html` and the `status_color` annotation the
-home view already computes; do not recompute the forecast per row.
-
-**Sample invoice mapping.** Not applicable — no invoice data on this screen.
-Status comes from `StockEvent` history via `stock/forecast.py`.
-
----
-
 ### UX-08 — No plain English for the words StockRoom invented
 
 **Labels:** `frontend`
@@ -527,45 +487,107 @@ Invoice.Status.IGNORED   # "Already imported"     -> same checksum or number as 
 
 ---
 
-### UX-09 — "Match to" assumes you remember what you ordered
+### UX-09 — Matching a delivery by hand gave you nothing to match on
 
 **Labels:** `frontend`
 
-**Problem.** When an invoice line matches nothing on order, the preview offers
-a "Match to" search over open orders. It is a text box: the manager has to
-recall which order the delivery belongs to and type enough of the item name to
-find it. For an untrained manager reading a supplier's abbreviated product
-description ("NIT GLV M 100BX"), that is a guess.
+**Problem.** When an invoice line matches nothing on order, the preview offers a
+list of the supplier's open orders to pick from. Each option read only:
 
-**Impact.** Lines get left unmatched, so stock is not received and the
-back-order stays open forever, which then makes the reorder list wrong.
+```
+Nitrile gloves, size M · 10 boxes on order
+```
+
+A supplier's own description of a product is often nothing like the item's name
+in StockRoom — "NIT GLV M 100BX" against "Nitrile gloves, size M" — so the name
+alone is exactly the thing the manager cannot match on. Two orders of the same
+item are indistinguishable. And the list sat inside a collapsed "Match to…",
+behind a tap whose only purpose was to reveal the one control on the line.
+
+**Corrected from the first draft of this review.** This entry originally said
+the control "is a text box: the manager has to recall which order the delivery
+belongs to and type enough of the item name to find it". That is wrong —
+`_match_to.html` has always passed `orders` straight into `_order_choices.html`,
+so every open order was rendered on load and the search box only filtered them.
+Acceptance criterion 1 was already met. The real gap was criterion 2: the
+options carried no dates, which is what a manager actually recognises an order
+by.
+
+**Impact.** Lines get left unmatched, so stock is not received, the back-order
+stays open forever, and the reorder list is wrong from then on.
 
 **Acceptance criteria**
-1. With an unmatched line, the open orders from that supplier are listed
-   without typing anything, most recent first.
-2. Each option shows item name, quantity ordered and order date, so it can be
-   chosen without knowing the item name.
+1. With an unmatched line, the supplier's open orders are listed without typing
+   anything and without opening anything.
+2. Each option shows item name, quantity, when it was ordered and when it is
+   due, so it can be chosen without knowing the item name.
 3. Choosing one and confirming receives against that order and closes it.
 
 **Test steps**
-1. Seed demo data and mark an item ordered from Henry Schein at `/reorder/`.
-2. Upload a CSV invoice whose description does not match the item name.
-3. On the preview, confirm the Henry Schein open orders are listed before any
-   typing, showing name, quantity and date.
-4. Pick the order, confirm, and check `/deliveries/` no longer lists it.
+1. Seed demo data and mark a few items ordered from Henry Schein at `/reorder/`.
+2. Upload a CSV invoice whose description matches no item, e.g.
+   `NIT GLV M 100BX`.
+3. On the preview, confirm the open orders are on screen with no tap, each
+   showing "Ordered 14 Sep · due ~17 Sep".
+4. Pick one, confirm, and check `/deliveries/` no longer lists it.
 
-**UI note.** The options list already exists as `_order_choices.html`; render it
-on load rather than only on search input.
+**UI note.** `_order_choices.html` already existed and is shared with the htmx
+search endpoint, so both paths gained the dates at once. The `<details>` is now
+`open`, and the search box only appears once there are more than six orders —
+below that it is clutter on a list you can already see all of.
 
 **Sample invoice mapping.**
 
 ```python
 # The line the manager has to match by hand
-{"sku": "", "description": "NIT GLV M 100BX", "qty": 10,
- "unit": "28.50", "line_total": "285.00"}
-# Matcher.match() normalises to "100pk glv m nit" -> below UNSURE_FLOOR (0.60)
-# against "Nitrile gloves, size M" -> no suggestion, manual match required.
+{"sku": "", "description": "NIT GLV M 100BX", "qty": 6,
+ "unit": "28.50", "line_total": "171.00"}
+# Matcher.match() normalises to "100bx glv m nit" -> below UNSURE_FLOOR (0.60)
+# against "Nitrile gloves, size M" -> no suggestion, so the manager picks from
+# the open orders, now shown as:
+#   Nitrile gloves, size M · 6 boxes
+#   Ordered 18 Sep · due ~23 Sep
 ```
+
+---
+
+## Pending
+
+Not implemented in this review. Each one is ready to pick up: acceptance
+criteria are observable, and the test steps are what to do in the running app.
+
+### UX-07 — The stock list cannot tell you what is low
+
+**Labels:** `frontend`
+
+**Problem.** `/items/` lists all 44 items alphabetically with name, unit,
+supplier and price. No status, no days left, no stripe. Home has all of that
+but only shows what needs attention. So "is anything close to running out that
+I have not been told about yet?" cannot be answered on the page called Stock;
+the manager has to hold Home in their head while scrolling Stock.
+
+**Impact.** Time, not money. The split is defensible — Home is the to-do list,
+Stock is the catalogue — but an untrained manager reads "Stock" as "my stock"
+and expects the state of it.
+
+**Acceptance criteria**
+1. Each row on `/items/` shows its status chip and days-left figure, using the
+   same `_status_chip.html` and colours as Home.
+2. Rows keep their left status stripe, and status is readable without colour.
+3. The search box filters without losing the status on filtered rows.
+
+**Test steps**
+1. Sign in as `0000`, open `/items/`.
+2. Check "Suction tips, disposable" shows "Out of stock" and "Nitrile gloves,
+   size M" shows "Order now", matching Home.
+3. Type "gloves" in the search box; confirm the filtered row keeps its chip.
+4. Sign in as `11` (assistant) and confirm `/items/` is still 403.
+
+**UI note.** Reuse `stock/_item_row.html` and the `status_color` annotation the
+home view already computes; do not recompute the forecast per row.
+
+**Sample invoice mapping.** Not applicable — no invoice data on this screen.
+Status comes from `StockEvent` history via `stock/forecast.py`.
 
 ---
 

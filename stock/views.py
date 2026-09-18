@@ -1211,7 +1211,7 @@ def invoice_confirm(request):
     # A supplier picked in the preview, for an invoice from one StockRoom didn't recognise.
     supplier_id = _id(request.POST.get("supplier")) or pending["supplier_id"]
     invoice.supplier = Supplier.objects.for_org(org).filter(pk=supplier_id).first() if supplier_id else None
-    # What each line was delivered against: picked with "Match to", or matched in the preview.
+    # What each line was delivered against: picked by hand, or matched in the preview.
     picked = [_id(request.POST.get(f"order_{index}")) or row.get("order") for index, row in enumerate(pending["lines"])]
     orders = _open_lines_for_org(org).filter(supplier=invoice.supplier_id).in_bulk([pk for pk in picked if pk])
 
