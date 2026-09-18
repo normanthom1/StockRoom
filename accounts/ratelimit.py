@@ -98,3 +98,12 @@ def ai_limited(request, calls=1):
         return True
     over = [_over_limit("ai:all", settings.AI_DAILY_LIMIT, 24 * 60 * 60) for _ in range(calls)]  # each one counts
     return any(over)
+
+
+def ai_limit_is_personal(request):
+    """Which limit ai_limited() just hit: this person's hourly one (True) or
+    everyone's daily one (False). Only worth asking once ai_limited() has said
+    yes, and it has to be a plain cache read like code_entry_locked - counting
+    another attempt here would spend quota to write an error message."""
+    who = f"ip:{client_ip(request)}" if settings.DEMO_MODE else f"user:{request.user.pk}"
+    return cache.get(_cache_key(f"ai:{who}"), 0) >= AI_PER_HOUR

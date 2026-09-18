@@ -49,11 +49,11 @@ wrong, or when the practice's setup does not match the happy path.**
 | [UX-07](#ux-07--the-stock-list-cannot-tell-you-what-is-low) | The stock list cannot tell you what is low | Medium | M | Pending |
 | [UX-08](#ux-08--no-plain-english-for-the-words-stockroom-invented) | No plain English for the words StockRoom invented | Medium | S | Fixed — [#134](https://github.com/normanthom1/StockRoom/pull/134) |
 | [UX-09](#ux-09--matching-a-delivery-by-hand-gave-you-nothing-to-match-on) | Matching a delivery by hand gave you nothing to match on | Medium | S | Fixed — [#135](https://github.com/normanthom1/StockRoom/pull/135) |
-| [UX-10](#ux-10--a-failed-invoice-read-loses-the-managers-place) | A failed invoice read loses the manager's place | Low | S | Pending |
+| [UX-10](#ux-10--a-failed-invoice-read-loses-the-managers-place) | A failed invoice read loses the manager's place | Low | S | Fixed — [#136](https://github.com/normanthom1/StockRoom/pull/136) |
 
-Every path where a manager could lose work with no way back is now closed. The
-two left are time and friction: **UX-07** (the Stock page shows no status) and
-**UX-10** (a failed upload tells you in a toast that is gone six seconds later).
+Nine of the ten are done. **UX-07** is the only one left: the page called Stock
+shows no status, so "is anything close to running out that I haven't been told
+about?" can't be answered there. It costs time, not work.
 
 Severity is the `ui-ux-pro-max` scale: **Critical** blocks the task outright,
 **High** costs real money or data, **Medium** costs time, **Low** is friction.
@@ -551,6 +551,49 @@ below that it is clutter on a list you can already see all of.
 
 ---
 
+### UX-10 — A failed invoice read loses the manager's place
+
+**Labels:** `frontend`
+
+**Problem.** Every failure in `assistant/views.py` redirects back to
+`stock:invoice_upload` with a toast: a file too large, an unreadable photo, the
+daily AI limit hit. The toast is gone in 6 seconds and the upload page looks
+exactly as it did before, so a manager who looked away cannot tell whether
+anything happened, and the file they chose is gone from the input.
+
+**Impact.** Repeated uploads of the same failing file, each one spending an AI
+call against the daily limit.
+
+**Acceptance criteria**
+1. A failed read leaves a message on the upload page itself, not only in a toast.
+2. The message names the file that failed and what to do instead.
+3. Hitting a limit says when it resets and offers the CSV path. There are two
+   limits, and they reset at different times: this person's hourly one and every
+   practice's shared daily one. `ai_limit_is_personal()` tells them apart with a
+   plain cache read, because `ai_limited()` counts the attempt and calling it
+   twice would spend quota to write an error message.
+
+**Test steps**
+1. With `AI_API_KEY` set, upload a 6 MB photo at `/invoices/`.
+2. Wait 10 seconds, then confirm the page still explains that the file was too
+   large and names it.
+3. Set `AI_DAILY_LIMIT=0`, upload again, and confirm the message offers CSV
+   import and says when the limit resets.
+
+**UI note.** A `blueprint` panel above the upload form, in `status-week`, using
+the same dashed-border treatment as the preview's "Some lines don't add up".
+
+**Sample invoice mapping.** Not applicable — the failure happens before any
+line is parsed. The `InvoiceDocument` is still kept, so the bytes are not lost:
+
+```python
+# assistant/views.py -- kept before parsing, so a failed read still has its file
+invoices.keep_document(org, user, upload.name, mime_type, data)
+invoices.parse_invoice(...)   # raises GeminiError -> redirect with a toast
+```
+
+---
+
 ## Pending
 
 Not implemented in this review. Each one is ready to pick up: acceptance
@@ -591,44 +634,6 @@ Status comes from `StockEvent` history via `stock/forecast.py`.
 
 ---
 
-### UX-10 — A failed invoice read loses the manager's place
-
-**Labels:** `frontend`
-
-**Problem.** Every failure in `assistant/views.py` redirects back to
-`stock:invoice_upload` with a toast: a file too large, an unreadable photo, the
-daily AI limit hit. The toast is gone in 6 seconds and the upload page looks
-exactly as it did before, so a manager who looked away cannot tell whether
-anything happened, and the file they chose is gone from the input.
-
-**Impact.** Repeated uploads of the same failing file, each one spending an AI
-call against the daily limit.
-
-**Acceptance criteria**
-1. A failed read leaves a message on the upload page itself, not only in a toast.
-2. The message names the file that failed and what to do instead.
-3. Hitting the daily AI limit says when it resets and offers the CSV path.
-
-**Test steps**
-1. With `AI_API_KEY` set, upload a 6 MB photo at `/invoices/`.
-2. Wait 10 seconds, then confirm the page still explains that the file was too
-   large and names it.
-3. Set `AI_DAILY_LIMIT=0`, upload again, and confirm the message offers CSV
-   import and says when the limit resets.
-
-**UI note.** A `blueprint` panel above the upload form, in `status-week`, using
-the same dashed-border treatment as the preview's "Some lines don't add up".
-
-**Sample invoice mapping.** Not applicable — the failure happens before any
-line is parsed. The `InvoiceDocument` is still kept, so the bytes are not lost:
-
-```python
-# assistant/views.py -- kept before parsing, so a failed read still has its file
-invoices.keep_document(org, user, upload.name, mime_type, data)
-invoices.parse_invoice(...)   # raises GeminiError -> redirect with a toast
-```
-
----
 
 ## Product canonicalisation and dedup
 

@@ -3,6 +3,12 @@
 {% block title %}Upload an invoice or receipt · StockRoom{% endblock %}
 
 {% block content %}
+{% if upload_error %}
+  <div class="mb-5 border border-dashed border-status-week px-3 py-2.5 text-status-week" role="alert">
+    <p class="font-medium">{% if upload_error.file %}Couldn't read {{ upload_error.file }}{% else %}Nothing was read{% endif %}</p>
+    <p class="mt-1 text-sm leading-relaxed">{{ upload_error.text }}</p>
+  </div>
+{% endif %}
 {% if needs_checking %}
   <h2 class="mb-1">{{ needs_checking|length }} need{{ needs_checking|length|pluralize:"s," }} checking</h2>
   <p class="mb-2 text-sm text-gray-600">Nothing was received off {{ needs_checking|length|pluralize:"this one,these" }}, so your counts and prices are short until it's sorted. Open one to fix it.</p>
