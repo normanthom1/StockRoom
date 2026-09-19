@@ -7,7 +7,7 @@ django-tailwind-cli==4.8.0
 gunicorn==26.2.0
 psycopg[binary]==3.3.5
 python-dotenv==1.2.3
-semver==3.0.4
+semver==3.1.0
 sqlparse==0.6.0
-tzdata==2026.3
+tzdata==2026.4
 whitenoise==6.12.0
