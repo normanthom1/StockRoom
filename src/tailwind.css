@@ -261,4 +261,8 @@
   .menu-item[aria-current="page"] {
     @apply bg-primary-tint font-semibold text-primary-dark;
   }
+  /* A question to tap in Ask StockRoom (assistant/chat.html), pill-shaped like the chat around it. */
+  .suggestion {
+    @apply min-h-12 shrink-0 rounded-full border border-gray-300 bg-white px-4 text-[0.9375rem] whitespace-nowrap text-gray-900 hover:bg-gray-50 active:bg-gray-100;
+  }
 }

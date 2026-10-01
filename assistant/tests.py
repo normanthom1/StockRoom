@@ -26,7 +26,7 @@ from stock.models import (
 )
 
 from . import gemini
-from .views import HISTORY_TURNS
+from .views import HISTORY_TURNS, MONEY_REFUSAL
 
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
@@ -59,23 +59,28 @@ class NoKeyTests(Practice):
         self.assertEqual(self.client.post("/items/import/ai/", {"text": "gloves"}).status_code, 404)
         self.assertEqual(self.client.get("/invoices/").status_code, 404)
         self.assertEqual(self.client.post("/invoices/upload/", {}).status_code, 404)
-        self.assertNotContains(self.client.get("/"), 'href="/ask/"')
+        home = self.client.get("/")
+        self.assertNotContains(home, 'href="/?ask"')
+        self.assertNotContains(home, "data-ask")
         self.assertContains(self.client.get("/items/import/"), "Import items from a CSV")
 
 
 @override_settings(AI_API_KEY="test-key")
 class AskTests(Practice):
-    def test_the_header_links_to_ask(self):
+    def test_the_chat_is_on_home_and_the_header_goes_to_it(self):
         self.client.force_login(self.assistant)
-        self.assertContains(self.client.get("/"), 'href="/ask/"')
+        home = self.client.get("/")
+        self.assertContains(home, 'id="ask"')
+        self.assertContains(home, 'href="/?ask"')
+        self.assertRedirects(self.client.get("/ask/"), "/?ask", fetch_redirect_response=False)
 
     def test_suggestions_match_the_role(self):
         self.client.force_login(self.assistant)
-        content = self.client.get("/ask/").content.decode()
-        self.assertIn("What&#x27;s running low?", content)
-        self.assertNotIn("What did we spend", content)
+        content = self.client.get("/").content.decode()
+        self.assertIn("running low?", content)
+        self.assertNotIn("save money", content)
         self.client.force_login(self.admin)
-        self.assertContains(self.client.get("/ask/"), "What did we spend this month?")
+        self.assertContains(self.client.get("/"), "Where could we save money?")
 
     def test_the_answer_is_added_to_the_chat_as_plain_text(self):
         self.client.force_login(self.assistant)
@@ -96,6 +101,8 @@ class AskTests(Practice):
         self.assertNotIn("$", system)
         self.assertNotIn("spent", system)
         self.assertIn("talking to Johanna, a dental assistant", system)
+        self.assertIn(f'reply with exactly this and nothing else: "{MONEY_REFUSAL}"', system)
+        self.assertNotIn("where to save money", system)
 
     def test_a_managers_prompt_has_prices_and_spending(self):
         self.client.force_login(self.admin)
@@ -105,6 +112,8 @@ class AskTests(Practice):
         self.assertIn("$8.50 per box", system)
         self.assertIn("spent $85.00 this month", system)
         self.assertIn("This month", system)
+        self.assertIn("where to save money", system)
+        self.assertNotIn(MONEY_REFUSAL, system)
 
     def test_a_managers_prompt_has_invoice_and_back_order_data(self):
         self.client.force_login(self.admin)
@@ -144,14 +153,22 @@ class AskTests(Practice):
         self.assertEqual(len(turns), HISTORY_TURNS * 2 + 1)
         self.assertEqual(turns[0], ("user", "Question 1"))
         self.assertEqual(turns[-1], ("user", f"Question {HISTORY_TURNS + 1}"))
-        self.assertContains(self.client.get("/ask/"), "Question 7")
+        self.assertContains(self.client.get("/"), "Question 7")
 
     def test_switching_person_starts_a_fresh_chat(self):
         self.client.force_login(self.admin)
         with answer("We spent $85."):
             self.ask("What did we spend?")
         self.client.force_login(self.assistant)  # what entering a code does (accounts.middleware.switch_to)
-        self.assertNotContains(self.client.get("/ask/"), "We spent")
+        self.assertNotContains(self.client.get("/"), "We spent")
+
+    def test_new_chat_forgets_the_conversation(self):
+        self.client.force_login(self.admin)
+        with answer("We spent $85."):
+            self.ask("What did we spend?")
+        response = self.client.post("/ask/", {"new": "1"})
+        self.assertEqual((response.status_code, response.content), (200, b""))
+        self.assertNotContains(self.client.get("/"), "We spent")
 
     def test_a_failed_answer_says_so_and_isnt_remembered(self):
         self.client.force_login(self.admin)

@@ -30,7 +30,7 @@ PAGES = [
     ("/offline/", None),
     ("/accounts/code/", "practice"),
     ("/accounts/team/", "practice"),
-    ("/", "0000"),  # Sofia, manager
+    ("/", "0000"),  # Sofia, manager; with AI_API_KEY set, Ask StockRoom is at the top
     ("/log-usage/", "0000"),
     ("/reorder/", "0000"),
     ("/deliveries/", "0000"),
@@ -46,11 +46,9 @@ PAGES = [
     ("/items/import/", "0000"),
     ("/items/catalogue/", "0000"),
     ("/items/matched/", "0000"),
-    ("/ask/", "0000"),  # only with AI_API_KEY set; a 404 page otherwise
     ("/", "11"),  # Johanna, assistant
     ("/log-usage/", "11"),
     ("/reorder/", "11"),
-    ("/ask/", "11"),
 ]
 SERIOUS = {"serious", "critical"}
 
