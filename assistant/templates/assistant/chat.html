@@ -1,10 +1,10 @@
 {% comment %}
-Ask StockRoom, at the top of Home. Rounded like ChatGPT and Gemini on purpose, so it reads as
+Ask StockRoom, at the top of Home. Rounded like ChatGPT on purpose, so it reads as
 "the chat" at a glance; it's the one place StockRoom isn't square. Behaviour is in static/js/app.js.
 {% endcomment %}
 <section id="ask" class="group mb-8" aria-label="Ask StockRoom">
   <div class="flex flex-col items-center gap-2 pb-4 text-center group-has-[[data-turn]]:hidden">
-    {% include "assistant/_sparkle.html" with size="size-10" %}
+    {% include "assistant/_avatar.html" with size="size-10" %}
     <p class="font-heading text-[1.625rem] leading-tight font-semibold text-gray-900">What can I help with?</p>
   </div>
   <div class="hidden items-center justify-between pb-2 group-has-[[data-turn]]:flex">
@@ -19,7 +19,7 @@ Ask StockRoom, at the top of Home. Rounded like ChatGPT and Gemini on purpose, s
       <div data-turn class="flex flex-col gap-3">
         <p class="ml-auto max-w-[85%] rounded-[1.25rem] rounded-br-md bg-primary-tint px-4 py-2.5 text-gray-900"><span class="sr-only">You asked: </span>{{ q }}</p>
         <div class="flex items-start gap-3">
-          {% include "assistant/_sparkle.html" with size="size-8" %}
+          {% include "assistant/_avatar.html" with size="size-8" %}
           <p class="min-w-0 flex-1 pt-1 leading-relaxed text-gray-900"><span class="sr-only">StockRoom: </span>{{ answer|linebreaksbr }}</p>
         </div>
       </div>
@@ -28,12 +28,12 @@ Ask StockRoom, at the top of Home. Rounded like ChatGPT and Gemini on purpose, s
     {% for q, answer in request.session.ask_history %}{% partial turn %}{% endfor %}
   </div>
 
-  {# While Gemini answers: the question straight away (app.js copies it in), then typing dots. #}
+  {# While the AI answers: the question straight away (app.js copies it in), then typing dots. #}
   <div id="thinking" class="htmx-indicator pb-4">
     <div class="flex flex-col gap-3">
       <p id="pending-q" class="ml-auto max-w-[85%] rounded-[1.25rem] rounded-br-md bg-primary-tint px-4 py-2.5 text-gray-900" aria-hidden="true"></p>
       <div class="flex items-center gap-3" role="status">
-        {% include "assistant/_sparkle.html" with size="size-8" %}
+        {% include "assistant/_avatar.html" with size="size-8" %}
         <span class="flex gap-1.5" aria-hidden="true">
           <span class="size-2 rounded-full bg-gray-500 motion-safe:animate-bounce motion-safe:[animation-delay:-0.3s]"></span>
           <span class="size-2 rounded-full bg-gray-500 motion-safe:animate-bounce motion-safe:[animation-delay:-0.15s]"></span>
@@ -71,5 +71,5 @@ Ask StockRoom, at the top of Home. Rounded like ChatGPT and Gemini on purpose, s
     {% endif %}
   </div>
 
-  <p class="mt-3 text-center text-xs text-gray-600">Answers come from Google Gemini and can be wrong, so check before you order. Your question and the practice's stock{% if user.is_org_admin %} and spending{% endif %} go to Google to answer it. No patient information is ever sent.</p>
+  <p class="mt-3 text-center text-xs text-gray-600">Answers come from AI and can be wrong, so check before you order. Your question and the practice's stock{% if user.is_org_admin %} and spending{% endif %} go to an AI service to answer it. No patient information is ever sent.</p>
 </section>

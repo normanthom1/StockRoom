@@ -40,7 +40,7 @@
     <label for="invoice_files_setup" class="mb-0">Your invoices and receipts</label>
     <input id="invoice_files_setup" type="file" name="invoice_files" accept="image/*,application/pdf,.csv,text/csv" multiple required>
     <button type="submit" class="btn-primary mt-2">Read my invoices</button>
-    <p class="text-xs text-gray-600">Up to 50 files, each under 5 MB. Photos and PDFs are read by Google Gemini, which takes a few seconds each. StockRoom keeps each file as your tax record.</p>
+    <p class="text-xs text-gray-600">Up to 50 files, each under 5 MB. Photos and PDFs are read by AI, which takes a few seconds each. StockRoom keeps each file as your tax record.</p>
   </form>
 
   <p class="mt-4 text-center text-sm text-gray-600">Haven't got them to hand? <a href="{% url 'stock:setup' %}" class="link">Other ways to set up</a></p>
