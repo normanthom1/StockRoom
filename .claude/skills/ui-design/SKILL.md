@@ -56,7 +56,7 @@ The prototype's "blueprint" style: Barlow body text, Barlow Condensed (`font-hea
 - **Empty states** are a centred `blueprint p-5` message.
 - **Radio choices** (Django's `RadioSelect`) are styled as full-width 48px rows in the base layer, so `{{ form }}` needs no extra classes.
 - **Grey text** is `gray-500` or darker (these clear 4.5:1 on the page). Inputs keep a white fill and a `gray-500` border so the field edge reads (3:1).
-- **No rounded corners.** The radius tokens are 0; `rounded-full` is only for the "i" button.
+- **No rounded corners.** The radius tokens are 0; `rounded-full` is only for the "i" button. The one exception is Ask StockRoom on Home (`assistant/chat.html`), rounded on purpose so it reads as a chat like ChatGPT's.
 
 ## Gotchas
 - **CSP:** no `style="…"` attributes (use classes, or `<progress>` for widths) and no inline scripts. Alpine is the CSP build, so every Alpine attribute must be a plain property or method name from `static/js/app.js` (`open`, `toggle`), never an expression like `!open`.

@@ -1,0 +1,75 @@
+{% comment %}
+Ask StockRoom, at the top of Home. Rounded like ChatGPT and Gemini on purpose, so it reads as
+"the chat" at a glance; it's the one place StockRoom isn't square. Behaviour is in static/js/app.js.
+{% endcomment %}
+<section id="ask" class="group mb-8" aria-label="Ask StockRoom">
+  <div class="flex flex-col items-center gap-2 pb-4 text-center group-has-[[data-turn]]:hidden">
+    {% include "assistant/_sparkle.html" with size="size-10" %}
+    <p class="font-heading text-[1.625rem] leading-tight font-semibold text-gray-900">What can I help with?</p>
+  </div>
+  <div class="hidden items-center justify-between pb-2 group-has-[[data-turn]]:flex">
+    <p class="kicker">Ask StockRoom</p>
+    <button type="button" hx-post="{% url 'assistant:ask' %}" hx-vals='{"new": "1"}' hx-target="#chat" hx-swap="innerHTML"
+            class="btn btn-line rounded-full px-4 text-sm">New chat</button>
+  </div>
+
+  {# Newest at the bottom, scrolled to it; the conversation scrolls in here so the order list stays close. #}
+  <div id="chat" class="-mx-1 flex max-h-[55vh] flex-col gap-5 overflow-y-auto px-1 group-has-[[data-turn]]:pb-4" aria-live="polite">
+    {% partialdef turn %}
+      <div data-turn class="flex flex-col gap-3">
+        <p class="ml-auto max-w-[85%] rounded-[1.25rem] rounded-br-md bg-primary-tint px-4 py-2.5 text-gray-900"><span class="sr-only">You asked: </span>{{ q }}</p>
+        <div class="flex items-start gap-3">
+          {% include "assistant/_sparkle.html" with size="size-8" %}
+          <p class="min-w-0 flex-1 pt-1 leading-relaxed text-gray-900"><span class="sr-only">StockRoom: </span>{{ answer|linebreaksbr }}</p>
+        </div>
+      </div>
+    {% endpartialdef %}
+    {# The last few exchanges, kept in the session by assistant.views.ask. #}
+    {% for q, answer in request.session.ask_history %}{% partial turn %}{% endfor %}
+  </div>
+
+  {# While Gemini answers: the question straight away (app.js copies it in), then typing dots. #}
+  <div id="thinking" class="htmx-indicator pb-4">
+    <div class="flex flex-col gap-3">
+      <p id="pending-q" class="ml-auto max-w-[85%] rounded-[1.25rem] rounded-br-md bg-primary-tint px-4 py-2.5 text-gray-900" aria-hidden="true"></p>
+      <div class="flex items-center gap-3" role="status">
+        {% include "assistant/_sparkle.html" with size="size-8" %}
+        <span class="flex gap-1.5" aria-hidden="true">
+          <span class="size-2 rounded-full bg-gray-500 motion-safe:animate-bounce motion-safe:[animation-delay:-0.3s]"></span>
+          <span class="size-2 rounded-full bg-gray-500 motion-safe:animate-bounce motion-safe:[animation-delay:-0.15s]"></span>
+          <span class="size-2 rounded-full bg-gray-500 motion-safe:animate-bounce"></span>
+        </span>
+        <span class="sr-only">Thinking…</span>
+      </div>
+    </div>
+  </div>
+
+  <form hx-post="{% url 'assistant:ask' %}" hx-target="#chat" hx-swap="beforeend" hx-indicator="#thinking"
+        hx-disabled-elt="find button" data-ask
+        class="flex items-end gap-2 rounded-[1.75rem] border border-gray-300 bg-white py-1.5 pr-1.5 pl-5 shadow-sm has-[textarea:focus-visible]:border-primary has-[textarea:focus-visible]:outline-3 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-primary-dark">
+    <label for="q" class="sr-only">Ask StockRoom a question</label>
+    <textarea id="q" name="q" rows="1" maxlength="500" required enterkeyhint="send"
+              placeholder="Ask anything about your stock"
+              class="max-h-40 min-h-12 flex-1 resize-none border-0 bg-transparent px-0 py-3 field-sizing-content focus-visible:outline-none"></textarea>
+    <button type="submit" aria-label="Send"
+            class="grid size-12 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-dark disabled:opacity-50">
+      <svg class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    </button>
+  </form>
+
+  {# Tap one to ask it. Gone once there's a conversation, like ChatGPT's. #}
+  <div class="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 group-has-[[data-turn]]:hidden">
+    {% if user.is_org_admin %}
+      <button type="button" class="suggestion" data-suggest>What do we spend the most on?</button>
+      <button type="button" class="suggestion" data-suggest>Where could we save money?</button>
+      <button type="button" class="suggestion" data-suggest>What should I order this week?</button>
+      <button type="button" class="suggestion" data-suggest>How do I log what's been used?</button>
+    {% else %}
+      <button type="button" class="suggestion" data-suggest>How do I log what I've used?</button>
+      <button type="button" class="suggestion" data-suggest>What's running low?</button>
+      <button type="button" class="suggestion" data-suggest>How do I receive a delivery?</button>
+    {% endif %}
+  </div>
+
+  <p class="mt-3 text-center text-xs text-gray-600">Answers come from Google Gemini and can be wrong, so check before you order. Your question and the practice's stock{% if user.is_org_admin %} and spending{% endif %} go to Google to answer it. No patient information is ever sent.</p>
+</section>

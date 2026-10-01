@@ -237,7 +237,6 @@ ASSISTANT_PAGES: list[Case] = [
     Case("stock:deliveries"),
     Case("stock:item_detail", make=make_item),
     Case("stock:item_count_sheet", make=make_item),
-    Case("assistant:ask"),  # and what's sent to Gemini for an assistant has no prices (assistant.tests)
 ]
 
 # URLs that show no practice data at all, so none of the checks above apply.
@@ -256,6 +255,7 @@ NO_PRACTICE_DATA: dict[str, str] = {
     "password_reset_done": "public",
     "password_reset_confirm": "public; the token names the user",
     "password_reset_complete": "public",
+    "assistant:ask": "a GET goes to Home (stock:home above, where the chat is); an answer's prompt has no prices for an assistant (assistant.tests)",
 }
 
 PRICE = re.compile(r"\$\s?\d")  # "$8.50", "$ 1,489.20"

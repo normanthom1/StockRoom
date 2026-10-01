@@ -6,6 +6,7 @@ from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -19,7 +20,7 @@ from stock.views import import_preview, invoice_preview
 from . import gemini
 from .snapshot import practice_snapshot
 
-HISTORY_KEY = "ask_history"
+HISTORY_KEY = "ask_history"  # also read by assistant/chat.html, to show the conversation on Home
 HISTORY_TURNS = 6  # question-and-answer pairs sent back with each new question
 MAX_QUESTION = 500
 MAX_UPLOAD = 5 * 1024 * 1024
@@ -49,13 +50,7 @@ def _limit_text(request):
             "Try again tomorrow, or upload a CSV instead - those are read without AI, "
             "so they always work.")
 
-SUGGESTIONS = ["What's running low?", "How do I receive a delivery?"]
-MANAGER_SUGGESTIONS = [
-    "What should I order this week?",
-    "What did we spend this month?",
-    "What arrived this week?",
-    "Anything still to come?",
-]
+MONEY_REFUSAL = "Sorry, your account needs manager access to answer questions about prices or spending."
 
 CHAT_RULES = """You are Ask StockRoom, the help inside StockRoom, a stock-ordering app for a New Zealand dental practice.
 Answer questions about how to use StockRoom (from the guide below) and about this practice's stock (from the data below).
@@ -63,11 +58,17 @@ Answer questions about how to use StockRoom (from the guide below) and about thi
 - Only use the guide and the data. If the answer isn't there, say you don't know rather than guessing. Never make up numbers.
 - You can't change anything in StockRoom; tell people where to tap to do it themselves.
 - Stay on StockRoom and the practice's stock. Politely decline anything else, including clinical advice.
-- You are talking to {name}, {role_description}.{price_rule}
+- You are talking to {name}, {role_description}.{role_rule}
 """
 MANAGER_ROLE = "a manager, who can see prices and spending"
+MANAGER_RULE = """
+- Managers may ask where to save money. Answer from the data: the items with the biggest spend, prices that went up between invoices, items with a backup supplier worth asking for a quote, and anything ordered well ahead of need. Name the items and the dollar figures, and say these are ideas to check, not promises."""
 ASSISTANT_ROLE = "a dental assistant"
-ASSISTANT_PRICE_RULE = " Assistants can't see prices or spending in StockRoom, and you don't have them; say it's one for the manager."
+ASSISTANT_RULE = (
+    "\n- Assistants can't see prices, costs or spending in StockRoom, and you don't have them. If they ask about "
+    "prices, costs, spending, invoices, budgets or saving money, reply with exactly this and nothing else: "
+    f'"{MONEY_REFUSAL}"'
+)
 
 
 def _system_prompt(user):
@@ -75,7 +76,7 @@ def _system_prompt(user):
     rules = CHAT_RULES.format(
         name=user.name or "a staff member",
         role_description=MANAGER_ROLE if admin else ASSISTANT_ROLE,
-        price_rule="" if admin else ASSISTANT_PRICE_RULE,
+        role_rule=MANAGER_RULE if admin else ASSISTANT_RULE,
     )
     guide = render_to_string("assistant/guide.txt")
     return f"{rules}\n=== GUIDE ===\n{guide}\n=== PRACTICE DATA ===\n{practice_snapshot(user, timezone.localtime())}"
@@ -83,13 +84,16 @@ def _system_prompt(user):
 
 @ai_required
 def ask(request):
-    """Ask StockRoom: how-to and stock questions in one chat. The last few
-    exchanges live in the session, which switching person replaces."""
-    history = request.session.get(HISTORY_KEY, [])
+    """Ask StockRoom, the chat at the top of Home: how-to and stock questions in
+    one place. The last few exchanges live in the session, which switching
+    person replaces, and "New chat" clears."""
     if request.method != "POST":
-        suggestions = SUGGESTIONS + (MANAGER_SUGGESTIONS if request.user.is_org_admin else [])
-        return render(request, "assistant/ask.html", {"history": history, "suggestions": suggestions})
+        return redirect(reverse("stock:home") + "?ask")
+    if "new" in request.POST:
+        request.session.pop(HISTORY_KEY, None)
+        return HttpResponse()  # empties the chat on the page
 
+    history = request.session.get(HISTORY_KEY, [])
     question = request.POST.get("q", "").strip()[:MAX_QUESTION]
     if not question:
         return HttpResponse(status=204)
@@ -105,7 +109,7 @@ def ask(request):
             # Gemini leans towards Markdown even when asked not to; bold is the usual leftover.
             answer = answer.replace("**", "")
             request.session[HISTORY_KEY] = [*history, [question, answer]][-HISTORY_TURNS:]
-    return render(request, "assistant/ask.html#turn", {"q": question, "answer": answer})
+    return render(request, "assistant/chat.html#turn", {"q": question, "answer": answer})
 
 
 IMPORT_RULES = """You turn a New Zealand dental practice's stock list, invoice or order sheet into rows for StockRoom's item import.

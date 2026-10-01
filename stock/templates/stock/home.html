@@ -3,6 +3,7 @@
 {% block title %}StockRoom{% endblock %}
 
 {% block content %}
+{% if ai_enabled %}{% include "assistant/chat.html" %}{% endif %}
 {% partialdef rows inline %}
 <div class="mb-4 flex items-end gap-3">
   <h1 class="flex-1">What to order today</h1>

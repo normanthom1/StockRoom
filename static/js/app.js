@@ -113,11 +113,50 @@ document.addEventListener("htmx:afterSwap", (event) => {
 });
 document.addEventListener("sheet-close", () => document.getElementById("sheet")?.close());
 
-// Ask StockRoom: clear the question once it's answered, and bring the answer into view.
+// --- Ask StockRoom, the chat at the top of Home: behaves like ChatGPT. ---
+
+const askForm = () => document.querySelector("[data-ask]");
+const showLatestAnswer = () => {
+  const chat = document.getElementById("chat");
+  if (chat) chat.scrollTop = chat.scrollHeight;
+};
+
+// Enter sends; Shift+Enter is a new line.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing || !event.target.matches("[data-ask] textarea")) return;
+  event.preventDefault();
+  event.target.form.requestSubmit();
+});
+// A suggestion asks itself.
+document.addEventListener("click", (event) => {
+  const suggestion = event.target.closest("[data-suggest]");
+  if (!suggestion) return;
+  askForm().q.value = suggestion.textContent.trim();
+  askForm().requestSubmit();
+});
+// The question shows in the chat straight away and the box empties, then the
+// answer replaces it. If no answer came back (offline, a dropped connection),
+// the question goes back in the box rather than being lost.
+const turnCount = () => document.querySelectorAll("#chat [data-turn]").length;
+document.addEventListener("htmx:beforeRequest", (event) => {
+  const form = event.target;
+  if (!form.matches("[data-ask]")) return;
+  document.getElementById("pending-q").textContent = form.dataset.sent = form.q.value;
+  form.dataset.turns = turnCount();
+  form.q.value = "";
+});
+document.addEventListener("htmx:afterRequest", (event) => {
+  const form = event.target;
+  if (form.matches("[data-ask]") && turnCount() <= Number(form.dataset.turns)) form.q.value = form.dataset.sent;
+});
 document.addEventListener("htmx:afterSwap", (event) => {
-  if (event.target.id !== "chat") return;
-  document.querySelector("[data-ask]")?.reset();
-  event.target.lastElementChild?.scrollIntoView({ block: "nearest" });
+  if (event.target.id === "chat") showLatestAnswer();
+});
+document.addEventListener("DOMContentLoaded", () => {
+  showLatestAnswer();
+  // The header's Ask button goes to /?ask: put the cursor in the box. (Not a
+  // #fragment: Chrome clears focus when it scrolls to one that can't take it.)
+  if (new URLSearchParams(location.search).has("ask")) document.getElementById("q")?.focus();
 });
 // Only reachable without a controlling service worker (it answers every htmx request itself).
 document.addEventListener("htmx:sendError", () => toast("Couldn't reach StockRoom. Check your connection and try again."));
