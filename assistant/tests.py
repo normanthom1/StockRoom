@@ -1,7 +1,9 @@
 import io
 import json
+import re
 import urllib.error
 from datetime import timedelta
+from decimal import Decimal
 from unittest import mock
 
 from django.core.cache import cache
@@ -114,6 +116,25 @@ class AskTests(Practice):
         self.assertIn("This month", system)
         self.assertIn("where to save money", system)
         self.assertNotIn(MONEY_REFUSAL, system)
+
+    def test_a_managers_prompt_has_yearly_usage_and_cost_for_what_if_questions(self):
+        for week in range(8):
+            StockEvent.objects.create(organisation=self.org, item=self.gloves, user=self.admin, kind="used", qty=10,
+                                      created_at=timezone.now() - timedelta(weeks=week, days=1))
+        self.client.force_login(self.admin)
+        with answer() as generate:
+            self.ask("What would I save a year if gloves were $7.20 a box?")
+        system = generate.call_args.args[0]
+        qty, cost = re.search(r"about (\d+) boxes a year at this rate, about \$([\d.]+) a year at this price", system).groups()
+        self.assertEqual(Decimal(cost), int(qty) * Decimal("8.50"))
+        self.assertIn("what if", system)
+
+        self.client.force_login(self.assistant)
+        with answer() as generate:
+            self.ask()
+        system = generate.call_args.args[0]
+        self.assertNotIn("a year at this", system)
+        self.assertNotIn("what if", system)
 
     def test_a_managers_prompt_has_invoice_and_back_order_data(self):
         self.client.force_login(self.admin)

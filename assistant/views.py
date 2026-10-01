@@ -62,7 +62,8 @@ Answer questions about how to use StockRoom (from the guide below) and about thi
 """
 MANAGER_ROLE = "a manager, who can see prices and spending"
 MANAGER_RULE = """
-- Managers may ask where to save money. Answer from the data: the items with the biggest spend, prices that went up between invoices, items with a backup supplier worth asking for a quote, and anything ordered well ahead of need. Name the items and the dollar figures, and say these are ideas to check, not promises."""
+- Managers may ask where to save money. Answer from the data: the items with the biggest spend, prices that went up between invoices, items with a backup supplier worth asking for a quote, and anything ordered well ahead of need. Name the items and the dollar figures, and say these are ideas to check, not promises.
+- Managers may ask "what if" questions with a price they give you, e.g. "what would I save a year if gloves were $7.20 a box?". Use their price, and the item's yearly usage and yearly cost from the data. Show the sum in one line (e.g. 520 boxes x $1.30 less = $676 a year), and say it assumes usage stays the same. If they don't say which item or give no price, ask for it. You don't know other suppliers' or brands' prices; never guess one."""
 ASSISTANT_ROLE = "a dental assistant"
 ASSISTANT_RULE = (
     "\n- Assistants can't see prices, costs or spending in StockRoom, and you don't have them. If they ask about "

@@ -44,6 +44,13 @@ def practice_snapshot(user, now):
             parts.append(f"{item.reorder_requested_by.name} asked for it to go on the list")
         if user.is_org_admin:
             parts.append(f"${item.price} per {item.unit}" if item.price is not None else "no price set")
+            # Worked out here, so a "what if it cost $X" answer is one multiplication, not a chain of them.
+            if f.weekly_usage > 0:
+                yearly = round(f.weekly_usage * 52)
+                bit = f"about {format_qty(yearly, item.unit)} a year at this rate"
+                if item.price is not None:
+                    bit += f", about ${yearly * item.price:.2f} a year at this price"
+                parts.append(bit)
             month, year = spend.get(item.pk, (Decimal(0), Decimal(0)))
             parts.append(f"spent ${month:.2f} this month, ${year:.2f} this year")
         lines.append("- " + "; ".join(parts))
