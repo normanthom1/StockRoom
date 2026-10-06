@@ -103,6 +103,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "stockroom.context_processors.ai_enabled",
+                "stockroom.context_processors.ask_turns",
             ],
         },
     },
