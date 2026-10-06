@@ -1,32 +1,45 @@
 {% comment %}
-Ask StockRoom, at the top of Home. Rounded like ChatGPT on purpose, so it reads as
-"the chat" at a glance; it's the one place StockRoom isn't square. Behaviour is in static/js/app.js.
+Ask StockRoom, at the top of Home. It's used now and then, so at rest it is one row: the
+box to type in. Suggestions and the privacy note open up when the box is focused, and the
+conversation (the last day's only) appears above it once there is one. Rounded like ChatGPT
+on purpose, so it reads as "the chat"; it's the one place StockRoom isn't square.
+Behaviour is in static/js/app.js.
 {% endcomment %}
-<section id="ask" class="group mb-8" aria-label="Ask StockRoom">
-  <div class="flex flex-col items-center gap-2 pb-4 text-center group-has-[[data-turn]]:hidden">
-    {% include "assistant/_avatar.html" with size="size-10" %}
-    <p class="font-heading text-[1.625rem] leading-tight font-semibold text-gray-900">What can I help with?</p>
+{% partialdef deleted %}
+  <div id="chat-undo" hx-swap-oob="true" class="flex items-center justify-between gap-3 pb-3" role="status">
+    <span class="text-gray-700">Chat deleted.</span>
+    <button type="button" hx-post="{% url 'assistant:ask' %}" hx-vals='{"undo": "1"}' hx-target="#chat" hx-swap="innerHTML"
+            hx-disabled-elt="this" class="btn btn-line rounded-full px-5 text-sm">Undo</button>
   </div>
-  <div class="hidden items-center justify-between pb-2 group-has-[[data-turn]]:flex">
-    <p class="kicker">Ask StockRoom</p>
-    <button type="button" hx-post="{% url 'assistant:ask' %}" hx-vals='{"new": "1"}' hx-target="#chat" hx-swap="innerHTML"
-            class="btn btn-line rounded-full px-4 text-sm">New chat</button>
+{% endpartialdef %}
+<section id="ask" class="group mb-6" aria-label="Ask StockRoom">
+  <div class="hidden group-has-[[data-turn]]:block">
+    <div class="flex items-center justify-between pb-2">
+      <p class="kicker">Ask StockRoom</p>
+      <button type="button" hx-post="{% url 'assistant:ask' %}" hx-vals='{"new": "1"}' hx-target="#chat" hx-swap="innerHTML"
+              class="btn btn-line gap-2 rounded-full px-4 text-sm">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></svg>
+        Delete chat
+      </button>
+    </div>
+    {# Newest at the bottom, scrolled to it; the conversation scrolls in here so the order list stays close. #}
+    <div id="chat" class="-mx-1 flex max-h-[40vh] flex-col gap-5 overflow-y-auto px-1 pb-4" aria-live="polite">
+      {% partialdef turn %}
+        <div data-turn class="flex flex-col gap-3">
+          <p class="ml-auto max-w-[85%] rounded-[1.25rem] rounded-br-md bg-primary-tint px-4 py-2.5 text-gray-900"><span class="sr-only">You asked: </span>{{ q }}</p>
+          <div class="flex items-start gap-3">
+            {% include "assistant/_avatar.html" with size="size-8" %}
+            <p class="min-w-0 flex-1 pt-1 leading-relaxed text-gray-900"><span class="sr-only">StockRoom: </span>{{ answer|linebreaksbr }}</p>
+          </div>
+        </div>
+      {% endpartialdef %}
+      {# The last day's exchanges, kept in the session by assistant.views.ask. #}
+      {% for q, answer, _ in ask_turns %}{% partial turn %}{% endfor %}
+    </div>
   </div>
 
-  {# Newest at the bottom, scrolled to it; the conversation scrolls in here so the order list stays close. #}
-  <div id="chat" class="-mx-1 flex max-h-[55vh] flex-col gap-5 overflow-y-auto px-1 group-has-[[data-turn]]:pb-4" aria-live="polite">
-    {% partialdef turn %}
-      <div data-turn class="flex flex-col gap-3">
-        <p class="ml-auto max-w-[85%] rounded-[1.25rem] rounded-br-md bg-primary-tint px-4 py-2.5 text-gray-900"><span class="sr-only">You asked: </span>{{ q }}</p>
-        <div class="flex items-start gap-3">
-          {% include "assistant/_avatar.html" with size="size-8" %}
-          <p class="min-w-0 flex-1 pt-1 leading-relaxed text-gray-900"><span class="sr-only">StockRoom: </span>{{ answer|linebreaksbr }}</p>
-        </div>
-      </div>
-    {% endpartialdef %}
-    {# The last few exchanges, kept in the session by assistant.views.ask. #}
-    {% for q, answer in request.session.ask_history %}{% partial turn %}{% endfor %}
-  </div>
+  {# After "Delete chat": says so and offers Undo, until the next question. #}
+  <div id="chat-undo"></div>
 
   {# While the AI answers: the question straight away (app.js copies it in), then typing dots. #}
   <div id="thinking" class="htmx-indicator pb-4">
@@ -46,10 +59,11 @@ Ask StockRoom, at the top of Home. Rounded like ChatGPT on purpose, so it reads 
 
   <form hx-post="{% url 'assistant:ask' %}" hx-target="#chat" hx-swap="beforeend" hx-indicator="#thinking"
         hx-disabled-elt="find button" data-ask
-        class="flex items-end gap-2 rounded-[1.75rem] border border-gray-300 bg-white py-1.5 pr-1.5 pl-5 shadow-sm has-[textarea:focus-visible]:border-primary has-[textarea:focus-visible]:outline-3 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-primary-dark">
+        class="flex items-end gap-2 rounded-[1.75rem] border border-gray-300 bg-white py-1 pr-1 pl-3 shadow-sm has-[textarea:focus-visible]:border-primary has-[textarea:focus-visible]:outline-3 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-primary-dark">
+    <span class="mb-2 shrink-0">{% include "assistant/_avatar.html" with size="size-8" %}</span>
     <label for="q" class="sr-only">Ask StockRoom a question</label>
     <textarea id="q" name="q" rows="1" maxlength="500" required enterkeyhint="send"
-              placeholder="Ask anything about your stock"
+              placeholder="Ask StockRoom anything"
               class="max-h-40 min-h-12 flex-1 resize-none border-0 bg-transparent px-0 py-3 field-sizing-content focus-visible:outline-none"></textarea>
     <button type="submit" aria-label="Send"
             class="grid size-12 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-dark disabled:opacity-50">
@@ -57,19 +71,21 @@ Ask StockRoom, at the top of Home. Rounded like ChatGPT on purpose, so it reads 
     </button>
   </form>
 
-  {# Tap one to ask it. Gone once there's a conversation, like ChatGPT's. #}
-  <div class="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 group-has-[[data-turn]]:hidden">
-    {% if user.is_org_admin %}
-      <button type="button" class="suggestion" data-suggest>What do we spend the most on?</button>
-      <button type="button" class="suggestion" data-suggest>Where could we save money?</button>
-      <button type="button" class="suggestion" data-suggest>What should I order this week?</button>
-      <button type="button" class="suggestion" data-suggest>How do I log what's been used?</button>
-    {% else %}
-      <button type="button" class="suggestion" data-suggest>How do I log what I've used?</button>
-      <button type="button" class="suggestion" data-suggest>What's running low?</button>
-      <button type="button" class="suggestion" data-suggest>How do I receive a delivery?</button>
-    {% endif %}
+  {# Tap one to ask it. Shown while the box is focused and nothing's been asked yet. #}
+  <div class="group-has-[[data-turn]]:hidden">
+    <div class="-mx-4 mt-3 hidden gap-2 overflow-x-auto px-4 pb-1 group-focus-within:flex">
+      {% if user.is_org_admin %}
+        <button type="button" class="suggestion" data-suggest>What do we spend the most on?</button>
+        <button type="button" class="suggestion" data-suggest>Where could we save money?</button>
+        <button type="button" class="suggestion" data-suggest>What should I order this week?</button>
+        <button type="button" class="suggestion" data-suggest>How do I log what's been used?</button>
+      {% else %}
+        <button type="button" class="suggestion" data-suggest>How do I log what I've used?</button>
+        <button type="button" class="suggestion" data-suggest>What's running low?</button>
+        <button type="button" class="suggestion" data-suggest>How do I receive a delivery?</button>
+      {% endif %}
+    </div>
   </div>
 
-  <p class="mt-3 text-center text-xs text-gray-600">Answers come from AI and can be wrong, so check before you order. Your question and the practice's stock{% if user.is_org_admin %} and spending{% endif %} go to an AI service to answer it. No patient information is ever sent.</p>
+  <p class="mt-3 hidden text-center text-xs text-gray-600 group-focus-within:block group-has-[[data-turn]]:block">Answers come from AI and can be wrong, so check before you order. Your question and the practice's stock{% if user.is_org_admin %} and spending{% endif %} go to an AI service to answer it. No patient information is ever sent. Chats are cleared after a day.</p>
 </section>

@@ -1,5 +1,6 @@
 import csv
 import io
+import time
 
 from django.contrib import messages
 from django.db import transaction
@@ -20,8 +21,11 @@ from stock.views import import_preview, invoice_preview
 from . import gemini
 from .snapshot import practice_snapshot
 
-HISTORY_KEY = "ask_history"  # also read by assistant/chat.html, to show the conversation on Home
+HISTORY_KEY = "ask_history"  # shown on Home through context_processors.ask_turns
+UNDO_KEY = "ask_undo"  # a deleted chat, kept until the next question
 HISTORY_TURNS = 6  # question-and-answer pairs sent back with each new question
+HISTORY_MAX_AGE = 24 * 60 * 60  # seconds a turn is kept
+CLEAR_UNDO = '<div id="chat-undo" hx-swap-oob="true"></div>'
 MAX_QUESTION = 500
 MAX_UPLOAD = 5 * 1024 * 1024
 LIMITED = f"That's the limit for now ({AI_PER_HOUR} an hour each). Try again a bit later."
@@ -83,25 +87,41 @@ def _system_prompt(user):
     return f"{rules}\n=== GUIDE ===\n{guide}\n=== PRACTICE DATA ===\n{practice_snapshot(user, timezone.localtime())}"
 
 
+def recent_turns(session):
+    """The conversation still worth showing: [question, answer, when] from the last day.
+    Older ones (and any saved before turns were dated) are dropped, so a chat from
+    yesterday's stock doesn't linger on Home."""
+    cutoff = time.time() - HISTORY_MAX_AGE
+    return [turn for turn in session.get(HISTORY_KEY, []) if len(turn) == 3 and turn[2] > cutoff]
+
+
 @ai_required
 def ask(request):
     """Ask StockRoom, the chat at the top of Home: how-to and stock questions in
-    one place. The last few exchanges live in the session, which switching
-    person replaces, and "New chat" clears."""
+    one place. The last few exchanges from the last day live in the session, which
+    switching person replaces. "Delete chat" clears them, and keeps them for Undo
+    until the next question."""
     if request.method != "POST":
         return redirect(reverse("stock:home") + "?ask")
+    session = request.session
     if "new" in request.POST:
-        request.session.pop(HISTORY_KEY, None)
-        return HttpResponse()  # empties the chat on the page
+        session[UNDO_KEY] = recent_turns(session)
+        session.pop(HISTORY_KEY, None)
+        return render(request, "assistant/chat.html#deleted")  # empties the chat, offers Undo
+    if "undo" in request.POST:
+        session[HISTORY_KEY] = session.pop(UNDO_KEY, [])
+        turns = "".join(render_to_string("assistant/chat.html#turn", {"q": q, "answer": a}) for q, a, _ in recent_turns(session))
+        return HttpResponse(turns + CLEAR_UNDO)
 
-    history = request.session.get(HISTORY_KEY, [])
+    history = recent_turns(session)
+    session.pop(UNDO_KEY, None)
     question = request.POST.get("q", "").strip()[:MAX_QUESTION]
     if not question:
         return HttpResponse(status=204)
     if ai_limited(request):
         answer = LIMITED
     else:
-        turns = [turn for q, a in history for turn in (("user", q), ("model", a))]
+        turns = [turn for q, a, _ in history for turn in (("user", q), ("model", a))]
         try:
             answer = gemini.generate(_system_prompt(request.user), [*turns, ("user", question)])
         except gemini.GeminiError:
@@ -109,8 +129,10 @@ def ask(request):
         else:
             # Gemini leans towards Markdown even when asked not to; bold is the usual leftover.
             answer = answer.replace("**", "")
-            request.session[HISTORY_KEY] = [*history, [question, answer]][-HISTORY_TURNS:]
-    return render(request, "assistant/chat.html#turn", {"q": question, "answer": answer})
+            session[HISTORY_KEY] = [*history, [question, answer, time.time()]][-HISTORY_TURNS:]
+    response = render(request, "assistant/chat.html#turn", {"q": question, "answer": answer})
+    response.content += CLEAR_UNDO.encode()  # the old "Chat deleted. Undo" row is no longer true
+    return response
 
 
 IMPORT_RULES = """You turn a New Zealand dental practice's stock list, invoice or order sheet into rows for StockRoom's item import.

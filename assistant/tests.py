@@ -28,7 +28,7 @@ from stock.models import (
 )
 
 from . import gemini
-from .views import HISTORY_TURNS, MONEY_REFUSAL
+from .views import HISTORY_MAX_AGE, HISTORY_TURNS, MONEY_REFUSAL
 
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
@@ -183,13 +183,35 @@ class AskTests(Practice):
         self.client.force_login(self.assistant)  # what entering a code does (accounts.middleware.switch_to)
         self.assertNotContains(self.client.get("/"), "We spent")
 
-    def test_new_chat_forgets_the_conversation(self):
+    def test_deleting_the_chat_forgets_it_and_undo_brings_it_back(self):
         self.client.force_login(self.admin)
         with answer("We spent $85."):
             self.ask("What did we spend?")
         response = self.client.post("/ask/", {"new": "1"})
-        self.assertEqual((response.status_code, response.content), (200, b""))
+        self.assertContains(response, "Chat deleted.")
         self.assertNotContains(self.client.get("/"), "We spent")
+        response = self.client.post("/ask/", {"undo": "1"})
+        self.assertContains(response, "We spent $85.")
+        self.assertContains(self.client.get("/"), "We spent $85.")
+
+    def test_a_new_question_ends_the_undo(self):
+        self.client.force_login(self.admin)
+        with answer("We spent $85."):
+            self.ask("What did we spend?")
+            self.client.post("/ask/", {"new": "1"})
+            self.ask("Anything else?")
+        self.assertNotContains(self.client.post("/ask/", {"undo": "1"}), "We spent $85.")
+
+    def test_chats_older_than_a_day_are_dropped(self):
+        self.client.force_login(self.admin)
+        with answer("We spent $85.") as generate:
+            self.ask("What did we spend?")
+            session = self.client.session
+            session["ask_history"][0][2] -= HISTORY_MAX_AGE + 1
+            session.save()
+            self.assertNotContains(self.client.get("/"), "We spent")
+            self.ask("Hello again")
+        self.assertEqual(generate.call_args.args[1], [("user", "Hello again")])
 
     def test_a_failed_answer_says_so_and_isnt_remembered(self):
         self.client.force_login(self.admin)
