@@ -2,6 +2,7 @@ import io
 import json
 import re
 import urllib.error
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
@@ -27,7 +28,7 @@ from stock.models import (
     Supplier,
 )
 
-from . import gemini
+from . import actions, gemini
 from .views import HISTORY_MAX_AGE, HISTORY_TURNS, MONEY_REFUSAL
 
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
@@ -264,6 +265,165 @@ class AskLimitTests(Practice):
             self.assertEqual(generate.call_count, AI_PER_HOUR)
             self.client.post("/ask/", {"q": "Hi"}, REMOTE_ADDR="203.0.113.10")
             self.assertEqual(generate.call_count, AI_PER_HOUR + 1)
+
+
+def calls(*found):
+    """Gemini calling actions instead of answering: calls(("log_used", {"item": "Gloves", "qty": 2}))."""
+    return mock.patch("assistant.gemini.generate", return_value=list(found))
+
+
+USED_2 = ("log_used", {"item": "Gloves", "qty": 2})
+
+
+@override_settings(AI_API_KEY="test-key")
+class ChangeTests(Practice):
+    """#150: the chat proposes a change as a card, and only Confirm writes it."""
+
+    def propose(self, call=USED_2, question="We used 2 boxes of gloves"):
+        with calls(call):
+            response = self.ask(question)
+        return response, next(iter(self.client.session.get("ask_changes", {})), None)
+
+    def post(self, step, pid):
+        return self.client.post(f"/ask/changes/{pid}/{step}/")
+
+    def used(self):
+        return StockEvent.objects.filter(item=self.gloves, kind="used")
+
+    def history(self):
+        return [answer for _, answer, _ in self.client.session["ask_history"]]
+
+    def test_a_change_is_a_card_and_nothing_is_written_until_confirm(self):
+        self.client.force_login(self.assistant)
+        with calls(USED_2) as generate:
+            response = self.ask("We used 2 boxes of gloves")
+        self.assertEqual([tool["name"] for tool in generate.call_args.kwargs["tools"]], ["log_used"])
+        system = generate.call_args.args[0]
+        self.assertIn("nothing happens until they tap Confirm", system)
+        self.assertNotIn("can't change anything", system)
+        content = response.content.decode()
+        for text in ("This will change", "Gloves", "Used 2 boxes", "Confirm", "Cancel", "On order"):
+            self.assertIn(text, content)
+        self.assertNotIn("{#", content)  # a template comment run over two lines shows as text
+        self.assertRegex(content, r">3</span>[\s\S]*?>1</span>\s*<span[^>]*>box</span>")  # on hand 3 -> 1 box
+        self.assertFalse(self.used().exists())
+        self.assertContains(self.client.get("/"), "This will change")  # still there after a reload
+
+    def test_confirm_logs_it_once_with_the_usual_toast_and_undo(self):
+        self.client.force_login(self.assistant)
+        _, pid = self.propose()
+        response = self.post("confirm", pid)
+        event = self.used().get()
+        self.assertEqual((event.qty, event.user), (2, self.assistant))
+        self.assertEqual(on_hand(self.gloves.events.all()), 1)
+        self.assertContains(response, "Done")
+        self.assertContains(response, "On hand now 1 box")
+        self.assertContains(response, 'hx-swap-oob="beforeend:#toast-slot"')
+        self.assertContains(response, "Logged: used 2 boxes of Gloves · the manager will see it")
+        self.assertContains(response, f'hx-post="/ask/changes/{pid}/undo/"')
+        self.assertEqual(response["HX-Trigger"], "stock-changed")
+        self.assertEqual(self.history(), ["Done: used 2 boxes of Gloves."])
+
+        self.assertEqual(self.post("confirm", pid).status_code, 204)  # a second Confirm does nothing
+        self.assertEqual(self.post("cancel", pid).status_code, 204)  # nor does a late Cancel
+        self.assertEqual(self.used().count(), 1)
+
+    def test_undo_uses_log_undo_and_the_chat_says_it_was_undone(self):
+        self.client.force_login(self.assistant)
+        _, pid = self.propose()
+        self.post("confirm", pid)
+        response = self.post("undo", pid)
+        self.assertEqual(response["HX-Refresh"], "true")
+        self.assertFalse(self.used().exists())
+        self.assertEqual(self.history(), ["Undone, so nothing changed: used 2 boxes of Gloves."])
+        self.assertEqual(self.post("undo", pid).status_code, 404)
+
+    def test_cancel_writes_nothing_and_says_cancelled(self):
+        self.client.force_login(self.assistant)
+        _, pid = self.propose()
+        self.assertContains(self.post("cancel", pid), "Cancelled. Nothing was changed.")
+        self.assertContains(self.post("confirm", pid), "expired")
+        self.assertFalse(self.used().exists())
+        self.assertTrue(self.history()[0].startswith("Cancelled, so nothing changed: used 2 boxes of Gloves"))
+        self.assertContains(self.client.get("/"), "Cancelled, so nothing changed")
+
+    def test_a_made_up_expired_or_someone_elses_card_changes_nothing(self):
+        self.client.force_login(self.assistant)
+        self.assertContains(self.post("confirm", "made-up"), "expired")
+        _, pid = self.propose()
+        session = self.client.session
+        session["ask_changes"][pid]["expires"] = 0
+        session.save()
+        self.assertContains(self.post("confirm", pid), "expired")
+        _, pid = self.propose()
+        self.client.force_login(self.admin)  # another person's session
+        self.assertContains(self.post("confirm", pid), "expired")
+        self.assertFalse(self.used().exists())
+
+    def test_confirm_checks_the_role_and_item_again(self):
+        manager_only = replace(actions.ACTIONS["log_used"], roles=frozenset({User.Role.ADMIN}))
+        with mock.patch.dict(actions.ACTIONS, {"log_used": manager_only}):
+            self.client.force_login(self.admin)
+            _, pid = self.propose()
+            User.objects.filter(pk=self.admin.pk).update(role=User.Role.ASSISTANT)
+            self.assertContains(self.post("confirm", pid), "can&#x27;t be done now")
+        self.client.force_login(self.assistant)
+        _, pid = self.propose()
+        Item.objects.filter(pk=self.gloves.pk).update(is_active=False)
+        self.assertContains(self.post("confirm", pid), "can&#x27;t be done now")
+        self.assertFalse(self.used().exists())
+
+    def test_it_never_guesses_an_item_or_a_number(self):
+        Item.objects.create(organisation=self.org, name="Bibs", unit="pack", supplier=self.henry)
+        cases = [
+            (("log_used", {"item": "glvoes", "qty": 2}), "I can&#x27;t find &#x27;glvoes&#x27; in your stock."),
+            (("log_used", {"item": "Gloves", "qty": 0}), "How many boxes of Gloves were used?"),
+            (("log_used", {"item": "Gloves", "qty": 1e9}), "How many boxes of Gloves were used?"),
+            (("log_used", {"item": "Bibs", "qty": 1}), "Bibs hasn&#x27;t been counted yet"),
+            (("set_price", {"item": "Gloves"}), "I can&#x27;t do that from the chat."),
+        ]
+        self.client.force_login(self.assistant)
+        for call, text in cases:
+            with self.subTest(call=call):
+                response, pid = self.propose(call)
+                self.assertContains(response, text)
+                self.assertNotContains(response, "This will change")
+                self.assertIsNone(pid)
+
+    def test_one_change_per_card_for_now(self):
+        self.client.force_login(self.assistant)
+        with calls(USED_2, ("log_used", {"item": "Gloves", "qty": 1})):
+            response = self.ask("Used 2 gloves, then 1 more")
+        self.assertContains(response, "One change at a time for now")
+        self.assertContains(response, "Used 2 boxes")
+
+    def test_confirm_cancel_and_undo_make_no_ai_call_and_dont_count(self):
+        self.client.force_login(self.assistant)
+        _, kept = self.propose()
+        _, dropped = self.propose()
+        with (
+            mock.patch("assistant.gemini.generate") as generate,
+            mock.patch("assistant.views.ai_limited") as limited,
+        ):
+            self.post("cancel", dropped)
+            self.post("confirm", kept)
+            self.post("undo", kept)
+        generate.assert_not_called()
+        limited.assert_not_called()
+
+    def test_an_assistants_request_has_no_manager_only_declarations(self):
+        set_price = actions.Action(name="set_price", roles=frozenset({User.Role.ADMIN}), declaration={"description": "x"},
+                                   preview=None, apply=None)
+        reply = {"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}
+        with mock.patch.dict(actions.ACTIONS, {"set_price": set_price}):
+            for user, expected in ((self.assistant, ["log_used"]), (self.admin, ["log_used", "set_price"])):
+                self.client.force_login(user)
+                with mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen:
+                    urlopen.return_value.__enter__.return_value = io.BytesIO(json.dumps(reply).encode())
+                    self.ask()
+                body = json.loads(urlopen.call_args.args[0].data)
+                [tools] = body["tools"]
+                self.assertEqual([tool["name"] for tool in tools["functionDeclarations"]], expected)
 
 
 @override_settings(AI_API_KEY="test-key")
@@ -705,6 +865,15 @@ class GeminiClientTests(SimpleTestCase):
         body = json.loads(request.data)
         self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
         self.assertEqual(body["contents"][0]["parts"][1], {"inline_data": {"mime_type": "image/png", "data": "cG5n"}})
+
+    def test_function_calls_come_back_instead_of_text(self):
+        tools = [{"name": "log_used", "description": "Log use."}]
+        call = {"functionCall": {"name": "log_used", "args": {"item": "Gloves", "qty": 2}}, "thoughtSignature": "sig"}
+        found, request = self.call({"candidates": [{"content": {"parts": [call]}}]}, tools=tools)
+        self.assertEqual(found, [("log_used", {"item": "Gloves", "qty": 2})])
+        self.assertEqual(json.loads(request.data)["tools"], [{"functionDeclarations": tools}])
+        text, _ = self.call({"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}, tools=tools)
+        self.assertEqual(text, "Kia ora")
 
     @override_settings(AI_EMBEDDING_MODEL="embed-test")
     def test_embeddings_come_back_in_order(self):

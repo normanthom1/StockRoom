@@ -27,17 +27,20 @@
   <div id="toast-slot" x-data="toastHub" @toast.window="add"
        class="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center gap-2 p-3"
        aria-live="polite">
-    {% for message in messages %}
+    {% for message in messages %}{% with text=message undo=message.extra_tags %}
+      {# Ask StockRoom's Confirm sends this too, without a page load (assistant/chat.html#done). #}
+      {% partialdef toast inline %}
       <div x-data="flash" x-show="show"
            class="pointer-events-auto flex min-h-14 w-full max-w-md items-center gap-3 bg-gray-900 py-1 pr-1 pl-4 text-white shadow-lg">
-        <span class="flex-1">{{ message }}</span>
-        {% if message.extra_tags %}
-          <button type="button" hx-post="{{ message.extra_tags }}" hx-swap="none" hx-disabled-elt="this"
+        <span class="flex-1">{{ text }}</span>
+        {% if undo %}
+          <button type="button" hx-post="{{ undo }}" hx-swap="none" hx-disabled-elt="this"
                   class="btn border-white/45 text-white" @click="hide">Undo</button>
         {% endif %}
         <button type="button" class="tap-target text-xl text-white/70" @click="hide" aria-label="Dismiss">&times;</button>
       </div>
-    {% endfor %}
+      {% endpartialdef %}
+    {% endwith %}{% endfor %}
     <template x-for="item in items" :key="item.id">
       <div class="pointer-events-auto flex min-h-14 w-full max-w-md items-center gap-3 bg-gray-900 py-1 pr-1 pl-4 text-white shadow-lg">
         <span class="flex-1" x-text="item.message"></span>

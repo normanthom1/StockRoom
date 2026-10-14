@@ -1,13 +1,14 @@
 import csv
 import io
 import time
+import uuid
 
 from django.contrib import messages
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
-from django.urls import reverse
+from django.urls import resolve, reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -16,15 +17,19 @@ from accounts.ratelimit import AI_PER_HOUR, ai_limit_is_personal, ai_limited
 from stock import invoices
 from stock.csv_import import REQUIRED_COLUMNS
 from stock.models import InvoiceBatch, InvoiceBatchFile, Supplier
-from stock.views import import_preview, invoice_preview
+from stock.views import UNDO_WINDOW, import_preview, invoice_preview
 
-from . import gemini
+from . import actions, gemini
 from .snapshot import practice_snapshot
 
 HISTORY_KEY = "ask_history"  # shown on Home through context_processors.ask_turns
 UNDO_KEY = "ask_undo"  # a deleted chat, kept until the next question
 HISTORY_TURNS = 6  # question-and-answer pairs sent back with each new question
 HISTORY_MAX_AGE = 24 * 60 * 60  # seconds a turn is kept
+# The chat's change cards, {id: proposal}: waiting for Confirm until CHANGE_AGE
+# is up, then once confirmed, kept until the toast's Undo has run out.
+CHANGES_KEY = "ask_changes"
+CHANGE_AGE = 10 * 60
 CLEAR_UNDO = '<div id="chat-undo" hx-swap-oob="true"></div>'
 MAX_QUESTION = 500
 MAX_UPLOAD = 5 * 1024 * 1024
@@ -60,7 +65,7 @@ CHAT_RULES = """You are Ask StockRoom, the help inside StockRoom, a stock-orderi
 Answer questions about how to use StockRoom (from the guide below) and about this practice's stock (from the data below).
 - Plain New Zealand English. Short: a sentence or two, or a short list. Plain text only, no Markdown; start list lines with "- ".
 - Only use the guide and the data. If the answer isn't there, say you don't know rather than guessing. Never make up numbers.
-- You can't change anything in StockRoom; tell people where to tap to do it themselves.
+- You can make some changes with your functions, such as logging what's been used. Call the function and StockRoom shows them a card with the change; nothing happens until they tap Confirm. Never say you've changed something yourself: the conversation says what was done, cancelled or undone. For anything your functions can't do, tell them where to tap to do it themselves.
 - Stay on StockRoom and the practice's stock. Politely decline anything else, including clinical advice.
 - You are talking to {name}, {role_description}.{role_rule}
 """
@@ -95,6 +100,25 @@ def recent_turns(session):
     return [turn for turn in session.get(HISTORY_KEY, []) if len(turn) == 3 and turn[2] > cutoff]
 
 
+def chat_turns(session):
+    """(question, answer, change) for each turn on show: change is its card,
+    while that's still waiting for Confirm or can still be undone."""
+    cards = {change["turn"]: change for change in _changes(session).values()}
+    return [(q, a, cards.get(when)) for q, a, when in recent_turns(session)]
+
+
+def _changes(session):
+    now = time.time()
+    return {pid: change for pid, change in session.get(CHANGES_KEY, {}).items() if change["expires"] > now}
+
+
+def _record(session, change, what):
+    """Rewrite the chat's own record of a change: shown once its card has gone,
+    and sent with the next question so the AI knows what happened."""
+    text = f"{what}: {change['summary']}."
+    session[HISTORY_KEY] = [[q, text if when == change["turn"] else a, when] for q, a, when in recent_turns(session)]
+
+
 @ai_required
 def ask(request):
     """Ask StockRoom, the chat at the top of Home: how-to and stock questions in
@@ -110,7 +134,8 @@ def ask(request):
         return render(request, "assistant/chat.html#deleted")  # empties the chat, offers Undo
     if "undo" in request.POST:
         session[HISTORY_KEY] = session.pop(UNDO_KEY, [])
-        turns = "".join(render_to_string("assistant/chat.html#turn", {"q": q, "answer": a}) for q, a, _ in recent_turns(session))
+        turns = "".join(render_to_string("assistant/chat.html#turn", {"q": q, "answer": a, "change": change})
+                        for q, a, change in chat_turns(session))
         return HttpResponse(turns + CLEAR_UNDO)
 
     history = recent_turns(session)
@@ -118,20 +143,95 @@ def ask(request):
     question = request.POST.get("q", "").strip()[:MAX_QUESTION]
     if not question:
         return HttpResponse(status=204)
+    change = None
     if ai_limited(request):
         answer = LIMITED
     else:
         turns = [turn for q, a, _ in history for turn in (("user", q), ("model", a))]
         try:
-            answer = gemini.generate(_system_prompt(request.user), [*turns, ("user", question)])
+            reply = gemini.generate(_system_prompt(request.user), [*turns, ("user", question)],
+                                    tools=actions.declarations(request.user))
         except gemini.GeminiError:
             answer = "Sorry, I couldn't get an answer just now. Try again in a minute."
         else:
-            # Gemini leans towards Markdown even when asked not to; bold is the usual leftover.
-            answer = answer.replace("**", "")
-            session[HISTORY_KEY] = [*history, [question, answer, time.time()]][-HISTORY_TURNS:]
-    response = render(request, "assistant/chat.html#turn", {"q": question, "answer": answer})
+            when = time.time()
+            if isinstance(reply, list):  # it called an action: a card, or a plain answer if it can't be done
+                reply = actions.propose(request.user, reply)
+            if isinstance(reply, dict):
+                change = reply | {"id": uuid.uuid4().hex, "turn": when, "expires": when + CHANGE_AGE}
+                session[CHANGES_KEY] = {**_changes(session), change["id"]: change}
+                answer = f"Not confirmed, so nothing changed: {change['summary']}."
+            else:
+                # Gemini leans towards Markdown even when asked not to; bold is the usual leftover.
+                answer = reply.replace("**", "")
+            session[HISTORY_KEY] = [*history, [question, answer, when]][-HISTORY_TURNS:]
+    response = render(request, "assistant/chat.html#turn", {"q": question, "answer": answer, "change": change})
     response.content += CLEAR_UNDO.encode()  # the old "Chat deleted. Undo" row is no longer true
+    return response
+
+
+# Confirm, Cancel and Undo on a card make no AI call, so they don't count towards AI_PER_HOUR.
+
+@require_POST
+@ai_required
+def confirm_change(request, pid):
+    """Confirm on a card: make the change, swap the card for its done state and
+    show the usual toast with Undo. A second Confirm does nothing, and an id
+    that's expired or was never shown changes nothing either."""
+    session = request.session
+    changes = _changes(session)
+    change = changes.get(pid)
+    if change is None:
+        return render(request, "assistant/chat.html#change",
+                      {"note": "That's expired, so nothing was changed. Ask again if you still need it."})
+    if "undo" in change:
+        return HttpResponse(status=204)
+    done = actions.apply(request.user, change)
+    if done is None:
+        del changes[pid]
+        session[CHANGES_KEY] = changes
+        _record(session, change, "Couldn't be done, so nothing changed")
+        return render(request, "assistant/chat.html#change",
+                      {"note": "That can't be done now, so nothing was changed."})
+    message, undo = done
+    change |= {"undo": undo, "expires": time.time() + UNDO_WINDOW.total_seconds()}
+    session[CHANGES_KEY] = changes
+    _record(session, change, "Done")
+    response = render(request, "assistant/chat.html#done",
+                      {"change": change, "text": message, "undo": reverse("assistant:undo_change", args=[pid])})
+    response["HX-Trigger"] = "stock-changed"  # Home's list redraws with the new numbers
+    return response
+
+
+@require_POST
+@ai_required
+def cancel_change(request, pid):
+    """Cancel on a card: nothing changes, and the chat says so."""
+    session = request.session
+    changes = _changes(session)
+    if pid in changes:
+        if "undo" in changes[pid]:
+            return HttpResponse(status=204)  # already made; Undo is in the toast
+        _record(session, changes.pop(pid), "Cancelled, so nothing changed")
+        session[CHANGES_KEY] = changes
+    return render(request, "assistant/chat.html#change", {"note": "Cancelled. Nothing was changed."})
+
+
+@require_POST
+@ai_required
+def undo_change(request, pid):
+    """The toast's Undo for a change made in the chat. It's the page's own undo
+    (log_undo for a stock event, with its rules), then the chat's record of the
+    change says it was undone."""
+    session = request.session
+    changes = _changes(session)
+    change = changes.pop(pid, None)
+    if change is None or "undo" not in change:
+        raise Http404
+    page_undo = resolve(change["undo"])
+    response = page_undo.func(request, *page_undo.args, **page_undo.kwargs)
+    session[CHANGES_KEY] = changes
+    _record(session, change, "Undone, so nothing changed")
     return response
 
 

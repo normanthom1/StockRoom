@@ -14,7 +14,7 @@ Design for the assistant first. If they can't do it fast, they won't log it, and
 ## Rules
 - **Tap targets:** 48×48px minimum (`min-h-12 min-w-12`), with 8px or more between them. Main actions are 64px or taller and full width on a phone.
 - **Speed:** logging anything takes 3 taps or fewer. The only typing is search. Numbers use `inputmode="numeric"`, with the unit shown next to the field.
-- **No confirm dialogs.** Do the action, then show a toast with Undo (see [org-scoped-view](../org-scoped-view/SKILL.md)).
+- **No confirm dialogs.** Do the action, then show a toast with Undo (see [org-scoped-view](../org-scoped-view/SKILL.md)). The one exception is a change Ask StockRoom proposes, which waits for Confirm on its card (`assistant/chat.html#change`) because the AI can misread. Reuse that card; don't add confirm steps anywhere else.
 - **One main action per screen**, placed where a thumb reaches it. Item actions open in the shared bottom sheet.
 - **Mobile first** at 390px wide, unchanged up to `lg` (1024px): the bottom tab bar, sheet and every layout rule above still apply. At `lg:` and up, `base.html` swaps the bottom tabs for a nav row in the header and widens `<main>` to `lg:max-w-3xl`; a new page needs no extra work for that unless it adds its own fixed-width or `grid-cols-2` layout, which should get an `lg:` variant too (see `log_usage.html`'s tile grid for an example).
 - **Text size:** body text 16px or larger, and inputs at least 16px so iOS doesn't zoom. Key numbers (days left, counts) should be large.

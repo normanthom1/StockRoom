@@ -6,9 +6,9 @@ def ai_enabled(request):
 
 
 def ask_turns(request):
-    """The chat on Home: its last day of questions and answers."""
+    """The chat on Home: its last day of questions and answers, and any change cards still live."""
     if not settings.AI_API_KEY or not hasattr(request, "session"):
         return {}
-    from assistant.views import recent_turns
+    from assistant.views import chat_turns
 
-    return {"ask_turns": recent_turns(request.session)}
+    return {"ask_turns": chat_turns(request.session)}

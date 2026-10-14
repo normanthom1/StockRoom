@@ -5,6 +5,76 @@ conversation (the last day's only) appears above it once there is one. Rounded l
 on purpose, so it reads as "the chat"; it's the one place StockRoom isn't square.
 Behaviour is in static/js/app.js.
 {% endcomment %}
+{% comment %}
+A change the chat proposes (assistant/actions.py): what will change, before and after, and
+nothing happens until Confirm. It's the one confirm step in StockRoom, because the AI can
+misread. Every action uses this card, with one line or ten; past a screenful, the buttons
+stay pinned to the bottom of the chat while the lines scroll. Confirmed, it becomes the done
+state; Cancel, or an expired card, leaves a note in its place.
+{% endcomment %}
+{% partialdef change %}
+  {% if note %}
+    <p data-change class="pt-1 leading-relaxed text-gray-900">{{ note }}</p>
+  {% else %}
+    <section data-change aria-labelledby="change-{{ change.id }}"
+             class="rounded-[1.25rem] border bg-white {% if change.undo %}border-status-ok{% else %}border-gray-300 shadow-sm{% endif %}">
+      <h2 id="change-{{ change.id }}" class="kicker flex items-center gap-2 px-4 pt-3 pb-1 font-sans {% if change.undo %}text-status-ok{% endif %}">
+        {% if change.undo %}
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
+          Done
+        {% else %}
+          This will change
+        {% endif %}
+      </h2>
+      <ul class="divide-y divide-gray-200">
+        {% for line in change.lines %}
+          <li class="px-4 py-3">
+            <p class="flex items-baseline gap-3">
+              <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">{{ line.name }}</span>
+              <span class="shrink-0 text-[0.9375rem] text-gray-700">{{ line.change }}</span>
+            </p>
+            {% if change.undo %}
+              <p class="mt-1 text-[0.9375rem] text-gray-700">On hand now {{ line.after }} {{ line.unit }}</p>
+            {% else %}
+              <p class="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                <span class="sr-only">On hand</span>
+                <span class="font-heading text-3xl leading-none font-semibold text-gray-600 tabular-nums">{{ line.before }}</span>
+                <svg class="size-5 shrink-0 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                <span class="sr-only">to</span>
+                <span class="font-heading text-3xl leading-none font-semibold text-gray-900 tabular-nums">{{ line.after }}</span>
+                <span class="text-[0.9375rem] text-gray-700">{{ line.unit }}</span>
+                <span class="ml-auto flex items-center gap-1.5">
+                  {% if line.was.status_label != line.now.status_label %}
+                    {% include "stock/_status_chip.html" with s=line.was %}
+                    <span class="text-gray-600" aria-hidden="true">&rarr;</span><span class="sr-only">to</span>
+                  {% endif %}
+                  {% include "stock/_status_chip.html" with s=line.now %}
+                </span>
+              </p>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+      {% if change.note %}<p class="border-t border-gray-200 px-4 py-2.5 text-[0.9375rem] text-gray-700">{{ change.note }}</p>{% endif %}
+      {% if not change.undo %}
+        {# A fieldset, so disabling it during a tap disables both buttons. -bottom-4 pins it past #chat's pb-4. #}
+        <fieldset hx-target="closest [data-change]" hx-swap="outerHTML" hx-disabled-elt="this"
+                  class="sticky -bottom-4 flex min-w-0 gap-2 rounded-b-[1.25rem] border-t border-gray-200 bg-white p-2">
+          <legend class="sr-only">Make this change?</legend>
+          <button type="button" hx-post="{% url 'assistant:cancel_change' change.id %}"
+                  class="btn btn-line min-h-16 flex-1 rounded-full text-lg">Cancel</button>
+          <button type="button" hx-post="{% url 'assistant:confirm_change' change.id %}"
+                  class="btn-primary flex-[2] rounded-full">Confirm</button>
+        </fieldset>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endpartialdef %}
+{# Confirmed: the card's done state, and the usual toast with Undo. #}
+{% partialdef done %}
+  {% partial change %}
+  <div hx-swap-oob="beforeend:#toast-slot">{% include "base.html#toast" %}</div>
+{% endpartialdef %}
 {% partialdef deleted %}
   <div id="chat-undo" hx-swap-oob="true" class="flex items-center justify-between gap-3 pb-3" role="status">
     <span class="text-gray-700">Chat deleted.</span>
@@ -29,12 +99,16 @@ Behaviour is in static/js/app.js.
           <p class="ml-auto max-w-[85%] rounded-[1.25rem] rounded-br-md bg-primary-tint px-4 py-2.5 text-gray-900"><span class="sr-only">You asked: </span>{{ q }}</p>
           <div class="flex items-start gap-3">
             {% include "assistant/_avatar.html" with size="size-8" %}
-            <p class="min-w-0 flex-1 pt-1 leading-relaxed text-gray-900"><span class="sr-only">StockRoom: </span>{{ answer|linebreaksbr }}</p>
+            {% if change %}
+              <div class="min-w-0 flex-1"><span class="sr-only">StockRoom: </span>{% partial change %}</div>
+            {% else %}
+              <p class="min-w-0 flex-1 pt-1 leading-relaxed text-gray-900"><span class="sr-only">StockRoom: </span>{{ answer|linebreaksbr }}</p>
+            {% endif %}
           </div>
         </div>
       {% endpartialdef %}
-      {# The last day's exchanges, kept in the session by assistant.views.ask. #}
-      {% for q, answer, _ in ask_turns %}{% partial turn %}{% endfor %}
+      {# The last day's exchanges, kept in the session by assistant.views.ask, with any change card still live. #}
+      {% for q, answer, change in ask_turns %}{% partial turn %}{% endfor %}
     </div>
   </div>
 

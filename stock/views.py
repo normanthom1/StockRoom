@@ -85,9 +85,11 @@ def _backups(item):
     return [s for s in item.other_suppliers.all() if s.is_active]
 
 
-def _forecast_for(item, now):
+def _forecast_for(item, now, extra=()):
+    """extra: unsaved events to count as well, for what a change would do before it's made."""
     open_orders = [o for o in item.order_lines.all() if o.is_open]
-    return forecast(item.events.all(), open_orders, lead_days=item.supplier.lead_days, order_size=item.order_size, now=now)
+    return forecast([*item.events.all(), *extra], open_orders, lead_days=item.supplier.lead_days,
+                    order_size=item.order_size, now=now)
 
 # ui-design's 4 status colours; "on order" isn't one of them, so it borrows OK's.
 STATUS_COLOR = {
@@ -422,6 +424,17 @@ def _replay_time(raw, now):
     return min(when, now)
 
 
+def log_event(user, item, kind, qty, *, client_id=None, created_at=None):
+    """Write one stock event: the capture taps and Ask StockRoom both come here.
+    A client_id that's been seen before returns that event instead of a second
+    one. Returns (event, created)."""
+    fields = {"organisation": item.organisation, "item": item, "user": user, "kind": kind, "qty": qty,
+              "created_at": created_at or timezone.now()}
+    if client_id:
+        return StockEvent.objects.get_or_create(client_id=client_id, defaults=fields)
+    return StockEvent.objects.create(**fields), True
+
+
 def _log_event(request, item, kind, qty, message_text):
     """Every capture tap sends a client_id minted on the device before its
     first attempt, so a tap the server saved but whose reply got lost dedupes
@@ -440,13 +453,7 @@ def _log_event(request, item, kind, qty, message_text):
     if created_at is None:
         return HttpResponse("Tap time is in the future or more than 7 days old.", status=400)
 
-    fields = {"organisation": item.organisation, "item": item, "user": request.user, "kind": kind, "qty": qty,
-              "created_at": created_at}
-    if client_id:
-        event, created = StockEvent.objects.get_or_create(client_id=client_id, defaults=fields)
-    else:
-        event, created = StockEvent.objects.create(**fields), True
-
+    event, created = log_event(request.user, item, kind, qty, client_id=client_id, created_at=created_at)
     if replayed:
         # The device shows its own "synced" confirmation; no undo for a tap from hours ago.
         return HttpResponse(status=200)

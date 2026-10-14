@@ -22,6 +22,12 @@ Pages (bottom bar: Home, Log usage, Reorder list, Deliveries; managers also get 
 - Team: add staff with a name, role and code; make someone a manager or an assistant (they choose a new code); turn someone off when they leave.
 - Catalogue (managers, Stock page, "Add from the catalogue"): common NZ dental stock by category, with suppliers whose ranges include each product. Tap Add, pick who you'll usually order it from, and it's on your stock list. Anything already on the list isn't shown. It doesn't hold prices; check those with your supplier.
 
+Asking StockRoom to make a change
+- The chat can make some changes as well as answer questions. Say what happened, e.g. "we used 2 boxes of gloves".
+- It always asks first: a card shows what will change, with on hand before and after, and nothing changes until you tap Confirm. Cancel leaves everything as it was.
+- After Confirm, Undo is in the message that pops up, the same as a tap on Log usage.
+- For now it can log what's been used. For anything else, it says where to tap.
+
 Preferred and backup suppliers (managers)
 - Each item has one preferred supplier. The reorder list groups by it, and orders go to it.
 - An item can also have backup suppliers. Adding from the catalogue keeps any others you already use as backups; on an item's page you can add or remove them.

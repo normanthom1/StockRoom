@@ -25,11 +25,12 @@ class GeminiError(Exception):
     """No usable answer: network trouble, an API error, or a blocked or empty reply."""
 
 
-def generate(system, turns, *, schema=None, attachment=None):
+def generate(system, turns, *, schema=None, attachment=None, tools=None):
     """Ask Gemini. turns is [(role, text)] oldest first, role "user" or "model",
     ending with the user's question. attachment is (mime_type, bytes), sent
     with that last question. With a JSON schema, returns the parsed JSON;
-    otherwise the answer text.
+    otherwise the answer text. tools are function declarations Gemini may call
+    instead of answering; if it does, returns the calls as [(name, args)].
     """
     contents = [{"role": role, "parts": [{"text": text}]} for role, text in turns]
     if attachment:
@@ -41,9 +42,17 @@ def generate(system, turns, *, schema=None, attachment=None):
     if schema:
         config |= {"responseMimeType": "application/json", "responseSchema": schema}
     body = {"system_instruction": {"parts": [{"text": system}]}, "contents": contents, "generationConfig": config}
+    if tools:
+        body["tools"] = [{"functionDeclarations": tools}]
 
     def answer(reply):
-        text = "".join(part.get("text", "") for part in reply["candidates"][0]["content"]["parts"]).strip()
+        parts = reply["candidates"][0]["content"]["parts"]
+        # Gemini 3 sends a thoughtSignature with each call, which it needs back only if the call
+        # itself is sent back within the same turn. The chat keeps turns as text, so it never is.
+        if calls := [(part["functionCall"]["name"], part["functionCall"].get("args") or {})
+                     for part in parts if "functionCall" in part]:
+            return calls
+        text = "".join(part.get("text", "") for part in parts).strip()
         if not text:
             raise ValueError("empty answer")
         return json.loads(text) if schema else text

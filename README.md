@@ -103,7 +103,10 @@ spending; assistants' never do. The same key lets a manager paste a stock
 list or photograph an invoice on the import page. Gemini reads it into rows
 that go through the normal CSV checks and preview, so nothing is saved
 unchecked. Gemini is called server-side only (`assistant/gemini.py`, no
-SDK), is rate limited per person and per day, and can't change anything.
+SDK) and is rate limited per person and per day. The chat can also make a
+change ("we used 2 boxes of gloves"), but only by showing a card of what will
+change and waiting for Confirm: Gemini proposes, and the server checks and
+writes it (`assistant/actions.py`).
 Questions and stock data go to Google, never patient data.
 
 **Security.** A Content Security Policy with no inline scripts and no
