@@ -43,21 +43,23 @@ top and smaller numbers, so a long one scans: what it receives first, then what 
               <span class="min-w-0 flex-1 font-heading text-lg leading-tight font-semibold text-gray-900">{{ line.name }}</span>
               <span class="shrink-0 text-[0.9375rem] text-gray-700">{{ line.change }}</span>
             </p>
-            {% if line.detail %}<p class="mt-1 text-[0.9375rem] text-gray-700">{{ line.detail }}</p>{% endif %}
+            {% if line.detail %}<p class="mt-1 text-[0.9375rem] text-gray-700">{{ line.detail|linebreaksbr }}</p>{% endif %}
             {% if change.done %}
               {% if not line.static %}<p class="mt-1 text-[0.9375rem] text-gray-700">On hand now {{ line.after }} {{ line.unit }}</p>{% endif %}
             {% elif line.static %}
-              {# Ordering and settings leave on hand alone, so it's shown once with its status, not as before and after. #}
-              <p class="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                <span class="text-[0.9375rem] text-gray-700">On hand {% if line.before is None %}not counted yet{% else %}{{ line.before }} {{ line.unit }}{% endif %}</span>
-                <span class="ml-auto flex items-center gap-1.5">
-                  {% if line.was.status_label != line.now.status_label %}
-                    {% include "stock/_status_chip.html" with s=line.was %}
-                    <span class="text-gray-600" aria-hidden="true">&rarr;</span><span class="sr-only">to</span>
-                  {% endif %}
-                  {% include "stock/_status_chip.html" with s=line.now %}
-                </span>
-              </p>
+              {# Ordering and settings leave on hand alone, so it's shown once with its status, not as before and after. A new item or a supplier has no stock to show. #}
+              {% if not line.bare %}
+                <p class="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                  <span class="text-[0.9375rem] text-gray-700">On hand {% if line.before is None %}not counted yet{% else %}{{ line.before }} {{ line.unit }}{% endif %}</span>
+                  <span class="ml-auto flex items-center gap-1.5">
+                    {% if line.was.status_label != line.now.status_label %}
+                      {% include "stock/_status_chip.html" with s=line.was %}
+                      <span class="text-gray-600" aria-hidden="true">&rarr;</span><span class="sr-only">to</span>
+                    {% endif %}
+                    {% include "stock/_status_chip.html" with s=line.now %}
+                  </span>
+                </p>
+              {% endif %}
               {% if line.price_note %}<p class="mt-2 text-[0.9375rem] text-gray-900">{{ line.price_note }}</p>{% endif %}
               {% if line.flag %}<p class="mt-2 text-[0.9375rem] font-semibold text-gray-900">{{ line.flag }}</p>{% endif %}
             {% else %}
@@ -119,7 +121,7 @@ top and smaller numbers, so a long one scans: what it receives first, then what 
       {% if change.note %}<p class="border-t border-gray-200 px-4 py-2.5 text-[0.9375rem] text-gray-700">{{ change.note }}</p>{% endif %}
       {% if change.which %}
         <div class="border-t border-gray-200 px-4 pt-3 pb-1">
-          <p class="font-heading text-lg leading-tight font-semibold text-gray-900">{% if change.which.options|length > 1 %}Which one?{% else %}Did you mean this one?{% endif %}</p>
+          <p class="font-heading text-lg leading-tight font-semibold text-gray-900">{% if change.which.ask %}{{ change.which.ask }}{% elif change.which.options|length > 1 %}Which one?{% else %}Did you mean this one?{% endif %}</p>
           <p class="text-[0.9375rem] text-gray-700">You said &ldquo;{{ change.which.name }}&rdquo;.</p>
         </div>
         <fieldset hx-target="closest [data-change]" hx-swap="outerHTML" hx-disabled-elt="this"

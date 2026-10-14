@@ -30,6 +30,9 @@ PELLETS = "Cotton pellets"
 SENSORS = "Digital sensor barriers"
 BIBS = "Bib clips"
 SUTURES = "Surgical sutures"
+TRAYS = "Disposable impression trays"
+SHARPS = "Sharps containers"
+INDEPENDENT = "Independent Dental Supplies"
 
 
 class Case(NamedTuple):
@@ -93,6 +96,42 @@ def switch(item, supplier):
 
 def email(supplier):
     return call("write_order_email", supplier=supplier)
+
+
+def add_item(**args):
+    return call("add_item", **args)
+
+
+def edit_item(item, **args):
+    return call("edit_item", item=item, **args)
+
+
+def set_price(item, price):
+    return call("set_price", item=item, price=price)
+
+
+def archive(item):
+    return call("archive_item", item=item)
+
+
+def unarchive(item):
+    return call("unarchive_item", item=item)
+
+
+def add_backup(item, supplier):
+    return call("add_backup_supplier", item=item, supplier=supplier)
+
+
+def remove_backup(item, supplier):
+    return call("remove_backup_supplier", item=item, supplier=supplier)
+
+
+def add_supplier(**args):
+    return call("add_supplier", **args)
+
+
+def edit_supplier(supplier, **args):
+    return call("edit_supplier", supplier=supplier, **args)
 
 
 def page(name, **args):
@@ -237,6 +276,54 @@ CASES = [
     Case("make the gloves order 10 boxes", "assistant", says="manager"),
     Case("switch the gloves to Independent Dental Supplies", "assistant", says="manager"),
     Case("write the email to Dentsply", "assistant", says="manager"),
+    # --- add_item: only what they said is passed on (the name is left to the model's own spelling) ---
+    Case("add 3M Filtek Z350 in A2 from Henry Schein, $85 a syringe", "admin",
+         (add_item(unit="syringe", supplier="Henry Schein", price=85),)),
+    Case("we've started using prophy angles from Dentsply, they come in boxes", "admin",
+         (add_item(unit="box", supplier="Dentsply"),)),
+    Case("add a new item, ProRoot MTA, from Dentsply. It's a kit and costs $120", "admin",
+         (add_item(unit="kit", supplier="Dentsply", price=120),)),
+    Case("new item: saliva ejector tips, packs of 100, from Henry Schein", "admin",
+         (add_item(unit="pack", supplier="Henry Schein"),)),
+    # --- edit_item: name, unit or preferred supplier ---
+    Case("rename the bib clips to Patient bib clips", "admin", (edit_item(BIBS, new_name="Patient bib clips"),)),
+    Case("the gloves come from Independent Dental Supplies now", "admin",
+         (edit_item(GLOVES, new_supplier=INDEPENDENT),)),
+    Case("we count suction tips in packs now, not tips", "admin", (edit_item(TIPS, new_unit="pack"),)),
+    # --- set_price ---
+    Case("gloves are $7.20 a box now", "admin", (set_price(GLOVES, 7.2),)),
+    Case("the composite is $85 a syringe", "admin", (set_price(COMPOSITE, 85),)),
+    Case("face masks went up to $14", "admin", (set_price(MASKS, 14),)),
+    Case("lignocaine is down to 90 cents a cartridge", "admin", (set_price(LIGNOCAINE, 0.9),)),
+    # --- archive_item and unarchive_item ---
+    Case("archive the old impression trays", "admin", (archive(TRAYS),)),
+    Case("we don't use the sharps containers any more, archive them", "admin", (archive(SHARPS),)),
+    Case("bring back the impression trays", "admin", (unarchive(TRAYS),)),
+    Case("un-archive the sharps containers", "admin", (unarchive(SHARPS),)),
+    # --- add_backup_supplier and remove_backup_supplier ---
+    Case("add Dentsply as a backup for gauze", "admin", (add_backup(GAUZE, "Dentsply"),)),
+    Case("Independent Dental Supplies can supply the face shields too", "admin",
+         (add_backup(SHIELDS, INDEPENDENT),)),
+    Case("Independent Dental Supplies doesn't do the face masks any more", "admin",
+         (remove_backup(MASKS, INDEPENDENT),)),
+    # --- add_supplier, edit_supplier, archive_supplier and unarchive_supplier ---
+    Case("add a supplier called Dental Direct, phone 09 555 0101", "admin",
+         (add_supplier(name="Dental Direct", phone="09 555 0101"),)),
+    Case("new supplier Southern Cross, their email is orders@southerncross.example", "admin",
+         (add_supplier(name="Southern Cross", email="orders@southerncross.example"),)),
+    Case("Henry Schein takes 3 days now", "admin", (edit_supplier("Henry Schein", lead_days=3),)),
+    Case("Dentsply's new number is 0800 111 222", "admin", (edit_supplier("Dentsply", phone="0800 111 222"),)),
+    Case("Dentsply deliver in 10 days these days", "admin", (edit_supplier("Dentsply", lead_days=10),)),
+    Case("archive Independent Dental Supplies", "admin", (call("archive_supplier", supplier=INDEPENDENT),)),
+    Case("bring back Independent Dental Supplies", "admin", (call("unarchive_supplier", supplier=INDEPENDENT),)),
+    # --- starting a stocktake is the button to its page ---
+    Case("start a stocktake", "admin", (page("stocktake"),)),
+    Case("we want to count everything, how do we do a stocktake?", "admin", (page("stocktake"),)),
+    # --- an assistant asking for a manager's job is told, and has no function for it ---
+    Case("add a new item called prophy angles from Dentsply", "assistant", says="manager"),
+    Case("archive the old impression trays", "assistant", says="manager"),
+    Case("Henry Schein takes 3 days now", "assistant", says="manager"),
+    Case("gloves are $7.20 a box now", "assistant", says="manager"),
     # --- open_page and download: take them there, nothing changes ---
     Case("where do I change a supplier's phone number?", "admin", (page("suppliers"),)),
     Case("show me spending by supplier", "admin", (page("spending"),)),
@@ -268,6 +355,9 @@ CASES = [
     Case("What's on the reorder list?", "admin"),
     Case("When will the Henry Schein order arrive?", "admin"),
     Case("Who usually orders the gloves?", "assistant"),
+    Case("Which supplier do we get gloves from?", "admin"),
+    Case("How do I add an item?", "admin"),
+    Case("How long does Dentsply take to deliver?", "admin"),
     Case("How many boxes of gloves do we have?", "assistant"),
     Case("What should I order this week?", "admin"),
     Case("Where could we save money?", "admin"),

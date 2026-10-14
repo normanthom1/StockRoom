@@ -27,9 +27,10 @@ from django.utils import timezone
 from accounts.models import User
 from stock import invoices
 from stock.forecast import forecast
+from stock.forms import ItemForm, SupplierForm
 from stock.humanize import format_qty, pluralize_unit
-from stock.matching import Matcher, synonym_key
-from stock.models import Invoice, Item, StockEvent, Supplier
+from stock.matching import Matcher, _sizes, normalize, similarity, synonym_key
+from stock.models import CatalogueProduct, Invoice, Item, StockEvent, Supplier
 from stock.spending import PERIOD_WEEKS
 from stock.views import (
     SOLID_STATUSES,
@@ -41,14 +42,22 @@ from stock.views import (
     _off_the_list,
     _open_lines_for_org,
     _reorder_groups,
+    _stocked_names,
+    _supplier_choices,
     _wanted_items,
+    add_backup_supplier,
+    add_from_catalogue,
     add_to_reorder_list,
+    archive_blocked_by,
     fill_invoice,
     log_event,
     pending_invoice,
     place_order,
     receive_delivery_line,
+    set_item_active,
+    set_item_price,
     set_order_size,
+    set_supplier_active,
     switch_supplier,
 )
 
@@ -62,6 +71,7 @@ RESTORE = "restore"
 MAX_QTY = 9999  # anything bigger is a misheard number, not a day's use
 MIN_UNUSUAL = 200  # a count has to pass this, and 10x anything seen before, to be asked about
 MAX_OPTIONS = 6  # buttons on a "Which one?"
+SIMILAR = 0.85  # how alike a new name is to one already there before it's asked about
 Kind = StockEvent.Kind
 
 
@@ -86,6 +96,7 @@ class Which:
     name: str
     options: list  # [{"id": pk, "name": ...}]
     kind: str = "item"  # what the ids are, so a pick can't be taken for another kind's
+    ask: str = ""  # the question, when it isn't "Which one?" (a yes or no about something that already exists)
 
 
 class Answer(str):
@@ -151,7 +162,8 @@ def build(user, calls, picks=None, text=""):
             continue
         family = action.undo
         if isinstance(result, Which):
-            which = which or {"key": f"{i}.{result.kind}", "name": result.name, "options": result.options}
+            which = which or {"key": f"{i}.{result.kind}", "name": result.name, "options": result.options,
+                              "ask": result.ask}
         else:
             lines += [{"action": name, **line} for line in (result if isinstance(result, list) else [result])]
     if not lines and not which and not buttons and not problems:
@@ -190,6 +202,8 @@ def apply(user, proposal):
             ids = [action.apply(user, line, uuid.uuid5(card, str(n))) for n, (action, line) in enumerate(todo)]
     except ObjectDoesNotExist:
         return None
+    for line, made in zip(lines, ids, strict=True):
+        line["made"] = made  # what a restore needs to find a new item or supplier again
     undo = (RESTORE if todo[0][0].undo == RESTORE
             else reverse(todo[0][0].undo) + "?ids=" + ",".join(str(i) for i in ids))
     text = lines[0]["toast"] if len(lines) == 1 else lines[0]["many"].format(n=len(lines))
@@ -229,6 +243,15 @@ def _item_for(user, args):
     if len(fits) > MAX_OPTIONS:
         return f"There are {len(fits)} items that fit '{name}'. Say a bit more of its name."
     return Which(name, [{"id": item.pk, "name": item.name} for item in sorted(fits, key=lambda i: i.name)])
+
+
+def _similar(name, rows):
+    """The rows (items or suppliers) already called about that: the same words, or spelt closely."""
+    key = synonym_key(name)
+    words = set(key.split())
+    return [row for row in rows
+            if (other := synonym_key(row.name)) == key or similarity(key, other) >= SIMILAR
+            or (words and words <= set(other.split()) and len(words) > 1)]
 
 
 def _chip(f):
@@ -602,6 +625,12 @@ def _static(item, f, change, summary, toast, many, detail="", **extra):
     }
 
 
+def _plain(name, change, summary, toast, many, detail="", **extra):
+    """A card line with nothing to show for on hand: a new item, or a supplier."""
+    return {"name": name, "static": True, "bare": True, "change": change, "summary": summary, "toast": toast,
+            "many": many, "detail": detail, "flag": "", **extra}
+
+
 def _reorder_button():
     return _button("Open the Reorder list", reverse("stock:reorder_list"))
 
@@ -837,7 +866,7 @@ def _supplier_property(what):
     return {"type": "STRING", "description": f"{what} The supplier's name as written in the practice data."}
 
 
-def _ordering(name, description, preview, apply, properties, *, required, restore=None, roles=ADMIN, **kwargs):
+def _manager_action(name, description, preview, apply, properties, *, required, restore=None, roles=ADMIN, **kwargs):
     undo = {"undo": RESTORE} if restore else {}
     return Action(
         name, roles,
@@ -849,6 +878,488 @@ def _ordering(name, description, preview, apply, properties, *, required, restor
 ITEM_PROPERTY = {"type": "STRING", "description": (
     "The item's name as written in the practice data. If more than one item fits what they said, "
     "pass what they said as it is: StockRoom asks which.")}
+
+
+# --- Items, prices and suppliers: the Stock and Suppliers pages' forms and buttons, managers only ---
+# A new or changed item or supplier goes through the page's own form (ItemForm, SupplierForm),
+# so the same fields are checked the same way. A card line keeps the old values it would
+# change, so Undo can put them back; what's new is found again by its id, set when it's made.
+
+def _error(form):
+    return str(next(iter(form.errors.values()))[0])
+
+
+def _clean(value, limit=200):
+    return str(value).strip()[:limit] if isinstance(value, str | int | float) and not isinstance(value, bool) else ""
+
+
+def _open_button(item):
+    return _button(f"Open {item.name}", reverse("stock:item_detail", args=[item.pk]))
+
+
+def _item_data(item):
+    """What ItemForm would be sent for this item as it is."""
+    return {"name": item.name, "unit": item.unit, "supplier": item.supplier_id,
+            "price": "" if item.price is None else str(item.price),
+            "order_size": "" if item.order_size is None else item.order_size}
+
+
+def _fit_archived(rows, name, kind, picks):
+    """The archived row (item or supplier) that's called name, a Which when several fit, or a plain answer."""
+    if kind in picks:
+        return next((r for r in rows if r.pk == picks[kind]), f"That {kind} isn't archived any more.")
+    if not name:
+        return f"Which {kind} was it?"
+    words = set(synonym_key(name).split())
+    fits = [r for r in rows if r.name.lower() == name.lower()] or [
+        r for r in rows if words and words <= set(synonym_key(r.name).split())]
+    if not fits:
+        return f"I can't find an archived {kind} called '{name}'."
+    if len(fits) > 1:
+        return Which(name, [{"id": r.pk, "name": r.name} for r in fits[:MAX_OPTIONS]], kind=kind)
+    return fits[0]
+
+
+def _catalogue_match(org, name):
+    """The catalogue product this name is, if the practice doesn't stock it yet."""
+    stocked, key = _stocked_names(org), synonym_key(name)
+    best = (0.0, None)
+    for product in CatalogueProduct.objects.prefetch_related("offers__supplier"):
+        other = synonym_key(product.name)
+        if normalize(product.name) in stocked or _sizes(key) != _sizes(other):
+            continue
+        if set(key.split()) < set(other.split()) or set(other.split()) < set(key.split()):
+            continue  # "gloves" is like "Nitrile gloves, size M", but not surely it: the same rule as the matcher
+        best = max(best, (similarity(key, other), product), key=lambda pair: pair[0])
+    return best[1] if best[0] >= SIMILAR else None
+
+
+def _money(price):
+    return f"${price:.2f}"
+
+
+def _new_item(user, args, pending):
+    """A new item. Asked first when it looks like one already in stock, or one in the
+    catalogue (which has the unit and who sells it); never guessed either way."""
+    org, picks = user.organisation, args["picks"]
+    name, unit = _clean(args.get("name")), _clean(args.get("unit"), 50).lower()
+    if not name:
+        return "What's the item called?"
+    if "dup" in picks:
+        if picks["dup"]:  # "Yes, that one"
+            same = Item.objects.for_org(org).filter(pk=picks["dup"]).first()
+            return Answer(f"Okay, nothing added. {same.name} is already in your stock.", [_open_button(same)])
+    else:
+        found = Matcher(org).match(name)
+        if found.band in ("sure", "likely"):
+            return Which(name, [{"id": found.item.pk, "name": f"Yes, {found.item.name}"},
+                                {"id": 0, "name": "No, it's a different one"}], kind="dup",
+                         ask=f"You already have {found.item.name}. Did you mean that one?")
+    given = _clean(args.get("supplier"))
+    price = _price(args.get("price")) if args.get("price") is not None else None
+    if args.get("price") is not None and price is None:
+        return f"What's the price of one {unit or 'unit'} of {name}?"
+    size = _whole(args.get("order_size"), 1) if args.get("order_size") is not None else None
+    if args.get("order_size") is not None and size is None:
+        return f"How many of {name} do you order at a time?"
+
+    product = None
+    if "catalogue" in picks:
+        if picks["catalogue"]:
+            product = CatalogueProduct.objects.prefetch_related("offers__supplier").filter(pk=picks["catalogue"]).first()
+    elif product := _catalogue_match(org, name):
+        offered = [n for n, _ in _supplier_choices(org, product)]
+        if not given or given.lower() in (n.lower() for n in offered):
+            return Which(name, [{"id": product.pk, "name": f"Add {product.name} from the catalogue"},
+                                {"id": 0, "name": f"No, add {name} as I said"}], kind="catalogue",
+                         ask=f"{product.name} is in the catalogue. Add that one?")
+        product = None
+    if product:
+        if normalize(product.name) in _stocked_names(org):
+            return f"{product.name} is already on your stock list."
+        choices = _supplier_choices(org, product)
+        chosen, ours = next(((n, o) for n, o in choices if n.lower() == given.lower()),
+                            next(((n, o) for n, o in choices if o), choices[0]))
+        detail = [f"From the catalogue: {product.unit}", f"Supplier: {chosen}"]
+        if ours is None:
+            detail.append(f"{chosen} isn't one of your suppliers yet, so it's added as one.")
+        if price:
+            detail.append(f"Price: {_money(price)} a {product.unit}")
+        if size:
+            detail.append(f"Order size: {size}")
+        return _plain(product.name, f"Add {product.name}", f"added {product.name}", f"Added {product.name}.",
+                      "Added {n} items", "\n".join(detail), product=product.pk, chosen=chosen,
+                      price=str(price) if price else "", order_size=size or 0)
+
+    if not unit:
+        return f"What's {name} counted in? For example box, syringe or pack."
+    if not given and "supplier" not in picks:
+        return f"Who do you order {name} from?"
+    supplier = _supplier_for(user, args)
+    if not isinstance(supplier, Supplier):
+        return supplier
+    new = {"name": name, "unit": unit, "supplier": supplier.pk, "price": str(price) if price else "",
+           "order_size": size or ""}
+    form = ItemForm(new, instance=Item(organisation=org))
+    if not form.is_valid():
+        return _error(form)
+    detail = [f"Counted in {pluralize_unit(unit, 2)}", f"Supplier: {supplier.name}"]
+    if price:
+        detail.append(f"Price: {_money(price)} a {unit}")
+    if size:
+        detail.append(f"Order size: {size}")
+    return _plain(name, f"Add {name}", f"added {name}", f"Added {name}.", "Added {n} items", "\n".join(detail),
+                  new=new)
+
+
+def _apply_new_item(user, line, client_id):
+    org = user.organisation
+    if line.get("product"):
+        product = CatalogueProduct.objects.get(pk=line["product"])
+        if normalize(product.name) in _stocked_names(org) or line["chosen"] not in dict(_supplier_choices(org, product)):
+            raise ObjectDoesNotExist
+        item, _ = add_from_catalogue(org, product, line["chosen"])
+        if line["price"]:
+            set_item_price(item, Decimal(line["price"]))
+        if line["order_size"]:
+            set_order_size(item, line["order_size"])
+        return item.pk
+    form = ItemForm(line["new"], instance=Item(organisation=org))
+    if not form.is_valid():
+        raise ObjectDoesNotExist
+    return form.save().pk
+
+
+def _restore_new(user, line):
+    """Undo of an add: gone if nothing's been done with it, otherwise archived, as the page's Undo would."""
+    item = Item.objects.for_org(user.organisation).get(pk=line["made"])
+    if item.events.exists() or item.order_lines.exists():
+        set_item_active(item, False)
+    else:
+        item.delete()
+
+
+def _edit_item(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    org, picks = user.organisation, args["picks"]
+    name, unit = _clean(args.get("new_name")), _clean(args.get("new_unit"), 50).lower()
+    wants_supplier = bool(_clean(args.get("new_supplier"))) or "supplier" in picks
+    new, old, detail = {}, {}, []
+    if name and name != item.name:
+        other = Matcher(org).match(name)
+        if other.band in ("sure", "likely") and other.item.pk != item.pk:
+            return f"You already have {other.item.name}, so I haven't renamed {item.name}."
+        new["name"], old["name"] = name, item.name
+        detail.append(f"Name: {item.name} → {name}")
+    if unit and unit != item.unit:
+        new["unit"], old["unit"] = unit, item.unit
+        detail.append(f"Unit: {item.unit} → {unit}")
+    if wants_supplier:
+        supplier = _supplier_for(user, {**args, "supplier": args.get("new_supplier")})
+        if not isinstance(supplier, Supplier):
+            return supplier
+        if supplier.pk != item.supplier_id:
+            new["supplier"] = supplier.pk
+            old["supplier"] = item.supplier_id
+            old["backup"] = item.other_suppliers.filter(pk=supplier.pk).exists()
+            detail.append(f"Supplier: {item.supplier.name} → {supplier.name}")
+    if not new:
+        return f"There's nothing to change on {item.name}. Tell me what it should be called, counted in or ordered from."
+    f = _forecast_for(item, timezone.localtime())
+    form = ItemForm(_item_data(item) | new, instance=Item(organisation=org, pk=item.pk))
+    if not form.is_valid():
+        return _error(form)
+    what = " and ".join(["name", "unit", "supplier"][i] for i, k in enumerate(("name", "unit", "supplier")) if k in new)
+    return _static(
+        item, f, f"Change its {what}", f"changed the {what} of {item.name}", f"Changed {item.name}.",
+        "Changed {n} items", "\n".join(detail), new=new, old=old,
+        flag=("Its backups stay as they are." if "supplier" in new else ""))
+
+
+def _apply_edit(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    form = ItemForm(_item_data(item) | line["new"], instance=item)
+    if not form.is_valid():
+        raise ObjectDoesNotExist
+    item = form.save()
+    item.other_suppliers.remove(item.supplier)  # now the preferred one, so no longer a backup
+    return item.pk
+
+
+def _restore_edit(user, line):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"])
+    fields = {k: v for k, v in line["old"].items() if k != "backup"}
+    for field, value in fields.items():
+        setattr(item, "supplier_id" if field == "supplier" else field, value)
+    item.save(update_fields=list(fields))
+    if line["old"].get("backup"):
+        item.other_suppliers.add(line["new"]["supplier"])
+
+
+def _price_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    price = _price(args.get("price"))
+    if price is None:
+        return f"What's the price of one {item.unit} of {item.name}?"
+    old = None if item.price is None else Decimal(str(item.price))
+    if old == price:
+        return f"{item.name} is already {_money(price)} a {item.unit}."
+    flag = ""
+    if invoices.price_needs_confirming(old, price):
+        flag = f"That's up {round((price - old) / old * 100)}% on the price now. Check it's right."
+    return _static(
+        item, _forecast_for(item, timezone.localtime()), f"Price {_money(price)}",
+        f"set the price of {item.name} to {_money(price)}",
+        f"{item.name} is now {_money(price)} a {item.unit}.", "Changed {n} prices",
+        f"Price: {'not set' if old is None else _money(old)} → {_money(price)} a {item.unit}",
+        price=str(price), old={"price": None if old is None else str(old)}, flag=flag)
+
+
+def _apply_price(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    set_item_price(item, Decimal(line["price"]))
+    return item.pk
+
+
+def _restore_price(user, line):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"])
+    set_item_price(item, None if line["old"]["price"] is None else Decimal(line["old"]["price"]))
+
+
+def _archive_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    on_order = sum(o.qty for o in item.order_lines.all() if o.is_open)
+    return _static(
+        item, _forecast_for(item, timezone.localtime()), "Archive it", f"archived {item.name}",
+        f"Archived {item.name}.", "Archived {n} items",
+        "It won't show on Log usage or the reorder list. You can bring it back with Undo, or by asking me.",
+        flag=f"{format_qty(on_order, item.unit)} still on order, which you can receive as usual." if on_order else "")
+
+
+def _apply_archive(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    set_item_active(item, False)
+    return item.pk
+
+
+def _restore_archive(user, line):
+    set_item_active(Item.objects.for_org(user.organisation).get(pk=line["item"]), True)
+
+
+def _unarchive_line(user, args, pending):
+    rows = Item.objects.for_org(user.organisation).filter(is_active=False).order_by("name")
+    item = _fit_archived(rows, _clean(args.get("item")), "item", args["picks"])
+    if not isinstance(item, Item):
+        return item
+    return _static(
+        item, _forecast_for(item, timezone.localtime()), "Bring it back", f"brought back {item.name}",
+        f"{item.name} is back.", "Brought back {n} items", "It will show on Log usage and the reorder list again.")
+
+
+def _apply_unarchive(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=False)
+    set_item_active(item, True)
+    return item.pk
+
+
+def _restore_unarchive(user, line):
+    set_item_active(Item.objects.for_org(user.organisation).get(pk=line["item"]), False)
+
+
+def _backup_line(user, args, pending, *, add):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    supplier = _supplier_for(user, args)
+    if not isinstance(supplier, Supplier):
+        return supplier
+    is_backup = item.other_suppliers.filter(pk=supplier.pk).exists()
+    if supplier.pk == item.supplier_id:
+        return f"{supplier.name} is already who {item.name} comes from."
+    if add and is_backup:
+        return f"{supplier.name} is already a backup for {item.name}."
+    if not add and not is_backup:
+        return f"{supplier.name} isn't a backup for {item.name}."
+    verb = "Add" if add else "Remove"
+    return _static(
+        item, _forecast_for(item, timezone.localtime()), f"{verb} {supplier.name}",
+        f"{'added' if add else 'removed'} {supplier.name} as a backup for {item.name}",
+        f"{supplier.name} {'added as another supplier for' if add else 'removed from'} {item.name}"
+        f"{'' if add else chr(39) + 's suppliers'}.", "Changed {n} backup suppliers",
+        f"Backup suppliers: {verb.lower()} {supplier.name}. {item.supplier.name} stays the one it's ordered from.",
+        supplier=supplier.pk)
+
+
+def _apply_backup_add(user, line, client_id):
+    org = user.organisation
+    item = Item.objects.for_org(org).get(pk=line["item"], is_active=True)
+    if not add_backup_supplier(item, Supplier.objects.for_org(org).get(pk=line["supplier"], is_active=True)):
+        raise ObjectDoesNotExist
+    return item.pk
+
+
+def _apply_backup_remove(user, line, client_id):
+    org = user.organisation
+    item = Item.objects.for_org(org).get(pk=line["item"], is_active=True)
+    item.other_suppliers.remove(item.other_suppliers.get(pk=line["supplier"]))
+    return item.pk
+
+
+def _restore_backup_add(user, line):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"])
+    item.other_suppliers.remove(line["supplier"])
+
+
+def _restore_backup_remove(user, line):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"])
+    item.other_suppliers.add(line["supplier"])
+
+
+def _new_supplier(user, args, pending):
+    org, picks = user.organisation, args["picks"]
+    name = _clean(args.get("name"))
+    if not name:
+        return "What's the supplier called?"
+    rows = list(Supplier.objects.for_org(org))
+    if "dup" in picks:
+        if picks["dup"]:
+            same = next((s for s in rows if s.pk == picks["dup"]), None)
+            return Answer(f"Okay, nothing added. {same.name} is already one of your suppliers"
+                          f"{'' if same.is_active else ', archived. Ask me to bring it back'}.",
+                          [_button("Open Suppliers", reverse("stock:suppliers"))])
+    elif fits := _similar(name, rows):
+        same = fits[0]
+        return Which(name, [{"id": same.pk, "name": f"Yes, {same.name}"}, {"id": 0, "name": "No, it's a different one"}],
+                     kind="dup", ask=f"You already have {same.name}"
+                                     f"{'' if same.is_active else ' (archived)'}. Did you mean that one?")
+    days = Supplier._meta.get_field("lead_days").get_default() if args.get("lead_days") is None \
+        else _whole(args["lead_days"], 1)
+    if days is None or days > 60:
+        return f"How many days does {name} take to deliver, from 1 to 60?"
+    new = {"name": name, "lead_days": days, "phone": _clean(args.get("phone"), 50),
+           "email": _clean(args.get("email"))}
+    form = SupplierForm(new, instance=Supplier(organisation=org))
+    if not form.is_valid():
+        return _error(form)
+    detail = [f"Delivers in about {days} days" + ("" if args.get("lead_days") is not None else " (you can change that)")]
+    detail += [f"{label}: {value}" for label, value in (("Phone", new["phone"]), ("Email", new["email"])) if value]
+    return _plain(name, f"Add {name}", f"added {name} as a supplier", f"Added {name}.", "Added {n} suppliers",
+                  "\n".join(detail), new=new)
+
+
+def _apply_new_supplier(user, line, client_id):
+    form = SupplierForm(line["new"], instance=Supplier(organisation=user.organisation))
+    if not form.is_valid():
+        raise ObjectDoesNotExist
+    return form.save().pk
+
+
+def _restore_new_supplier(user, line):
+    supplier = Supplier.objects.for_org(user.organisation).get(pk=line["made"])
+    if supplier.items.exists() or supplier.order_lines.exists():
+        set_supplier_active(supplier, False)
+    else:
+        supplier.delete()
+
+
+def _supplier_data(supplier):
+    return {"name": supplier.name, "lead_days": supplier.lead_days, "phone": supplier.phone, "email": supplier.email}
+
+
+def _edit_supplier(user, args, pending):
+    supplier = _supplier_for(user, args)
+    if not isinstance(supplier, Supplier):
+        return supplier
+    new, old, detail = {}, {}, []
+    for field, label, value in (("name", "Name", _clean(args.get("new_name"))),
+                                ("phone", "Phone", _clean(args.get("phone"), 50)),
+                                ("email", "Email", _clean(args.get("email")))):
+        if value and value != getattr(supplier, field):
+            new[field], old[field] = value, getattr(supplier, field)
+            detail.append(f"{label}: {old[field] or 'not set'} → {value}")
+    if args.get("lead_days") is not None:
+        days = _whole(args["lead_days"], 1)
+        if days is None or days > 60:
+            return f"How many days does {supplier.name} take to deliver, from 1 to 60?"
+        if days != supplier.lead_days:
+            new["lead_days"], old["lead_days"] = days, supplier.lead_days
+            detail.append(f"Delivery time: {supplier.lead_days} days → {days} days")
+    if not new:
+        return f"There's nothing to change on {supplier.name}."
+    form = SupplierForm(_supplier_data(supplier) | new, instance=Supplier(organisation=user.organisation, pk=supplier.pk))
+    if not form.is_valid():
+        return _error(form)
+    return _plain(
+        supplier.name, f"Change {supplier.name}", f"changed {supplier.name}'s details", f"Changed {supplier.name}.",
+        "Changed {n} suppliers", "\n".join(detail), supplier=supplier.pk, new=new, old=old,
+        flag="This changes when its items need ordering." if "lead_days" in new else "")
+
+
+def _apply_edit_supplier(user, line, client_id):
+    supplier = Supplier.objects.for_org(user.organisation).get(pk=line["supplier"], is_active=True)
+    form = SupplierForm(_supplier_data(supplier) | line["new"], instance=supplier)
+    if not form.is_valid():
+        raise ObjectDoesNotExist
+    return form.save().pk
+
+
+def _restore_edit_supplier(user, line):
+    supplier = Supplier.objects.for_org(user.organisation).get(pk=line["supplier"])
+    for field, value in line["old"].items():
+        setattr(supplier, field, value)
+    supplier.save(update_fields=list(line["old"]))
+
+
+def _archive_supplier_line(user, args, pending):
+    supplier = _supplier_for(user, args)
+    if not isinstance(supplier, Supplier):
+        return supplier
+    if count := archive_blocked_by(supplier):
+        return Answer(f"{supplier.name} still has {count} active item{'s' if count != 1 else ''}, so it can't be "
+                      "archived. Move them to another supplier first.",
+                      [_button("Open Stock", reverse("stock:items"))])
+    return _plain(
+        supplier.name, "Archive it", f"archived {supplier.name}", f"Archived {supplier.name}.", "Archived {n} suppliers",
+        "It won't show when you pick a supplier. You can bring it back with Undo, or by asking me.",
+        supplier=supplier.pk)
+
+
+def _apply_archive_supplier(user, line, client_id):
+    supplier = Supplier.objects.for_org(user.organisation).get(pk=line["supplier"], is_active=True)
+    if archive_blocked_by(supplier):
+        raise ObjectDoesNotExist
+    set_supplier_active(supplier, False)
+    return supplier.pk
+
+
+def _restore_archive_supplier(user, line):
+    set_supplier_active(Supplier.objects.for_org(user.organisation).get(pk=line["supplier"]), True)
+
+
+def _unarchive_supplier_line(user, args, pending):
+    rows = Supplier.objects.for_org(user.organisation).filter(is_active=False).order_by("name")
+    supplier = _fit_archived(rows, _clean(args.get("supplier")), "supplier", args["picks"])
+    if not isinstance(supplier, Supplier):
+        return supplier
+    return _plain(
+        supplier.name, "Bring it back", f"brought back {supplier.name}", f"{supplier.name} is back.",
+        "Brought back {n} suppliers", "It will show when you pick a supplier again.", supplier=supplier.pk)
+
+
+def _apply_unarchive_supplier(user, line, client_id):
+    supplier = Supplier.objects.for_org(user.organisation).get(pk=line["supplier"], is_active=False)
+    set_supplier_active(supplier, True)
+    return supplier.pk
+
+
+def _restore_unarchive_supplier(user, line):
+    set_supplier_active(Supplier.objects.for_org(user.organisation).get(pk=line["supplier"]), False)
 
 
 # --- Buttons under an answer: open a page or download a file. Nothing changes, so there's no card. ---
@@ -989,12 +1500,12 @@ ACTIONS = {action.name: action for action in [
     Action("receive_line", ANYONE, _receive_line_declaration, _receive_line, _apply_receipt,
            undo="stock:delivery_undo_batch"),
     Action("add_to_reorder", ANYONE, _add_declaration, _add_line, _apply_add, undo="stock:reorder_add_undo_batch"),
-    _ordering(
+    _manager_action(
         "remove_from_reorder",
         "Take an item off the reorder list, e.g. 'take gloves off the reorder list' or 'we don't need the gauze "
         "ordered'. Not for something that has been ordered: that's mark_ordered. Call it once for each item.",
         _remove_line, _apply_remove, {"item": ITEM_PROPERTY}, required=["item"], restore=_restore_remove),
-    _ordering(
+    _manager_action(
         "mark_ordered",
         "Mark an item as ordered because it has been ordered from the supplier, e.g. 'I ordered the gloves' or "
         "'ordered 10 boxes of bibs'. Only give qty if they said how many, for this order only. Call it once for "
@@ -1002,31 +1513,107 @@ ACTIONS = {action.name: action for action in [
         _ordered_line, _apply_order,
         {"item": ITEM_PROPERTY, "qty": {"type": "INTEGER", "description": "How many were ordered this time."}},
         required=["item"], undo="stock:reorder_undo_batch"),
-    _ordering(
+    _manager_action(
         "mark_supplier_ordered",
         "Mark everything on the reorder list from one supplier as ordered, e.g. 'mark the Henry Schein order as "
         "sent' or 'we've ordered everything from Dentsply'.",
         _supplier_order, _apply_order, {"supplier": _supplier_property("Who it was ordered from.")},
         required=["supplier"], undo="stock:reorder_undo_batch"),
-    _ordering(
+    _manager_action(
         "set_order_size",
         "Change how many of an item are ordered at a time from now on, e.g. 'we order bibs in 10s' or 'make the "
         "gloves 10 boxes'. Not for an order already placed: that's mark_ordered with qty.",
         _size_line, _apply_size,
         {"item": ITEM_PROPERTY, "qty": {"type": "INTEGER", "description": "How many to order at a time."}},
         required=["item", "qty"], restore=_restore_size),
-    _ordering(
+    _manager_action(
         "switch_supplier",
         "Order an item from one of its backup suppliers from now on, e.g. 'get the bibs from Southern Cross'. The "
         "old supplier stays as a backup.",
         _switch_line, _apply_switch,
         {"item": ITEM_PROPERTY, "supplier": _supplier_property("Who it should come from.")},
         required=["item", "supplier"], restore=_restore_switch),
-    _ordering(
+    _manager_action(
         "write_order_email",
         "Show the order email for a supplier, with a button to open it in the mail app and one to call them, e.g. "
         "'write the email to Dentsply'. Nothing is sent.",
         _order_email, None, {"supplier": _supplier_property("Who to write to.")}, required=["supplier"], link=True),
+    _manager_action(
+        "add_item",
+        "Add a new item to the stock list, e.g. 'add 3M Filtek Z350 in A2 from Henry Schein, $85 a syringe'. "
+        "Leave out anything they didn't say. Not for ordering more of an item they already have.",
+        _new_item, _apply_new_item,
+        {"name": {"type": "STRING", "description": "The product's name, with its size or variant."},
+         "unit": {"type": "STRING", "description": "What one is counted in, singular, e.g. box, syringe, pack."},
+         "supplier": _supplier_property("Who it's ordered from, if they said."),
+         "price": {"type": "NUMBER", "description": "The price of one unit in dollars, if they said."},
+         "order_size": {"type": "INTEGER", "description": "How many are ordered at a time, if they said."}},
+        required=["name"], restore=_restore_new),
+    _manager_action(
+        "edit_item",
+        "Change an item's name, unit or preferred supplier, e.g. 'rename the gloves to Nitrile gloves, size M' or "
+        "'we get the bibs from Dentsply now'. For a backup supplier use add_backup_supplier. For a price use set_price.",
+        _edit_item, _apply_edit,
+        {"item": ITEM_PROPERTY, "new_name": {"type": "STRING", "description": "What it should be called."},
+         "new_unit": {"type": "STRING", "description": "What it's counted in now, singular."},
+         "new_supplier": _supplier_property("Who it's ordered from now.")},
+        required=["item"], restore=_restore_edit),
+    _manager_action(
+        "set_price",
+        "Set what one unit of an item costs, e.g. 'gloves are $7.20 a box now'.",
+        _price_line, _apply_price,
+        {"item": ITEM_PROPERTY, "price": {"type": "NUMBER", "description": "The price of one unit, in dollars."}},
+        required=["item", "price"], restore=_restore_price),
+    _manager_action(
+        "archive_item",
+        "Archive an item the practice doesn't use any more, e.g. 'archive the old impression trays'.",
+        _archive_line, _apply_archive, {"item": ITEM_PROPERTY}, required=["item"], restore=_restore_archive),
+    _manager_action(
+        "unarchive_item",
+        "Bring back an archived item, e.g. 'bring back the impression trays'.",
+        _unarchive_line, _apply_unarchive, {"item": ITEM_PROPERTY}, required=["item"], restore=_restore_unarchive),
+    _manager_action(
+        "add_backup_supplier",
+        "Add a supplier an item can also be ordered from, e.g. 'add Southern Cross as a backup for bibs'.",
+        lambda user, args, pending: _backup_line(user, args, pending, add=True), _apply_backup_add,
+        {"item": ITEM_PROPERTY, "supplier": _supplier_property("The backup.")}, required=["item", "supplier"],
+        restore=_restore_backup_add),
+    _manager_action(
+        "remove_backup_supplier",
+        "Stop listing a supplier as a backup for an item, e.g. 'Southern Cross doesn't sell bibs any more'.",
+        lambda user, args, pending: _backup_line(user, args, pending, add=False), _apply_backup_remove,
+        {"item": ITEM_PROPERTY, "supplier": _supplier_property("The backup to remove.")},
+        required=["item", "supplier"], restore=_restore_backup_remove),
+    _manager_action(
+        "add_supplier",
+        "Add a new supplier, e.g. 'add a supplier called Dental Direct, phone 09 555 0101'.",
+        _new_supplier, _apply_new_supplier,
+        {"name": {"type": "STRING", "description": "The supplier's name."},
+         "phone": {"type": "STRING", "description": "Their phone number, if they said."},
+         "email": {"type": "STRING", "description": "Their email address, if they said."},
+         "lead_days": {"type": "INTEGER", "description": "Days from ordering to delivery, if they said."}},
+        required=["name"], restore=_restore_new_supplier),
+    _manager_action(
+        "edit_supplier",
+        "Change a supplier's details or delivery time, e.g. 'Henry Schein takes 3 days now' or 'Dentsply's new "
+        "number is 0800 111 222'.",
+        _edit_supplier, _apply_edit_supplier,
+        {"supplier": _supplier_property("Which supplier."),
+         "new_name": {"type": "STRING", "description": "A new name for them."},
+         "phone": {"type": "STRING", "description": "Their phone number now."},
+         "email": {"type": "STRING", "description": "Their email address now."},
+         "lead_days": {"type": "INTEGER", "description": "Days from ordering to delivery now."}},
+        required=["supplier"], restore=_restore_edit_supplier),
+    _manager_action(
+        "archive_supplier",
+        "Archive a supplier the practice doesn't use any more.",
+        _archive_supplier_line, _apply_archive_supplier, {"supplier": _supplier_property("Which supplier.")},
+        required=["supplier"], restore=_restore_archive_supplier),
+    _manager_action(
+        "unarchive_supplier",
+        "Bring back an archived supplier.",
+        _unarchive_supplier_line, _apply_unarchive_supplier, {"supplier": _supplier_property("Which supplier.")},
+        required=["supplier"], restore=_restore_unarchive_supplier),
     Action("open_page", ANYONE, _page_declaration, _open_page, None, link=True),
     Action("download", ADMIN, _download_declaration, _download, None, link=True),
 ]}
