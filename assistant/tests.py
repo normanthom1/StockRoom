@@ -2,6 +2,7 @@ import io
 import json
 import re
 import urllib.error
+from contextlib import redirect_stdout
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
@@ -9,6 +10,7 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
@@ -27,8 +29,9 @@ from stock.models import (
     StockEvent,
     Supplier,
 )
+from stockroom.demo import DEMO_ORG
 
-from . import actions, gemini
+from . import actions, eval_cases, gemini
 from .views import HISTORY_MAX_AGE, HISTORY_TURNS, MONEY_REFUSAL
 
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
@@ -991,3 +994,63 @@ class UploadFailureTests(Practice):
 
         self.assertContains(response, f"{MAX_BATCH + 1} files")
         self.assertContains(response, "smaller lots")
+
+
+@override_settings(AI_API_KEY="test-key")
+class AskEvalTests(Practice):
+    """#151: ask_eval scores real phrasing against the demo practice."""
+
+    CASES = [
+        eval_cases.Case("used 2 boxes of gloves", "assistant", (eval_cases.used("Gloves", 2),)),
+        eval_cases.Case("How do I log what I've used?", "assistant"),
+    ]
+
+    def run_eval(self, *args, reply=None):
+        out = io.StringIO()
+        with (
+            mock.patch("assistant.management.commands.ask_eval.CASES", self.CASES),
+            mock.patch("assistant.gemini.generate", side_effect=reply) as generate,
+            redirect_stdout(out),
+        ):
+            try:
+                call_command("ask_eval", *args)
+                code = 0
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue(), generate
+
+    def setUp(self):
+        Organisation.objects.filter(pk=self.org.pk).update(name=DEMO_ORG)
+
+    def test_no_key_says_so_and_exits_cleanly(self):
+        with override_settings(AI_API_KEY=""):
+            code, out, generate = self.run_eval()
+        self.assertEqual(code, 0)
+        self.assertIn("AI_API_KEY isn't set", out)
+        generate.assert_not_called()
+
+    def test_right_answers_score_100_and_each_case_gets_the_roles_own_functions(self):
+        reply = [[("log_used", {"item": "gloves", "qty": 2})], "Tap Log usage, then the item."]
+        code, out, generate = self.run_eval(reply=reply)
+        self.assertEqual(code, 0)
+        self.assertIn("log_used", out)
+        self.assertIn("none", out)
+        self.assertNotIn("MISS", out)
+        self.assertEqual([c.kwargs["tools"][0]["name"] for c in generate.call_args_list], ["log_used"] * 2)
+
+    def test_misses_are_printed_and_a_low_score_exits_non_zero(self):
+        # The wrong quantity, and a change made from a question.
+        reply = [[("log_used", {"item": "Gloves", "qty": 20})], [("log_used", {"item": "Gloves", "qty": 1})]]
+        code, out, _ = self.run_eval(reply=reply)
+        self.assertEqual(code, 1)
+        self.assertEqual(out.count("MISS"), 2)
+        self.assertIn("Below 90%: log_used, none", out)
+        self.assertEqual(self.run_eval("--min", "0", reply=reply)[0], 0)
+
+    def test_every_case_in_the_file_is_well_formed(self):
+        self.assertGreaterEqual(sum(1 for c in eval_cases.CASES if c.calls), 25)
+        self.assertTrue(any(c.says == MONEY_REFUSAL for c in eval_cases.CASES))
+        for case in eval_cases.CASES:
+            self.assertIn(case.role, ("admin", "assistant"))
+            for want in case.calls:
+                self.assertIn(want["action"], actions.ACTIONS)
