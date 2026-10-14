@@ -160,7 +160,8 @@ def home(request):
     rows.sort(key=lambda r: r["sort_key"])
     fine_rows.sort(key=lambda r: r["name"])
 
-    context = {"rows": rows, "fine_rows": fine_rows, "reorder_count": len(rows)}
+    context = {"rows": rows, "fine_rows": fine_rows, "reorder_count": len(rows),
+               "needs_checking": _needs_checking(org) if request.user.is_org_admin else []}
     template = "stock/home.html#rows" if request.headers.get("HX-Request") else "stock/home.html"
     return render(request, template, context)
 
@@ -1150,11 +1151,14 @@ RECENT_INVOICES = 10
 
 
 def _needs_checking(org):
-    """Invoices read but not counted: no supplier of the practice's, or lines
-    that don't add up. Nothing was received off them, so the practice's stock is
-    wrong until someone opens one and sorts it out."""
-    return (Invoice.objects.for_org(org).filter(status=Invoice.Status.CONFLICT)
-            .select_related("supplier").order_by("-created_at"))
+    """Invoices a manager has to look at. Those read but not counted (no
+    supplier of the practice's, or lines that don't add up): nothing was
+    received off them, so the stock is wrong until someone sorts one out. And
+    receipts an assistant brought in from Ask StockRoom, whose prices wait for
+    a manager (Invoice.brought_in_by)."""
+    return (Invoice.objects.for_org(org)
+            .filter(Q(status=Invoice.Status.CONFLICT) | (Q(brought_in_by__isnull=False) & ~Q(status=Invoice.Status.IGNORED)))
+            .select_related("supplier", "brought_in_by").order_by("-created_at"))
 
 
 @ai_required
@@ -1208,7 +1212,9 @@ def invoice_batch(request, pk):
     return render(request, template, context)
 
 
-INVOICE_FIELDS = ("supplier_name", "order_ref", "invoice_number", "checksum", "source_name")
+INVOICE_FIELDS = ("supplier_name", "order_ref", "invoice_number", "checksum", "source_name", "supplier_gst_number")
+# The invoice's own totals as printed, which the tax year adds up (stock/taxreport.py).
+INVOICE_TOTALS = ("total_excl_gst", "gst_amount", "total_incl_gst")
 # Invoices that changed nothing, so they can be checked and imported again.
 RECHECKABLE = [Invoice.Status.IGNORED, Invoice.Status.CONFLICT]
 # Imported invoices with lines still to match to what's on order.
@@ -1255,6 +1261,7 @@ def pending_invoice(invoice, lines):
         "supplier_id": invoice.supplier_id,
         "issued_on": invoice.issued_on.isoformat() if invoice.issued_on else None,
         **{name: getattr(invoice, name) for name in INVOICE_FIELDS},
+        **{name: _text_or_none(getattr(invoice, name)) for name in INVOICE_TOTALS},
         "lines": [
             {
                 "sku": line.sku,
@@ -1277,6 +1284,8 @@ def fill_invoice(org, invoice, pending, form):
     preview's and Ask StockRoom's (with nothing changed), then ingest."""
     for name in INVOICE_FIELDS:
         setattr(invoice, name, pending.get(name, ""))
+    for name in INVOICE_TOTALS:
+        setattr(invoice, name, _decimal_or_none(pending.get(name)))
     invoice.issued_on = date.fromisoformat(pending["issued_on"]) if pending["issued_on"] else None
     # A supplier picked in the preview, for an invoice from one StockRoom didn't recognise.
     supplier_id = _id(form.get("supplier")) or pending["supplier_id"]
@@ -1348,6 +1357,7 @@ def invoice_confirm(request):
                 messages.error(request, "Choose why you're importing it again.")
                 return redirect("stock:invoice_check", invoice.pk)
     lines = fill_invoice(org, invoice, pending, request.POST)
+    invoice.brought_in_by = None  # a manager's Confirm is the check an assistant's receipt was waiting for
     invoice = invoices.ingest(invoice, lines, request.user, force_reason)
     received = sum(1 for line in lines if line.order_line_id)
     undo_url = reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
@@ -1398,19 +1408,22 @@ def invoice_line_receive(request, pk):
 
 
 @require_POST
-@admin_required
 def invoice_undo(request, pk):
     """Put a just-confirmed invoice back to how it was: no stock received, no
     order lines touched, no item prices changed. Only within undo_until.
+    Managers', and an assistant's for a receipt they brought in from Ask StockRoom.
 
     An expired window is an ordinary thing to hit, not an attack, so it says so
     on the invoice rather than throwing a 403 at the manager."""
     invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
+    if not request.user.is_org_admin and invoice.brought_in_by_id != request.user.pk:
+        raise PermissionDenied
     if not invoice.undo_snapshot or invoice.undo_until < timezone.now():
         messages.error(request, "Too late to undo this import. Change what's wrong on the item or the order instead.")
         # The page's Undo posts through htmx, which would follow a plain redirect
         # out of sight and swap the page into the button, message and all.
-        return _go(request, reverse("stock:invoice_detail", args=[invoice.pk]))
+        page = reverse("stock:invoice_detail", args=[invoice.pk]) if request.user.is_org_admin else reverse("stock:home")
+        return _go(request, page)
     invoices.undo_ingest(invoice)
     track("invoice_undone", org=invoice.organisation_id,
           seconds_after=int((timezone.now() - invoice.created_at).total_seconds()))
@@ -1462,6 +1475,18 @@ def item_price_undo(request, pk):
     return _toast_response(request, "Undone.")
 
 
+@require_POST
+@admin_required
+def invoice_prices_checked(request, pk):
+    """A manager has been through the prices on a receipt an assistant brought
+    in, so it leaves the invoices to check."""
+    invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
+    invoice.brought_in_by = None
+    invoice.save(update_fields=["brought_in_by"])
+    messages.success(request, "Checked. It's off the list of invoices to check.")
+    return redirect("stock:invoice_detail", invoice.pk)
+
+
 @admin_required
 def invoice_check(request, pk):
     """A repeat to import anyway, or an invoice that needs checking, back in the preview."""
@@ -1471,16 +1496,20 @@ def invoice_check(request, pk):
 
 @admin_required
 def invoice_detail(request, pk):
-    invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation), pk=pk)
+    invoice = get_object_or_404(Invoice.objects.for_org(request.user.organisation).select_related("brought_in_by"), pk=pk)
     lines = list(invoice.lines.select_related("item", "order_line__item").order_by("pk"))
     receivable = invoice.status in RECEIVABLE and invoice.supplier_id
+    received = [line for line in lines if line.is_received]
     return render(request, "stock/invoice_detail.html", {
         "invoice": invoice,
+        # An assistant's receipt left item prices alone: each one it would change, to use or leave.
+        "held_prices": [line for line in received if line.item and line.unit_price is not None
+                        and line.unit_price != line.item.price] if invoice.brought_in_by_id else [],
         "receivable": bool(receivable),
         # The toast's Undo is gone in 6 seconds; this keeps it reachable for as
         # long as the window is actually open.
         "can_undo": bool(invoice.undo_snapshot) and invoice.undo_until > timezone.now(),
-        "received": [line for line in lines if line.is_received],
+        "received": received,
         "not_received": [line for line in lines if not line.is_received],
         "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier) if receivable else None,
         "original": invoices.find_original(invoice) if invoice.status == Invoice.Status.IGNORED else None,

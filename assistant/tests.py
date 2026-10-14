@@ -822,17 +822,15 @@ class ReceiveTests(Practice):
         self.assertEqual(self.gloves.price, Decimal("8.50"))
 
 
-@override_settings(AI_API_KEY="test-key")
-class ReceiptTests(Practice):
-    """#155: an invoice or receipt sent to the chat, read and received as the upload page does."""
-
+class SendsReceipts(Practice):
     CSV = (b"vendor,invoice_number,invoice_date,description,qty,unit\n"
            b"Henry Schein,INV-7,2026-10-14,Gloves,2,8.40\n"
            b"Henry Schein,INV-7,2026-10-14,Mystery widget,1,4.00\n")
 
-    def send(self, content=CSV, content_type="text/csv", name="inv.csv", user=None):
+    def send(self, content=None, content_type="text/csv", name="inv.csv", user=None):
         self.client.force_login(user or self.admin)
-        response = self.client.post("/ask/receipt/", {"invoice_file": SimpleUploadedFile(name, content, content_type)})
+        upload = SimpleUploadedFile(name, content or self.CSV, content_type)
+        response = self.client.post("/ask/receipt/", {"invoice_file": upload})
         return response, next(iter(self.client.session.get("ask_changes", {})), None)
 
     def post(self, step, pid):
@@ -840,6 +838,11 @@ class ReceiptTests(Practice):
 
     def history(self):
         return [(q, a) for q, a, _ in self.client.session.get("ask_history", [])]
+
+
+@override_settings(AI_API_KEY="test-key")
+class ReceiptTests(SendsReceipts):
+    """#155: an invoice or receipt sent to the chat, read and received as the upload page does."""
 
     def test_a_receipt_is_a_card_from_the_upload_pipeline_and_nothing_is_saved_yet(self):
         with mock.patch("assistant.gemini.generate") as generate:
@@ -969,12 +972,129 @@ class ReceiptTests(Practice):
         self.assertNotIn("Ignore", sent)
         self.assertEqual(Item.objects.filter(is_active=True).count(), 1)
 
-    def test_managers_only_for_now(self):
+    def test_the_attach_button_is_on_the_chat_bar_for_both_roles(self):
+        for user in (self.admin, self.assistant):
+            self.client.force_login(user)
+            home = self.client.get("/")
+            self.assertContains(home, 'aria-controls="attach"')
+            self.assertContains(home, 'capture="environment"')
+
+
+@override_settings(AI_API_KEY="test-key")
+class AssistantReceiptTests(SendsReceipts):
+    """#156: whoever unpacks the box brings it in; prices wait for a manager."""
+
+    CSV = (b"vendor,invoice_number,invoice_date,description,qty,unit,gst_amount,total_incl_gst\n"
+           b"Henry Schein,INV-7,2026-10-14,Gloves,2,8.40,3.12,23.92\n"
+           b"Henry Schein,INV-7,2026-10-14,Mystery widget,1,4.00,,\n")
+    MONEY = re.compile(r"\$|price|gst|total|8\.40|4\.00|23\.92|3\.12", re.IGNORECASE)
+
+    def assert_no_money(self, text):
+        self.assertIsNone(self.MONEY.search(text), text)
+
+    def history_text(self):
+        return json.dumps(self.client.session["ask_history"])
+
+    def bring_in(self):
+        _, pid = self.send(user=self.assistant)
+        return pid, self.post("confirm", pid)
+
+    def test_an_assistants_card_has_items_and_quantities_only(self):
         response, _ = self.send(user=self.assistant)
-        self.assertEqual(response.status_code, 403)
-        self.assertNotContains(self.client.get("/"), 'id="attach"')
+        content = response.content.decode()
+        for text in ("Gloves", "Ordered 10, receiving 2", "Mystery widget", "Needs checking",
+                     "The manager will sort it out.", "Confirm"):
+            self.assertIn(text, content)
+        self.assert_no_money(content)  # the whole response, attributes and all
+        self.assertNotIn("/check/", content)  # the invoice pages are managers'
+        self.assert_no_money(self.history_text())
+        home = self.client.get("/").content.decode()  # the card again, redrawn from the session
+        self.assertIn("Ordered 10, receiving 2", home)
+        self.assertNotRegex(home, r"\$\s?\d")
+
+    def test_confirm_receives_the_stock_and_leaves_prices_for_a_manager(self):
+        _, done = self.bring_in()
+        self.assert_no_money(done.content.decode())
+        self.assertContains(done, "Received 1 of 2 lines. The manager will check it.")
+        self.assertNotContains(done, "/invoices/")
+        order = OrderLine.objects.get(item=self.gloves, split_from=None)
+        self.gloves.refresh_from_db()
+        self.assertEqual((order.received_qty, order.received_by), (2, self.assistant))
+        self.assertEqual(on_hand(self.gloves.events.all()), 5)
+        self.assertEqual(self.gloves.price, Decimal("8.50"))  # no item price changes until a manager says so
+        invoice = Invoice.objects.get()
+        self.assertEqual((invoice.status, invoice.brought_in_by), (Invoice.Status.PARTIAL, self.assistant))
+        # Stored exactly as a manager's upload stores it: the file, and the lines with their prices.
+        self.assertEqual([line.unit_price for line in invoice.lines.order_by("pk")], [Decimal("8.40"), Decimal("4.00")])
+        self.assertEqual((invoice.gst_amount, invoice.total_incl_gst), (Decimal("3.12"), Decimal("23.92")))
+        document = invoice.documents.get()
+        self.assertEqual((document.uploaded_by, document.filename), (self.assistant, "inv.csv"))
+        self.assert_no_money(self.history_text())
+
+    def test_the_assistant_can_undo_their_own_but_no_one_elses(self):
+        pid, _ = self.bring_in()
+        invoice = Invoice.objects.get()
+        Invoice.objects.filter(pk=invoice.pk).update(brought_in_by=self.admin)
+        self.assertEqual(self.client.post(f"/invoices/{invoice.pk}/undo/").status_code, 403)
+        Invoice.objects.filter(pk=invoice.pk).update(brought_in_by=self.assistant)
+        self.assertEqual(self.post("undo", pid)["HX-Refresh"], "true")
+        self.assertEqual(on_hand(self.gloves.events.all()), 3)
+        self.assertIsNone(OrderLine.objects.get(item=self.gloves).received_at)
+
+    def test_the_manager_sees_who_brought_it_in_and_checks_the_prices(self):
+        self.bring_in()
+        invoice = Invoice.objects.get()
         self.client.force_login(self.admin)
-        self.assertContains(self.client.get("/"), 'capture="environment"')
+        home = self.client.get("/")
+        for text in ("1 invoice to check", "Prices to check", "brought in by Johanna", f'href="/invoices/{invoice.pk}/"'):
+            self.assertContains(home, text)
+        self.assertContains(self.client.get("/deliveries/"), "1 invoice needs checking")
+        page = self.client.get(f"/invoices/{invoice.pk}/")
+        self.assertContains(page, "Johanna brought this in from Ask StockRoom")
+        self.assertContains(page, "You pay $8.50 &middot; this invoice says $8.40")
+        line = invoice.lines.get(description="Gloves")
+        self.client.post(f"/invoices/line/{line.pk}/price/")  # the existing price flow
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("8.40"))
+        self.client.post(f"/invoices/{invoice.pk}/checked/")
+        invoice.refresh_from_db()
+        self.assertIsNone(invoice.brought_in_by)
+        self.assertNotContains(self.client.get("/"), "Prices to check")
+
+    def test_one_that_needs_checking_is_saved_for_the_manager(self):
+        _, pid = self.send(self.CSV.replace(b"Henry Schein", b"HS Dental"), user=self.assistant)
+        self.assertContains(self.post("confirm", pid), "Saved, but it needs checking before it counts. The manager")
+        invoice = Invoice.objects.get()
+        self.assertEqual((invoice.status, invoice.brought_in_by), (Invoice.Status.CONFLICT, self.assistant))
+        self.client.force_login(self.admin)
+        self.assertContains(self.client.get("/"), "brought in by Johanna")
+        self.client.get(f"/invoices/{invoice.pk}/check/")
+        self.client.post("/invoices/confirm/", {"supplier": self.henry.pk})
+        invoice.refresh_from_db()
+        self.gloves.refresh_from_db()
+        # A manager's Confirm is the check: it leaves the list, and the price goes on.
+        self.assertEqual((invoice.status, invoice.brought_in_by, self.gloves.price),
+                         (Invoice.Status.PARTIAL, None, Decimal("8.40")))
+
+    def test_asking_what_it_cost_gets_the_money_refusal(self):
+        self.bring_in()
+        with answer(MONEY_REFUSAL) as generate:
+            response = self.ask("What did that receipt cost?")
+        self.assertContains(response, "needs manager access")
+        system, turns = generate.call_args.args
+        self.assertIn(f'reply with exactly this and nothing else: "{MONEY_REFUSAL}"', system)
+        self.assertNotIn("$", system)
+        self.assert_no_money(json.dumps(turns[:-1]))  # nothing earlier in the chat it could answer from
+
+    def test_the_invoice_pages_stay_manager_only(self):
+        _, pid = self.send(user=self.assistant)
+        self.assertEqual(self.client.get(f"/ask/changes/{pid}/check/").status_code, 403)
+        self.post("confirm", pid)
+        invoice = Invoice.objects.get()
+        for url in ("/invoices/", f"/invoices/{invoice.pk}/", f"/invoices/{invoice.pk}/check/"):
+            self.assertEqual(self.client.get(url).status_code, 403, url)
+        self.assertEqual(self.client.post(f"/invoices/{invoice.pk}/checked/").status_code, 403)
+        self.assertEqual(self.client.post("/invoices/upload/").status_code, 403)
 
 
 @override_settings(AI_API_KEY="test-key")
@@ -1055,6 +1175,18 @@ class InvoiceUploadTests(Practice):
         self.assertTrue(invoice.totals_ok)
         line = invoice.lines.get()
         self.assertEqual((line.qty, str(line.unit_price), line.item), (2, "8.50", self.gloves))
+
+    def test_the_gst_number_and_totals_are_kept_through_the_preview(self):
+        csv = (b"vendor,gst_number,total_excl_gst,gst_amount,total_incl_gst,sku,description,qty,unit\n"
+               b"Henry Schein,49-091-850,17.00,2.55,19.55,,Gloves,2,8.50\n")
+        self.client.force_login(self.admin)
+        self.upload(content=csv)
+        self.client.post("/invoices/confirm/", {})
+        invoice = Invoice.objects.get()
+        self.assertEqual(
+            (invoice.supplier_gst_number, invoice.total_excl_gst, invoice.gst_amount, invoice.total_incl_gst),
+            ("49091850", Decimal("17.00"), Decimal("2.55"), Decimal("19.55")),
+        )
 
     def test_a_price_rise_over_10_percent_needs_a_tick_before_it_applies(self):
         self.client.force_login(self.admin)

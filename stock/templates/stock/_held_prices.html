@@ -1,0 +1,20 @@
+{# Invoice lines whose price wasn't put on the item, each with the choice to use it (invoice_line_price). #}
+<div class="-mx-4 mb-6 border-t border-gray-300">
+  {% for line in lines %}
+    <div class="flex items-stretch border-b border-gray-300">
+      <span class="w-[5px] shrink-0 bg-status-week"></span>
+      <div class="flex min-w-0 flex-1 flex-col gap-1.5 py-3.5 pr-4 pl-3">
+        <span class="font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ line.item.name }}</span>
+        <span class="text-[0.8125rem] leading-snug text-gray-600">
+          {% if line.item.price is not None %}You pay ${{ line.item.price|floatformat:2 }}{% else %}No price yet{% endif %} &middot; this invoice says ${{ line.unit_price|floatformat:2 }}
+          {% if line.invoice.supplier_name %}&middot; {{ line.invoice.supplier_name }}{% endif %}
+        </span>
+        <form method="post" action="{% url 'stock:invoice_line_price' line.pk %}" data-disable-on-submit>
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <button type="submit" class="btn btn-line mt-1 w-full">Use ${{ line.unit_price|floatformat:2 }} from now on</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+</div>

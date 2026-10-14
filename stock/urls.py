@@ -56,6 +56,7 @@ urlpatterns = [
     path("invoices/open-orders/", views.invoice_order_search, name="invoice_order_search"),
     path("invoices/line/<int:pk>/receive/", views.invoice_line_receive, name="invoice_line_receive"),
     path("invoices/<int:pk>/undo/", views.invoice_undo, name="invoice_undo"),
+    path("invoices/<int:pk>/checked/", views.invoice_prices_checked, name="invoice_prices_checked"),
     path("invoices/batch/<int:pk>/", views.invoice_batch, name="invoice_batch"),
     path("invoices/batch/<int:pk>/undo/", views.invoice_batch_undo, name="invoice_batch_undo"),
     path("invoices/line/<int:pk>/price/", views.invoice_line_price, name="invoice_line_price"),
