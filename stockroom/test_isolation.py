@@ -212,6 +212,7 @@ ADMIN_ONLY_URLS: list[Case] = [
     Case("stock:invoice_check", make=make_invoice),
     Case("stock:invoice_batch", make=make_batch),
     Case("assistant:invoice_upload", method="post"),
+    Case("assistant:ask_receipt", method="post"),
     Case("assistant:invoice_batch_upload", method="post"),
     Case("assistant:invoice_batch_resume", make=make_batch, method="post"),
     Case("stock:invoice_order_search"),
@@ -263,6 +264,7 @@ NO_PRACTICE_DATA: dict[str, str] = {
     "assistant:choose_item": "a card id from your own session, and only an item that card offered; anything else changes nothing",
     "stock:delivery_undo_batch": "the ids are looked up in your own practice, so another practice's are unknown (404); only your own receipt inside UNDO_WINDOW goes (assistant.tests)",
     "stock:log_undo_batch": "the ids are looked up in your own practice, so another practice's are unknown (404), and only your own events within UNDO_WINDOW go (assistant.tests)",
+    "assistant:check_receipt": "managers only; a card id from your own session, else it goes to the upload page (assistant.tests)",
     "assistant:undo_change": "a card id from your own session; the undo itself is the page's own (stock:log_undo above)",
 }
 

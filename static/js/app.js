@@ -143,14 +143,24 @@ document.addEventListener("click", (event) => {
 const turnCount = () => document.querySelectorAll("#chat [data-turn]").length;
 document.addEventListener("htmx:beforeRequest", (event) => {
   const form = event.target;
+  if (form.matches("[data-receipt]")) {
+    // A file sent to the chat: its name straight away, and that reading takes a moment.
+    const file = [...form.querySelectorAll("input[type=file]")].map((input) => input.files[0]).find(Boolean);
+    document.getElementById("pending-q").textContent = `Sent ${file?.name ?? "a file"}`;
+    document.getElementById("thinking-text").textContent = "Reading it. This takes a few seconds.";
+    return;
+  }
   if (!form.matches("[data-ask]")) return;
   document.getElementById("pending-q").textContent = form.dataset.sent = form.q.value;
+  document.getElementById("thinking-text").textContent = "";
   form.dataset.turns = turnCount();
   form.q.value = "";
 });
 document.addEventListener("htmx:afterRequest", (event) => {
   const form = event.target;
   if (form.matches("[data-ask]") && turnCount() <= Number(form.dataset.turns)) form.q.value = form.dataset.sent;
+  // So picking the same file again still sends it.
+  if (form.matches("[data-receipt]")) form.reset();
 });
 document.addEventListener("htmx:afterSwap", (event) => {
   if (event.target.id === "chat") showLatestAnswer();

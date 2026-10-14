@@ -20,14 +20,16 @@ from types import SimpleNamespace
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
+from django.http import QueryDict
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
+from stock import invoices
 from stock.forecast import forecast
 from stock.humanize import format_qty, pluralize_unit
 from stock.matching import Matcher, synonym_key
-from stock.models import Item, StockEvent, Supplier
+from stock.models import Invoice, Item, StockEvent, Supplier
 from stock.spending import PERIOD_WEEKS
 from stock.views import (
     SOLID_STATUSES,
@@ -35,7 +37,9 @@ from stock.views import (
     WANTED_STATUSES,
     _forecast_for,
     _open_lines_for_org,
+    fill_invoice,
     log_event,
+    pending_invoice,
     receive_delivery_line,
 )
 
@@ -152,7 +156,10 @@ def build(user, calls, picks=None, text=""):
 
 def apply(user, proposal):
     """Make a confirmed card's changes in one transaction. None if this person
-    may no longer make them (their role changed) or an item has gone."""
+    may no longer make them (their role changed) or an item has gone. The undo
+    URL is "" when there's nothing to undo (a receipt that received nothing)."""
+    if "receipt" in proposal:
+        return _apply_receipt_card(user, proposal)
     lines = proposal["lines"]
     todo = [(ACTIONS.get(line["action"]), line) for line in lines]
     if proposal.get("which") or not lines or any(a is None or user.role not in a.roles for a, _ in todo):
@@ -353,7 +360,7 @@ def _receipt_line(user, order, qty, price, pending):
     before = _forecast_receiving(item, now, events, state)
     events.append(StockEvent(kind=Kind.RECEIVED, qty=qty, created_at=now))
     state["closed"].add(order.pk)
-    left = order.qty - qty
+    left = max(order.qty - qty, 0)  # an invoice can deliver more than was ordered
     if left:
         state["added"].append(SimpleNamespace(qty=left))
     after = _forecast_receiving(item, now, events, state)
@@ -374,6 +381,8 @@ def _receipt_line(user, order, qty, price, pending):
         line["price"] = str(price)
         line["price_note"] = (f"Price ${price}, was ${item.price}" if item.price is not None and item.price != price
                               else f"Price ${price}")
+        if invoices.price_needs_confirming(item.price, price):
+            line["price_note"] += f": up {round((price - item.price) / item.price * 100)}%. Check it's right."
     return line
 
 
@@ -453,6 +462,90 @@ def _receive_line_declaration(user):
                         "'only 3 of the 5 boxes of gloves arrived'. What's short stays on order as a back-order."),
         "parameters": {"type": "OBJECT", "properties": properties, "required": ["item"]},
     }
+
+
+# --- An invoice or receipt dropped into the chat: the upload page's read, match and Confirm ---
+# It's never an action Gemini can call. The file is read by stock.invoices.parse_invoice
+# alone, which has nothing to call, and nothing read off it goes into the card's summary
+# (the chat's record, sent back to the AI with later questions): only the practice's own
+# item and supplier names, and counts.
+
+RECEIPT_ROLES = ADMIN
+
+
+def propose_receipt(user, invoice, lines):
+    """The card for a read invoice: each line it would receive against what's
+    on order, as ingest() will, then the lines that need checking, which it
+    leaves alone. A plain answer if there's nothing on it to show."""
+    if not lines:
+        return ("StockRoom couldn't find any products on that. A clearer photo usually does it: flat, in good "
+                "light, with the whole invoice in frame.")
+    invoices.match_lines(invoice, lines)
+    invoices.match_orders(invoice, lines)
+    # Only what passes check_invoice (a supplier of the practice's, lines that add up) is received.
+    receivable = invoice.status == Invoice.Status.PARSED
+    pending, shown, unmatched = {}, [], []
+    for line in lines:
+        if receivable and line.order and line.qty:
+            price = line.unit_price if user.is_org_admin else None
+            card_line = _receipt_line(user, line.order, line.qty, price, pending)
+            # Shorter than a delivery's card, so a long invoice scans: the chips already show a status change.
+            if line.qty == line.order.qty:
+                card_line["change"] = f"Receiving {line.qty}"
+            card_line["flag"] = card_line["flag"].replace(f"Its status changes to {card_line['now']['status_label']}.", "")
+            shown.append({"action": "receive_invoice", **card_line})
+        else:
+            why = ("" if not receivable else "No quantity on it" if not line.qty
+                   else f"{line.item.name}, but it isn't on order" if line.item else "Nothing in your stock matches it")
+            unmatched.append({"name": line.description or line.sku, "qty": line.qty, "why": why})
+
+    supplier = invoice.supplier.name if invoice.supplier else "a supplier StockRoom doesn't know"
+    if shown:
+        received = [line["summary"] for line in shown]
+        summary = ", ".join(received[:-1]) + (" and " if len(received) > 1 else "") + received[-1] + f" from {supplier}"
+    else:
+        summary = f"saved an invoice from {supplier}"
+    if unmatched:
+        summary += f", with {len(unmatched)} line{'s' if len(unmatched) != 1 else ''} to check"
+    problems = []
+    if not invoice.supplier:
+        problems.append(f"There's no supplier called \"{invoice.supplier_name}\"" if invoice.supplier_name
+                        else "It doesn't say who it's from")
+    if not invoice.totals_ok:
+        problems.append("some lines don't add up")
+    note = ""
+    if problems:
+        note = " and ".join(problems) + ", so nothing can be received from here. Confirm saves it to check."
+        note = note[0].upper() + note[1:]
+    return {
+        "calls": [], "picks": {}, "which": None, "lines": shown, "unmatched": unmatched, "note": note,
+        "summary": summary, "receipt": pending_invoice(invoice, lines),
+        "head": {"supplier": invoice.supplier.name if invoice.supplier else invoice.supplier_name or "No supplier shown",
+                 "number": invoice.invoice_number,
+                 "date": f"{invoice.issued_on.day} {invoice.issued_on:%b %Y}" if invoice.issued_on else ""},
+    }
+
+
+def _apply_receipt_card(user, card):
+    """Confirm on a receipt card: the invoice page's Confirm, with nothing changed
+    on it. The card showed each price change, so Confirm is the tick for them."""
+    if user.role not in RECEIPT_ROLES:
+        return None
+    org = user.organisation
+    invoice = Invoice(organisation=org)
+    lines = fill_invoice(org, invoice, card["receipt"], QueryDict())
+    for line in lines:
+        line.price_confirmed = True
+    invoice = invoices.ingest(invoice, lines, user)
+    card["invoice_id"] = invoice.pk
+    received = sum(1 for line in lines if line.order_line_id)
+    text = {
+        Invoice.Status.IGNORED: "That one's been brought in already, so nothing changed.",
+        Invoice.Status.CONFLICT: "Saved, but it needs checking before it counts.",
+        Invoice.Status.COMPLETE: "Received everything on the invoice.",
+        Invoice.Status.PARTIAL: f"Received {received} of {len(lines)} lines.",
+    }.get(invoice.status, "Invoice saved. Nothing on it was received, so open it to add the lines.")
+    return text, reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
 
 
 # --- Buttons under an answer: open a page or download a file. Nothing changes, so there's no card. ---

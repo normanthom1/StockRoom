@@ -16,8 +16,8 @@ from accounts.decorators import admin_required, ai_required
 from accounts.ratelimit import AI_PER_HOUR, ai_limit_is_personal, ai_limited
 from stock import invoices
 from stock.csv_import import REQUIRED_COLUMNS
-from stock.models import InvoiceBatch, InvoiceBatchFile, Supplier
-from stock.views import UNDO_WINDOW, import_preview, invoice_preview
+from stock.models import Invoice, InvoiceBatch, InvoiceBatchFile, Supplier
+from stock.views import UNDO_WINDOW, fill_invoice, import_preview, invoice_preview
 
 from . import actions, gemini
 from .snapshot import practice_snapshot
@@ -41,6 +41,8 @@ LIMITED = f"That's the limit for now ({AI_PER_HOUR} an hour each). Try again a b
 # glanced away can't tell whether anything happened - and uploads the same
 # failing file again, spending another AI call on it.
 UPLOAD_ERROR_KEY = "invoice_upload_error"
+READ_FAILED = ("StockRoom couldn't read this one. A clearer photo usually does it: flat, in good light, with "
+               "the whole invoice in frame. A PDF or CSV from the supplier works better still, and is read without AI.")
 
 
 def _upload_failed(request, filename, text):
@@ -148,38 +150,102 @@ def ask(request):
     question = request.POST.get("q", "").strip()[:MAX_QUESTION]
     if not question:
         return HttpResponse(status=204)
-    change, links = None, None
     if ai_limited(request):
-        answer = LIMITED
+        return _turn(request, question, LIMITED)
+    turns = [turn for q, a, _ in history for turn in (("user", q), ("model", a))]
+    try:
+        reply = gemini.generate(_system_prompt(request.user), [*turns, ("user", question)],
+                                tools=actions.declarations(request.user))
+    except gemini.GeminiError:
+        return _turn(request, question, "Sorry, I couldn't get an answer just now. Try again in a minute.")
+    if isinstance(reply, list):  # it called an action: a card, buttons, or a plain answer if it can't be done
+        reply = actions.propose(request.user, reply, getattr(reply, "text", ""))
+    return _reply(request, question, reply)
+
+
+def _reply(request, question, reply):
+    """Add a turn to the chat and remember it: reply is a card (a dict), or an
+    answer, which may have buttons under it."""
+    session = request.session
+    when = time.time()
+    change, links = None, getattr(reply, "buttons", None) or None
+    if isinstance(reply, dict):
+        change = reply | {"id": uuid.uuid4().hex, "turn": when, "expires": when + CHANGE_AGE}
+        session[CHANGES_KEY] = {**_changes(session), change["id"]: change}
+        answer = f"Not confirmed, so nothing changed: {change['summary']}."
     else:
-        turns = [turn for q, a, _ in history for turn in (("user", q), ("model", a))]
-        try:
-            reply = gemini.generate(_system_prompt(request.user), [*turns, ("user", question)],
-                                    tools=actions.declarations(request.user))
-        except gemini.GeminiError:
-            answer = "Sorry, I couldn't get an answer just now. Try again in a minute."
-        else:
-            when = time.time()
-            if isinstance(reply, list):  # it called an action: a card, buttons, or a plain answer if it can't be done
-                reply = actions.propose(request.user, reply, getattr(reply, "text", ""))
-            links = getattr(reply, "buttons", None) or None
-            if isinstance(reply, dict):
-                change = reply | {"id": uuid.uuid4().hex, "turn": when, "expires": when + CHANGE_AGE}
-                session[CHANGES_KEY] = {**_changes(session), change["id"]: change}
-                answer = f"Not confirmed, so nothing changed: {change['summary']}."
-            else:
-                # Gemini leans towards Markdown even when asked not to; bold is the usual leftover.
-                answer = reply.replace("**", "")
-            session[HISTORY_KEY] = [*history, [question, answer, when]][-HISTORY_TURNS:]
-            kept = {str(turn[2]) for turn in session[HISTORY_KEY]}
-            session[LINKS_KEY] = {
-                **{t: b for t, b in session.get(LINKS_KEY, {}).items() if t in kept},
-                **({str(when): links} if links else {}),
-            }
+        # Gemini leans towards Markdown even when asked not to; bold is the usual leftover.
+        answer = reply.replace("**", "")
+    session[HISTORY_KEY] = [*recent_turns(session), [question, answer, when]][-HISTORY_TURNS:]
+    kept = {str(turn[2]) for turn in session[HISTORY_KEY]}
+    session[LINKS_KEY] = {
+        **{t: b for t, b in session.get(LINKS_KEY, {}).items() if t in kept},
+        **({str(when): links} if links else {}),
+    }
+    return _turn(request, question, answer, change, links)
+
+
+def _turn(request, question, answer, change=None, links=None):
+    """One exchange for htmx to add to the chat. On its own (not via _reply) it isn't
+    remembered: a failed answer is gone on the next visit rather than kept in the chat."""
     response = render(request, "assistant/chat.html#turn",
                       {"q": question, "answer": answer, "change": change, "links": links})
     response.content += CLEAR_UNDO.encode()  # the old "Chat deleted. Undo" row is no longer true
     return response
+
+
+@require_POST
+@ai_required
+@admin_required
+def ask_receipt(request):
+    """An invoice or receipt dropped into the chat, with the upload page's rules
+    and the same pipeline: kept, read by parse_invoice, checked for a repeat,
+    then a card that receives it on Confirm (assistant/actions.py). One AI call,
+    or none for a CSV. What's printed on it can't ask for anything: it's read
+    by parse_invoice, which has nothing it can call, and never reaches the chat's AI."""
+    request.session.pop(UNDO_KEY, None)
+    upload = request.FILES.get("invoice_file")
+    if not upload:
+        return _turn(request, "Sent a file", "No file was chosen. Pick an invoice or receipt and try again.")
+    mime_type = upload.content_type or ""
+    is_csv = mime_type in invoices.CSV_TYPES
+    # Not its name: that's the sender's words, and the turn goes back to the AI with later questions.
+    question = "Sent a CSV" if is_csv else "Sent a PDF" if mime_type == "application/pdf" else "Sent a photo"
+    if not _invoice_file_ok(upload):
+        return _turn(request, question, _wrong_file_text(upload))
+    if not is_csv and ai_limited(request):
+        return _turn(request, question, _limit_text(request))
+
+    org = request.user.organisation
+    data = upload.read()
+    invoices.keep_document(org, request.user, upload.name, mime_type, data)  # before it's read, as on the upload page
+    try:
+        invoice, lines = invoices.parse_invoice(org, data, mime_type, upload.name)
+    except gemini.GeminiError:
+        return _turn(request, question, READ_FAILED)
+    if original := invoices.find_original(invoice):
+        day = timezone.localtime(original.created_at)
+        return _reply(request, question, f"You brought this one in on {day.day} {day:%B}, so nothing's changed.")
+    return _reply(request, question, actions.propose_receipt(request.user, invoice, lines))
+
+
+@ai_required
+@admin_required
+def check_receipt(request, pid):
+    """A receipt card's "Check it on the invoice page": the upload page's preview
+    of it, for what the card can't do (match a line by hand, pick the supplier).
+    The card leaves the chat, so the invoice can't be brought in from both."""
+    session = request.session
+    changes = _changes(session)
+    change = changes.get(pid)
+    if change is None or "receipt" not in change or "undo" in change:
+        return redirect("stock:invoice_upload")
+    del changes[pid]
+    session[CHANGES_KEY] = changes
+    _record(session, change, "Taken to the invoice page to check, so nothing changed here")
+    org = request.user.organisation
+    invoice = Invoice(organisation=org)
+    return invoice_preview(request, invoice, fill_invoice(org, invoice, change["receipt"], QueryDict()))
 
 
 # Confirm, Cancel and Undo on a card make no AI call, so they don't count towards AI_PER_HOUR.
@@ -206,11 +272,13 @@ def confirm_change(request, pid):
         return render(request, "assistant/chat.html#change",
                       {"note": "That can't be done now, so nothing was changed."})
     message, undo = done
-    change |= {"undo": undo, "expires": time.time() + UNDO_WINDOW.total_seconds()}
+    # "undo" marks it made, and is "" when there's nothing to undo (a receipt that received nothing).
+    change |= {"done": True, "undo": undo, "expires": time.time() + UNDO_WINDOW.total_seconds()}
     session[CHANGES_KEY] = changes
     _record(session, change, "Done")
-    response = render(request, "assistant/chat.html#done",
-                      {"change": change, "text": message, "undo": reverse("assistant:undo_change", args=[pid])})
+    response = render(request, "assistant/chat.html#done", {
+        "change": change, "text": message, "undo": undo and reverse("assistant:undo_change", args=[pid]),
+    })
     response["HX-Trigger"] = "stock-changed"  # Home's list redraws with the new numbers
     return response
 
@@ -263,7 +331,7 @@ def undo_change(request, pid):
     session = request.session
     changes = _changes(session)
     change = changes.pop(pid, None)
-    if change is None or "undo" not in change:
+    if change is None or not change.get("undo"):
         raise Http404
     path, _, query = change["undo"].partition("?")
     page_undo = resolve(path)
@@ -367,10 +435,7 @@ def invoice_upload(request):
     try:
         invoice, lines = invoices.parse_invoice(request.user.organisation, data, mime_type, upload.name)
     except gemini.GeminiError:
-        return _upload_failed(request, upload.name,
-                              "StockRoom couldn't read this one. A clearer photo usually does it: flat, "
-                              "in good light, with the whole invoice in frame. A PDF or CSV from the "
-                              "supplier works better still, and is read without AI.")
+        return _upload_failed(request, upload.name, READ_FAILED)
     if invoices.find_original(invoice):
         invoices.ingest(invoice, lines, request.user)
         return redirect("stock:invoice_detail", invoice.pk)
