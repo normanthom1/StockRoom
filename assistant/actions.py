@@ -25,6 +25,7 @@ from accounts.models import User
 from stock.humanize import format_qty, pluralize_unit
 from stock.matching import Matcher, synonym_key
 from stock.models import Item, StockEvent
+from stock.spending import PERIOD_WEEKS
 from stock.views import (
     SOLID_STATUSES,
     STATUS_COLOR,
@@ -34,6 +35,8 @@ from stock.views import (
 )
 
 ANYONE = frozenset(User.Role.values)
+ADMIN = frozenset({User.Role.ADMIN})
+MONEY_REFUSAL = "Sorry, your account needs manager access to answer questions about prices or spending."
 MAX_QTY = 9999  # anything bigger is a misheard number, not a day's use
 MIN_UNUSUAL = 200  # a count has to pass this, and 10x anything seen before, to be asked about
 MAX_OPTIONS = 6  # buttons on a "Which one?"
@@ -44,10 +47,12 @@ Kind = StockEvent.Kind
 class Action:
     name: str
     roles: frozenset  # the User.Role values that may use it
-    declaration: dict  # what Gemini is told about it: description and parameters
+    declaration: dict | Callable  # what Gemini is told about it: description and parameters (or user -> that)
     preview: Callable  # (user, args, pending) -> a card line, a Which, or a plain answer when it can't be done
-    apply: Callable  # (user, line, client_id) -> the id of what it made
+    apply: Callable | None  # (user, line, client_id) -> the id of what it made
     undo: str = "stock:log_undo_batch"  # URL name, given ?ids= of what apply made; also the family of a card
+    # A link action changes nothing, so it has no card or Confirm: preview returns buttons, or a plain answer.
+    link: bool = False
 
 
 @dataclass(frozen=True)
@@ -58,17 +63,30 @@ class Which:
     options: list  # [{"item": pk, "name": ...}]
 
 
+class Answer(str):
+    """A plain answer that comes with buttons under it: [{"label", "url", "download"}]."""
+
+    def __new__(cls, text, buttons=()):
+        answer = super().__new__(cls, text)
+        answer.buttons = list(buttons)
+        return answer
+
+
 def declarations(user):
     """The function declarations this person's role allows, for gemini.generate(tools=...)."""
-    return [{"name": action.name, **action.declaration} for action in ACTIONS.values() if user.role in action.roles]
+    return [
+        {"name": action.name, **(action.declaration(user) if callable(action.declaration) else action.declaration)}
+        for action in ACTIONS.values() if user.role in action.roles
+    ]
 
 
-def propose(user, calls):
-    """The card for the changes Gemini asked for, or a plain answer when none can be made."""
-    return build(user, [[name, args if isinstance(args, dict) else {}] for name, args in calls])
+def propose(user, calls, text=""):
+    """The card for the changes Gemini asked for, or a plain answer (with any
+    buttons) when none can be made. text is whatever it wrote beside the calls."""
+    return build(user, [[name, args if isinstance(args, dict) else {}] for name, args in calls], text=text)
 
 
-def build(user, calls, picks=None):
+def build(user, calls, picks=None, text=""):
     """The card (a dict kept in the session) for calls, a list of [name, args].
     picks is {str(call index): item pk} for each "Which one?" already answered.
     A call that can't be made is a note on the card while another can; when
@@ -76,16 +94,24 @@ def build(user, calls, picks=None):
     picks = picks or {}
     lines, which, family = [], None, None
     pending = {}  # item pk -> the unsaved events earlier lines would make, so later ones start from them
-    problems = []
+    problems, buttons = [], []
     for i, (name, args) in enumerate(calls):
         action = ACTIONS.get(name)
         if action is None or user.role not in action.roles:
             problems.append("Sorry, I can't do that from the chat.")
             continue
+        args = {key: value for key, value in args.items() if key != "item_id"}  # only a pick sets it
+        if action.link:
+            result = action.preview(user, args, pending)
+            if isinstance(result, str):
+                problems.append(result)
+                buttons += getattr(result, "buttons", [])
+            else:
+                buttons += result
+            continue
         if family not in (None, action.undo):
             problems.append("That's a different kind of change, so ask again for it.")
             continue
-        args = {key: value for key, value in args.items() if key != "item_id"}  # only a pick sets it
         if str(i) in picks:
             args["item_id"] = picks[str(i)]
         result = action.preview(user, args, pending)
@@ -98,6 +124,9 @@ def build(user, calls, picks=None):
         else:
             lines.append({"action": name, **result})
     if not lines and not which:
+        buttons = list({b["url"]: b for b in buttons}.values())
+        if buttons:
+            return Answer(text or " ".join(problems) or "Here you go.", buttons)
         return problems[0]
     summaries = [line["summary"] for line in lines] or [f"asked which '{which['name']}' you meant"]
     return {
@@ -249,6 +278,111 @@ def _event_action(name, kind, description, *, qty=None):
     )
 
 
+# --- Buttons under an answer: open a page or download a file. Nothing changes, so there's no card. ---
+
+def _button(label, url, download=False):
+    return {"label": label, "url": url, "download": download}
+
+
+# What the model may open, by name: key -> (label, URL name, roles, what's there). It never supplies a URL.
+# The views behind them keep their own role checks; the roles here only decide who's offered each.
+PAGES = {
+    "home": ("Home", "stock:home", ANYONE, "what to order today"),
+    "log_usage": ("Log usage", "stock:log_usage", ANYONE, "log what's been used, running low or counted"),
+    "reorder_list": ("Reorder list", "stock:reorder_list", ANYONE, "everything that needs ordering, by supplier"),
+    "deliveries": ("Deliveries", "stock:deliveries", ANYONE, "receive what's on order"),
+    "item": ("an item's page", "stock:item_detail", ANYONE, "one item: on hand, usage and history"),
+    "stock": ("Stock", "stock:items", ADMIN, "the stock list: add, edit and archive items, prices and order sizes"),
+    "suppliers": ("Suppliers", "stock:suppliers", ADMIN, "suppliers' phone, email and delivery times"),
+    "spending": ("Spending", "stock:spending", ADMIN, "what's been spent, by supplier and item, for a period"),
+    "tax_year": ("Tax year", "stock:tax_year", ADMIN, "stock spending for an income year, for the accountant"),
+    "activity": ("Activity", "stock:activity_log", ADMIN, "who did what, and when"),
+    "team": ("Team", "team", ADMIN, "staff, roles and codes"),
+    "catalogue": ("Catalogue", "stock:catalogue", ADMIN, "add common dental stock from the catalogue"),
+    "stocktake": ("Stocktake", "stock:stocktake_step", ADMIN, "count every item in turn"),
+}
+FILES = {  # key -> (label, URL name); all carry prices or spending, so managers only
+    "items": ("items", "stock:export_items"),
+    "stock_events": ("stock events", "stock:export_stock_events"),
+    "order_lines": ("order lines", "stock:export_order_lines"),
+    "tax_year": ("tax year", "stock:export_tax_year"),
+}
+
+
+def _page_declaration(user):
+    offered = {key: page for key, page in PAGES.items() if user.role in page[2]}
+    properties = {
+        "page": {
+            "type": "STRING",
+            "enum": list(offered),
+            "description": "Which page. " + "; ".join(f"{key}: {page[3]}" for key, page in offered.items()),
+        },
+        "item": {"type": "STRING", "description": "For page 'item': the item's name as written in the practice data."},
+    }
+    if user.is_org_admin:
+        properties["period"] = {"type": "STRING", "enum": list(PERIOD_WEEKS), "description": "For page 'spending'."}
+        properties["year"] = {"type": "INTEGER", "description": (
+            "For page 'tax_year': the income year, named by the year it ends in (2026 is April 2025 to March 2026).")}
+    return {
+        "description": (
+            "Put a button under your answer that opens a StockRoom page, e.g. for 'where do I change a supplier's "
+            "phone number?' or 'show me spending by supplier'. Nothing is changed. Still answer in words when "
+            "the data lets you."),
+        "parameters": {"type": "OBJECT", "properties": properties, "required": ["page"]},
+    }
+
+
+def _open_page(user, args, pending):
+    key = args.get("page")
+    if key not in PAGES:
+        return "Sorry, I can't open that page from the chat."
+    label, url_name, roles, _ = PAGES[key]
+    if user.role not in roles:
+        return MONEY_REFUSAL  # the same reply as any other money question; the page itself would 403 anyway
+    if key == "item":
+        item = _item_for(user, args)
+        if isinstance(item, Which):  # several fit: a button for each, since opening a page changes nothing
+            return [_button(f"Open {o['name']}", reverse(url_name, args=[o["item"]])) for o in item.options]
+        if isinstance(item, str):
+            return item
+        return [_button(f"Open {item.name}", reverse(url_name, args=[item.pk]))]
+    url = reverse(url_name)
+    if key == "spending" and args.get("period") in PERIOD_WEEKS:
+        url += f"?period={args['period']}"
+        label += f", this {args['period']}"
+    elif key == "tax_year" and (year := _whole(args.get("year"), 2000)):
+        url += f"?year={year}"
+        label += f" {year}"
+    return [_button(f"Open {label}", url)]
+
+
+def _download_declaration(user):
+    return {
+        "description": "Put a button under your answer that downloads one of the CSV exports. Nothing is changed.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "file": {"type": "STRING", "enum": list(FILES), "description": (
+                    "items: the stock list with prices; stock_events: every use, count and delivery; "
+                    "order_lines: every order with prices; tax_year: an income year's invoices.")},
+                "year": {"type": "INTEGER", "description": "For file 'tax_year': the income year, named by the year it ends in."},
+            },
+            "required": ["file"],
+        },
+    }
+
+
+def _download(user, args, pending):
+    if args.get("file") not in FILES:
+        return "Sorry, I can't download that from the chat."
+    label, url_name = FILES[args["file"]]
+    url = reverse(url_name)
+    if args["file"] == "tax_year" and (year := _whole(args.get("year"), 2000)):
+        url += f"?year={year}"
+        label += f" {year}"
+    return [_button(f"Download {label} (CSV)", url, download=True)]
+
+
 ACTIONS = {action.name: action for action in [
     _event_action(
         "log_used", Kind.USED,
@@ -270,4 +404,6 @@ ACTIONS = {action.name: action for action in [
         "Not for what's been used. Call it once for each item.",
         qty="How many are on the shelf now, counted in the item's unit. 0 if there are none.",
     ),
+    Action("open_page", ANYONE, _page_declaration, _open_page, None, link=True),
+    Action("download", ADMIN, _download_declaration, _download, None, link=True),
 ]}

@@ -59,6 +59,14 @@ def count(item, qty):
     return call("set_count", item=item, qty=qty)
 
 
+def page(name, **args):
+    return call("open_page", page=name, **args)
+
+
+def download(file, **args):
+    return call("download", file=file, **args)
+
+
 CASES = [
     # --- log_used: plain, then NZ phrasing, typos and numbers said in words ---
     Case("used 2 boxes of gloves", "assistant", (used(GLOVES, 2),)),
@@ -128,9 +136,33 @@ CASES = [
          (used(BIBS, 2), used(GLOVES, 1), low(TIPS))),
     Case("used 3 pouches and out of face shields", "assistant", (used(POUCHES, 3), out(SHIELDS))),
     Case("counted 10 masks and 5 boxes of gloves", "admin", (count(MASKS, 10), count(GLOVES, 5))),
+    # --- open_page and download: take them there, nothing changes ---
+    Case("where do I change a supplier's phone number?", "admin", (page("suppliers"),)),
+    Case("show me spending by supplier", "admin", (page("spending"),)),
+    Case("what did we spend at Henry Schein this month?", "admin", (page("spending", period="month"),)),
+    Case("how much have we spent this year?", "admin", (page("spending", period="year"),)),
+    Case("show me the tax year page", "admin", (page("tax_year"),)),
+    Case("who did what yesterday?", "admin", (page("activity"),)),
+    Case("take me to the team page", "admin", (page("team"),)),
+    Case("I want to add something from the catalogue", "admin", (page("catalogue"),)),
+    Case("let's do a stocktake", "admin", (page("stocktake"),)),
+    Case("where do I edit an item's price?", "admin", (page("stock"),)),
+    Case("take me to the reorder list", "assistant", (page("reorder_list"),)),
+    Case("where do I receive a delivery?", "assistant", (page("deliveries"),)),
+    Case("go to log usage", "assistant", (page("log_usage"),)),
+    Case("take me home", "assistant", (page("home"),)),
+    Case("open the gloves page", "assistant", (page("item", item=GLOVES),)),
+    Case("show me the page for suction tips", "admin", (page("item", item=TIPS),)),
+    Case("download this year's tax CSV", "admin", (download("tax_year"),)),
+    Case("download the item list", "admin", (download("items"),)),
+    Case("export every use, count and delivery", "admin", (download("stock_events"),)),
+    Case("give me the order lines as a spreadsheet", "admin", (download("order_lines"),)),
+    Case("show me spending", "assistant", says=MONEY_REFUSAL),
+    Case("download the tax CSV", "assistant", says=MONEY_REFUSAL),
+    Case("open the team page", "assistant", says=MONEY_REFUSAL),
     # --- no action: questions, chit-chat, clinical, and money for an assistant ---
-    Case("How do I log what I've used?", "assistant"),
-    Case("How do I receive a delivery?", "assistant"),
+    Case("Who asked for gauze to go on the list?", "assistant"),
+    Case("How long does Henry Schein take to deliver?", "assistant"),
     Case("What's running low?", "assistant"),
     Case("How many boxes of gloves do we have?", "assistant"),
     Case("What should I order this week?", "admin"),

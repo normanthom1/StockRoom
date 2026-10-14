@@ -27,6 +27,7 @@ Asking StockRoom to make a change
 - It always asks first: a card shows every change, with on hand before and after and whether it puts something on the reorder list, and nothing changes until you tap Confirm. Cancel leaves everything as it was.
 - If a name fits several items (gloves S, M and L), the card asks "Which one?" with a button for each.
 - After Confirm, Undo is in the message that pops up, the same as a tap on Log usage, and it undoes every change on the card.
+- Ask where something is and it can put a button under its answer that opens the page, such as "where do I change a supplier's phone number?". Managers can also ask for a CSV download, such as this year's tax CSV. A button changes nothing.
 - For anything else, it says where to tap.
 
 Preferred and backup suppliers (managers)

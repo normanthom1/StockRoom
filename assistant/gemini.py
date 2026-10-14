@@ -25,12 +25,19 @@ class GeminiError(Exception):
     """No usable answer: network trouble, an API error, or a blocked or empty reply."""
 
 
+class Calls(list):
+    """The functions Gemini called, as [(name, args)], and any words it wrote beside them."""
+
+    text = ""
+
+
 def generate(system, turns, *, schema=None, attachment=None, tools=None):
     """Ask Gemini. turns is [(role, text)] oldest first, role "user" or "model",
     ending with the user's question. attachment is (mime_type, bytes), sent
     with that last question. With a JSON schema, returns the parsed JSON;
     otherwise the answer text. tools are function declarations Gemini may call
-    instead of answering; if it does, returns the calls as [(name, args)].
+    instead of answering; if it does, returns the calls as [(name, args)] (Calls,
+    which also holds any text it wrote with them).
     """
     contents = [{"role": role, "parts": [{"text": text}]} for role, text in turns]
     if attachment:
@@ -51,7 +58,9 @@ def generate(system, turns, *, schema=None, attachment=None, tools=None):
         # itself is sent back within the same turn. The chat keeps turns as text, so it never is.
         if calls := [(part["functionCall"]["name"], part["functionCall"].get("args") or {})
                      for part in parts if "functionCall" in part]:
-            return calls
+            found = Calls(calls)
+            found.text = "".join(part.get("text", "") for part in parts).strip()
+            return found
         text = "".join(part.get("text", "") for part in parts).strip()
         if not text:
             raise ValueError("empty answer")

@@ -29,6 +29,7 @@ HISTORY_MAX_AGE = 24 * 60 * 60  # seconds a turn is kept
 # The chat's change cards, {id: proposal}: waiting for Confirm until CHANGE_AGE
 # is up, then once confirmed, kept until the toast's Undo has run out.
 CHANGES_KEY = "ask_changes"
+LINKS_KEY = "ask_links"  # {str(turn time): buttons} for answers with buttons under them
 CHANGE_AGE = 10 * 60
 CLEAR_UNDO = '<div id="chat-undo" hx-swap-oob="true"></div>'
 MAX_QUESTION = 500
@@ -59,13 +60,14 @@ def _limit_text(request):
             "Try again tomorrow, or upload a CSV instead - those are read without AI, "
             "so they always work.")
 
-MONEY_REFUSAL = "Sorry, your account needs manager access to answer questions about prices or spending."
+MONEY_REFUSAL = actions.MONEY_REFUSAL
 
 CHAT_RULES = """You are Ask StockRoom, the help inside StockRoom, a stock-ordering app for a New Zealand dental practice.
 Answer questions about how to use StockRoom (from the guide below) and about this practice's stock (from the data below).
 - Plain New Zealand English. Short: a sentence or two, or a short list. Plain text only, no Markdown; start list lines with "- ".
 - Only use the guide and the data. If the answer isn't there, say you don't know rather than guessing. Never make up numbers.
 - You can make some changes with your functions, such as logging what's been used or counted. Call the function and StockRoom shows them a card with the change; nothing happens until they tap Confirm. If one message has several changes, call a function for each. Never say you've changed something yourself: the conversation says what was done, cancelled or undone. For anything your functions can't do, tell them where to tap to do it themselves.
+- Where the best answer is to take them to a page, or to hand them a CSV export, call open_page or download as well as answering in words from the data. The button goes under your answer, and nothing changes when it's tapped.
 - Stay on StockRoom and the practice's stock. Politely decline anything else, including clinical advice.
 - You are talking to {name}, {role_description}.{role_rule}
 """
@@ -101,10 +103,12 @@ def recent_turns(session):
 
 
 def chat_turns(session):
-    """(question, answer, change) for each turn on show: change is its card,
-    while that's still waiting for Confirm or can still be undone."""
+    """(question, answer, change, buttons) for each turn on show: change is its
+    card, while that's still waiting for Confirm or can still be undone, and
+    buttons are the pages or files its answer pointed to."""
     cards = {change["turn"]: change for change in _changes(session).values()}
-    return [(q, a, cards.get(when)) for q, a, when in recent_turns(session)]
+    links = session.get(LINKS_KEY, {})
+    return [(q, a, cards.get(when), links.get(str(when))) for q, a, when in recent_turns(session)]
 
 
 def _changes(session):
@@ -134,8 +138,9 @@ def ask(request):
         return render(request, "assistant/chat.html#deleted")  # empties the chat, offers Undo
     if "undo" in request.POST:
         session[HISTORY_KEY] = session.pop(UNDO_KEY, [])
-        turns = "".join(render_to_string("assistant/chat.html#turn", {"q": q, "answer": a, "change": change})
-                        for q, a, change in chat_turns(session))
+        turns = "".join(render_to_string("assistant/chat.html#turn",
+                                         {"q": q, "answer": a, "change": change, "links": links})
+                        for q, a, change, links in chat_turns(session))
         return HttpResponse(turns + CLEAR_UNDO)
 
     history = recent_turns(session)
@@ -143,7 +148,7 @@ def ask(request):
     question = request.POST.get("q", "").strip()[:MAX_QUESTION]
     if not question:
         return HttpResponse(status=204)
-    change = None
+    change, links = None, None
     if ai_limited(request):
         answer = LIMITED
     else:
@@ -155,8 +160,9 @@ def ask(request):
             answer = "Sorry, I couldn't get an answer just now. Try again in a minute."
         else:
             when = time.time()
-            if isinstance(reply, list):  # it called an action: a card, or a plain answer if it can't be done
-                reply = actions.propose(request.user, reply)
+            if isinstance(reply, list):  # it called an action: a card, buttons, or a plain answer if it can't be done
+                reply = actions.propose(request.user, reply, getattr(reply, "text", ""))
+            links = getattr(reply, "buttons", None) or None
             if isinstance(reply, dict):
                 change = reply | {"id": uuid.uuid4().hex, "turn": when, "expires": when + CHANGE_AGE}
                 session[CHANGES_KEY] = {**_changes(session), change["id"]: change}
@@ -165,7 +171,13 @@ def ask(request):
                 # Gemini leans towards Markdown even when asked not to; bold is the usual leftover.
                 answer = reply.replace("**", "")
             session[HISTORY_KEY] = [*history, [question, answer, when]][-HISTORY_TURNS:]
-    response = render(request, "assistant/chat.html#turn", {"q": question, "answer": answer, "change": change})
+            kept = {str(turn[2]) for turn in session[HISTORY_KEY]}
+            session[LINKS_KEY] = {
+                **{t: b for t, b in session.get(LINKS_KEY, {}).items() if t in kept},
+                **({str(when): links} if links else {}),
+            }
+    response = render(request, "assistant/chat.html#turn",
+                      {"q": question, "answer": answer, "change": change, "links": links})
     response.content += CLEAR_UNDO.encode()  # the old "Chat deleted. Undo" row is no longer true
     return response
 

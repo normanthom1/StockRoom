@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Organisation, User
@@ -301,7 +302,7 @@ class ChangeTests(Practice):
         with calls(USED_2) as generate:
             response = self.ask("We used 2 boxes of gloves")
         self.assertEqual([tool["name"] for tool in generate.call_args.kwargs["tools"]],
-                         ["log_used", "log_out", "log_low", "set_count"])
+                         ["log_used", "log_out", "log_low", "set_count", "open_page"])
         system = generate.call_args.args[0]
         self.assertIn("nothing happens until they tap Confirm", system)
         self.assertNotIn("can't change anything", system)
@@ -424,8 +425,8 @@ class ChangeTests(Practice):
                                    preview=None, apply=None)
         reply = {"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}
         with mock.patch.dict(actions.ACTIONS, {"set_price": set_price}):
-            everyone = ["log_used", "log_out", "log_low", "set_count"]
-            for user, expected in ((self.assistant, everyone), (self.admin, [*everyone, "set_price"])):
+            everyone = ["log_used", "log_out", "log_low", "set_count", "open_page"]
+            for user, expected in ((self.assistant, everyone), (self.admin, [*everyone, "download", "set_price"])):
                 self.client.force_login(user)
                 with mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen:
                     urlopen.return_value.__enter__.return_value = io.BytesIO(json.dumps(reply).encode())
@@ -561,6 +562,99 @@ class StockChangeTests(Practice):
         with calls(USED_2) as generate:
             self.ask("used 2 gloves")
         self.assertIn("call a function for each", generate.call_args.args[0])
+
+
+@override_settings(AI_API_KEY="test-key")
+class ButtonTests(Practice):
+    """#153: answers that carry buttons to a page or a file. Nothing changes, so no Confirm."""
+
+    def go(self, *found, text="", question="where is it?"):
+        reply = gemini.Calls(found)
+        reply.text = text
+        with mock.patch("assistant.gemini.generate", return_value=reply) as generate:
+            return self.ask(question), generate
+
+    def test_a_page_is_a_full_width_button_under_the_words(self):
+        self.client.force_login(self.admin)
+        response, _ = self.go(("open_page", {"page": "suppliers"}), text="Open Suppliers, then Edit.")
+        self.assertContains(response, "Open Suppliers, then Edit.")
+        self.assertContains(response, 'href="/suppliers/"')
+        self.assertContains(response, "min-h-14 w-full")
+        self.assertNotContains(response, "Confirm")
+        self.assertContains(self.client.get("/"), 'href="/suppliers/"')  # still there after a reload
+        self.assertFalse(StockEvent.objects.exclude(kind="count").exists())
+
+    def test_the_model_only_names_a_page_it_never_supplies_a_url(self):
+        self.client.force_login(self.admin)
+        response, _ = self.go(("open_page", {"page": "https://evil.example/", "url": "https://evil.example/"}))
+        self.assertNotContains(response, "evil.example")
+        self.assertContains(response, "can&#x27;t open that page")
+
+    def test_spending_gets_the_period_and_the_tax_year_gets_a_year(self):
+        self.client.force_login(self.admin)
+        response, _ = self.go(("open_page", {"page": "spending", "period": "month"}),
+                              ("open_page", {"page": "tax_year", "year": 2026}), text="About $0 so far.")
+        self.assertContains(response, 'href="/spending/?period=month"')
+        self.assertContains(response, 'href="/tax/?year=2026"')
+        response, _ = self.go(("open_page", {"page": "spending", "period": "decade"}))
+        self.assertContains(response, 'href="/spending/"')
+
+    def test_an_items_page_and_several_that_fit(self):
+        sizes = [Item.objects.create(organisation=self.org, name=f"Nitrile gloves, size {s}", unit="box",
+                                     supplier=self.henry) for s in "SM"]
+        self.client.force_login(self.assistant)
+        response, _ = self.go(("open_page", {"page": "item", "item": "Gloves"}))
+        self.assertContains(response, f'href="/item/{self.gloves.pk}/"')
+        response, _ = self.go(("open_page", {"page": "item", "item": "nitrile gloves"}))
+        for item in sizes:
+            self.assertContains(response, f'href="/item/{item.pk}/"')
+        response, _ = self.go(("open_page", {"page": "item", "item": "zzz"}))
+        self.assertContains(response, "can&#x27;t find")
+
+    def test_downloads_are_the_existing_exports_for_managers(self):
+        self.client.force_login(self.admin)
+        response, _ = self.go(("download", {"file": "items"}), ("download", {"file": "tax_year", "year": 2026}))
+        self.assertContains(response, 'href="/export/items.csv" download')
+        self.assertContains(response, 'href="/export/tax-year.csv?year=2026" download')
+        self.assertContains(self.client.get("/export/items.csv"), "Gloves")
+        response, _ = self.go(("download", {"file": "everything"}))
+        self.assertContains(response, "can&#x27;t download that")
+
+    def test_an_assistant_is_never_offered_money_pages_or_files_and_gets_the_money_reply(self):
+        self.client.force_login(self.assistant)
+        response, generate = self.go(("open_page", {"page": "home"}))
+        tools = {tool["name"]: tool for tool in generate.call_args.kwargs["tools"]}
+        self.assertNotIn("download", tools)
+        offered = tools["open_page"]["parameters"]["properties"]
+        self.assertEqual(set(offered["page"]["enum"]), {"home", "log_usage", "reorder_list", "deliveries", "item"})
+        self.assertNotIn("period", offered)
+        self.assertNotIn("year", offered)
+        for call in (("open_page", {"page": "spending"}), ("open_page", {"page": "tax_year"}),
+                     ("open_page", {"page": "team"}), ("download", {"file": "items"})):
+            with self.subTest(call=call):
+                response, _ = self.go(call)
+                self.assertContains(response, "needs manager access" if call[0] == "open_page"
+                                    else "can&#x27;t do that from the chat")
+                self.assertNotContains(response, "<a href")
+
+    def test_every_page_the_model_can_open_enforces_its_own_role(self):
+        for key, (_, url_name, roles, _) in actions.PAGES.items():
+            kwargs = {"args": [self.gloves.pk]} if key == "item" else {}
+            url = reverse(url_name, **kwargs)
+            for user in (self.assistant, self.admin):
+                with self.subTest(page=key, role=user.role):
+                    self.client.force_login(user)
+                    status = self.client.get(url).status_code
+                    self.assertEqual(status == 403, user.role not in roles)
+        for key, (_, url_name) in actions.FILES.items():
+            self.client.force_login(self.assistant)
+            self.assertEqual(self.client.get(reverse(url_name)).status_code, 403)
+
+    def test_a_change_card_wins_over_buttons_in_the_same_reply(self):
+        self.client.force_login(self.assistant)
+        response, _ = self.go(USED_2, ("open_page", {"page": "home"}))
+        self.assertContains(response, "This will change")
+        self.assertNotContains(response, 'href="/"')
 
 
 @override_settings(AI_API_KEY="test-key")
@@ -1008,6 +1102,7 @@ class GeminiClientTests(SimpleTestCase):
         call = {"functionCall": {"name": "log_used", "args": {"item": "Gloves", "qty": 2}}, "thoughtSignature": "sig"}
         found, request = self.call({"candidates": [{"content": {"parts": [call]}}]}, tools=tools)
         self.assertEqual(found, [("log_used", {"item": "Gloves", "qty": 2})])
+        self.assertEqual(found.text, "")
         self.assertEqual(json.loads(request.data)["tools"], [{"functionDeclarations": tools}])
         text, _ = self.call({"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}, tools=tools)
         self.assertEqual(text, "Kia ora")
