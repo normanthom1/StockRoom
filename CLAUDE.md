@@ -5,7 +5,7 @@ StockRoom is a stock-ordering PWA for NZ dental practices. The roadmap is epic #
 ## Audience and design
 Dental assistants log stock mid-procedure, wearing gloves and short on time. Managers order between patients.
 - Buttons are big: 48px minimum, main actions larger. Logging anything takes 3 taps or fewer.
-- The only typing is search. Mistakes are fixed with undo, not confirm dialogs.
+- The only typing is search. Mistakes are fixed with undo, not confirm dialogs. The one exception is a change asked for in Ask StockRoom: the AI can misread, so it shows a card and waits for Confirm, then offers Undo as usual.
 - Status is text plus colour. Copy is plain NZ English.
 
 Details: [ui-design](.claude/skills/ui-design/SKILL.md)
@@ -16,7 +16,7 @@ Details: [ui-design](.claude/skills/ui-design/SKILL.md)
 - Every row belongs to an Organisation, and users are `admin` or `assistant`. The organisation always comes from `request.user`.
 - Each practice has one practice login (email and password) that opens a device; staff then sign in with a code: 2 digits for assistants, 4 for admins (a role change always sets a new code). Stock work always runs as a staff member (`accounts/middleware.py`).
 - Stock is an append-only `StockEvent` log. On-hand and forecasts are calculated, never stored.
-- AI (Ask StockRoom, AI import) only calls Gemini through `assistant/gemini.py`, and only when `AI_API_KEY` is set. Prompts for assistants never include prices or spending (`assistant/snapshot.py`).
+- AI (Ask StockRoom, AI import) only calls Gemini through `assistant/gemini.py`, and only when `AI_API_KEY` is set. Prompts for assistants never include prices or spending (`assistant/snapshot.py`). The chat only changes anything through `assistant/actions.py`.
 - New views follow [org-scoped-view](.claude/skills/org-scoped-view/SKILL.md). Test with `python manage.py test`.
 
 ## Workflow

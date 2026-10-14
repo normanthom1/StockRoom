@@ -116,9 +116,12 @@ document.addEventListener("sheet-close", () => document.getElementById("sheet")?
 // --- Ask StockRoom, the chat at the top of Home: behaves like ChatGPT. ---
 
 const askForm = () => document.querySelector("[data-ask]");
+// Scrolls to the end, or to the start of the last turn if that's taller than
+// the chat (a long change card), so it's read from its heading down.
 const showLatestAnswer = () => {
   const chat = document.getElementById("chat");
-  if (chat) chat.scrollTop = chat.scrollHeight;
+  const last = chat?.lastElementChild;
+  if (last) chat.scrollTop += last.getBoundingClientRect().top - chat.getBoundingClientRect().top;
 };
 
 // Enter sends; Shift+Enter is a new line.

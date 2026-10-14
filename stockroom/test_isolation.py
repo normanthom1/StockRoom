@@ -256,6 +256,11 @@ NO_PRACTICE_DATA: dict[str, str] = {
     "password_reset_confirm": "public; the token names the user",
     "password_reset_complete": "public",
     "assistant:ask": "a GET goes to Home (stock:home above, where the chat is); an answer's prompt has no prices for an assistant (assistant.tests)",
+    # A change card lives in the session of the person it was shown to, and applying it
+    # looks its item up through their practice (assistant.tests.ChangeTests).
+    "assistant:confirm_change": "a card id from your own session; anyone else's is unknown and changes nothing",
+    "assistant:cancel_change": "a card id from your own session; anyone else's is unknown and changes nothing",
+    "assistant:undo_change": "a card id from your own session; the undo itself is the page's own (stock:log_undo above)",
 }
 
 PRICE = re.compile(r"\$\s?\d")  # "$8.50", "$ 1,489.20"

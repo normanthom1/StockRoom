@@ -4,6 +4,8 @@
 
 {% block content %}
 {% if ai_enabled %}{% include "assistant/chat.html" %}{% endif %}
+{# Redrawn after a change made in Ask StockRoom, which doesn't reload the page. #}
+<div hx-get="{% url 'stock:home' %}" hx-trigger="stock-changed from:body">
 {% partialdef rows inline %}
 <div class="mb-4 flex items-end gap-3">
   <h1 class="flex-1">What to order today</h1>
@@ -75,4 +77,5 @@
   </section>
 {% endif %}
 {% endpartialdef %}
+</div>
 {% endblock %}
