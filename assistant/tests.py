@@ -11,7 +11,7 @@ from unittest import mock
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -303,7 +303,8 @@ class ChangeTests(Practice):
         with calls(USED_2) as generate:
             response = self.ask("We used 2 boxes of gloves")
         self.assertEqual([tool["name"] for tool in generate.call_args.kwargs["tools"]],
-                         ["log_used", "log_out", "log_low", "set_count", "receive_order", "receive_line", "open_page"])
+                         ["log_used", "log_out", "log_low", "set_count", "receive_order", "receive_line",
+                          "add_to_reorder", "open_page"])
         system = generate.call_args.args[0]
         self.assertIn("nothing happens until they tap Confirm", system)
         self.assertNotIn("can't change anything", system)
@@ -426,8 +427,12 @@ class ChangeTests(Practice):
                                    preview=None, apply=None)
         reply = {"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}
         with mock.patch.dict(actions.ACTIONS, {"set_price": set_price}):
-            everyone = ["log_used", "log_out", "log_low", "set_count", "receive_order", "receive_line", "open_page"]
-            for user, expected in ((self.assistant, everyone), (self.admin, [*everyone, "download", "set_price"])):
+            everyone = ["log_used", "log_out", "log_low", "set_count", "receive_order", "receive_line",
+                        "add_to_reorder", "open_page"]
+            ordering = ["remove_from_reorder", "mark_ordered", "mark_supplier_ordered", "set_order_size",
+                        "switch_supplier", "write_order_email"]
+            managers = [*everyone[:-1], *ordering, "open_page", "download", "set_price"]
+            for user, expected in ((self.assistant, everyone), (self.admin, managers)):
                 self.client.force_login(user)
                 with mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen:
                     urlopen.return_value.__enter__.return_value = io.BytesIO(json.dumps(reply).encode())
@@ -820,6 +825,311 @@ class ReceiveTests(Practice):
         receive_delivery_line(self.assistant, self.order, 10, Decimal("1.00"))  # an assistant's price is ignored
         self.gloves.refresh_from_db()
         self.assertEqual(self.gloves.price, Decimal("8.50"))
+
+
+@override_settings(AI_API_KEY="test-key")
+class OrderingTests(Practice):
+    """#157: the Reorder list's buttons by message, through the same functions."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.dentsply = Supplier.objects.create(organisation=cls.org, name="Dentsply", lead_days=7,
+                                               email="orders@dentsply.example", phone="09 555 0101")
+        cls.indep = Supplier.objects.create(organisation=cls.org, name="Independent Dental", lead_days=3)
+        cls.bibs = Item.objects.create(organisation=cls.org, name="Bibs", unit="pack", supplier=cls.henry,
+                                       price="0.50")
+        cls.tips = Item.objects.create(organisation=cls.org, name="Suction tips", unit="tip", supplier=cls.henry,
+                                       price="0.20")
+        cls.composite = Item.objects.create(organisation=cls.org, name="Composite", unit="syringe",
+                                            supplier=cls.dentsply, price="32.00")
+        cls.tips.other_suppliers.add(cls.indep)
+        month_ago = timezone.now() - timedelta(days=30)
+        for item in (cls.bibs, cls.tips, cls.composite):
+            StockEvent.objects.create(organisation=cls.org, item=item, user=cls.admin, kind="count", qty=20,
+                                      created_at=month_ago)
+        # Out of stock, so on the reorder list without anyone adding them.
+        for item in (cls.tips, cls.composite):
+            StockEvent.objects.create(organisation=cls.org, item=item, user=cls.admin, kind="out",
+                                      created_at=timezone.now() - timedelta(days=1))
+
+    def card(self, *found, user=None, question="sort the order"):
+        self.client.force_login(user or self.admin)
+        with calls(*found):
+            response = self.ask(question)
+        return response, next(iter(self.client.session.get("ask_changes", {})), None)
+
+    def post(self, step, pid):
+        return self.client.post(f"/ask/changes/{pid}/{step}/")
+
+    def reload(self, *items):
+        for item in items:
+            item.refresh_from_db()
+
+    def existing_order(self):
+        return OrderLine.objects.get(item=self.gloves)
+
+    # --- add to and take off the list ---
+
+    def test_a_manager_adds_items_to_the_list_with_one_undo_for_the_card(self):
+        response, pid = self.card(("add_to_reorder", {"item": "Bibs"}), ("add_to_reorder", {"item": "Gloves"}))
+        for text in ("Add to the reorder list", "Bibs", "Gloves", "This will change"):
+            self.assertContains(response, text)
+        self.reload(self.bibs)
+        self.assertIsNone(self.bibs.pinned_to_reorder_at)
+
+        done = self.post("confirm", pid)
+        self.assertContains(done, "Added 2 items to the reorder list")
+        self.reload(self.bibs, self.gloves)
+        self.assertIsNotNone(self.bibs.pinned_to_reorder_at)
+        self.assertIsNotNone(self.gloves.pinned_to_reorder_at)
+        self.assertContains(self.client.get("/reorder/"), "Bibs")
+
+        self.assertEqual(self.post("undo", pid)["HX-Refresh"], "true")
+        self.reload(self.bibs, self.gloves)
+        self.assertIsNone(self.bibs.pinned_to_reorder_at)
+        self.assertIsNone(self.gloves.pinned_to_reorder_at)
+        self.assertEqual(self.client.session["ask_history"][0][1],
+                         "Undone, so nothing changed: added Bibs to the reorder list and added Gloves to the reorder list.")
+
+    def test_an_assistant_asks_and_the_manager_sees_it_with_no_price_on_the_card(self):
+        response, pid = self.card(("add_to_reorder", {"item": "Bibs"}), user=self.assistant)
+        self.assertContains(response, "Ask the manager to order it")
+        self.assertContains(response, "The manager will see it")
+        self.assertNotContains(response, "$")
+        self.reload(self.bibs)
+        self.assertIsNone(self.bibs.reorder_requested_by)
+
+        self.assertContains(self.post("confirm", pid), "Asked the manager to add Bibs.")
+        self.reload(self.bibs)
+        self.assertEqual((self.bibs.reorder_requested_by, self.bibs.pinned_to_reorder_at), (self.assistant, None))
+        manager = Client()  # their own session, so the assistant's card is still in theirs
+        manager.force_login(self.admin)
+        self.assertContains(manager.get("/reorder/"), "Johanna asked")
+
+        self.post("undo", pid)
+        self.reload(self.bibs)
+        self.assertIsNone(self.bibs.reorder_requested_by)
+
+    def test_an_item_already_on_the_list_or_asked_for_says_so(self):
+        response, pid = self.card(("add_to_reorder", {"item": "Suction tips"}))  # out of stock: already wanted
+        self.assertContains(response, "Suction tips is already on the reorder list.")
+        self.assertIsNone(pid)
+        Item.objects.filter(pk=self.bibs.pk).update(reorder_requested_by=self.assistant)
+        response, pid = self.card(("add_to_reorder", {"item": "Bibs"}), user=self.assistant)
+        self.assertContains(response, "has already been asked for")
+        self.assertIsNone(pid)
+
+    def test_an_assistant_never_has_the_manager_ordering_functions(self):
+        self.client.force_login(self.assistant)
+        with calls(("mark_ordered", {"item": "Bibs"})) as generate:
+            response = self.ask("I ordered the bibs")
+        names = [tool["name"] for tool in generate.call_args.kwargs["tools"]]
+        self.assertIn("add_to_reorder", names)
+        for name in ("mark_ordered", "mark_supplier_ordered", "set_order_size", "switch_supplier",
+                     "remove_from_reorder", "write_order_email"):
+            self.assertNotIn(name, names)
+        # Even if the model called one anyway, the server says whose job it is and writes nothing.
+        self.assertContains(response, "That&#x27;s a job for the manager")
+        self.assertEqual(OrderLine.objects.count(), 1)
+        self.assertIn("manager's job", generate.call_args.args[0])
+
+    def test_taking_an_item_off_clears_the_pin_and_the_ask_and_undo_puts_them_back(self):
+        Item.objects.filter(pk=self.bibs.pk).update(pinned_to_reorder_at=timezone.now(),
+                                                    reorder_requested_by=self.assistant)
+        response, pid = self.card(("remove_from_reorder", {"item": "Bibs"}))
+        self.assertContains(response, "Take off the reorder list")
+        self.assertContains(response, "Johanna asked for it and you added it")
+        self.post("confirm", pid)
+        self.reload(self.bibs)
+        self.assertEqual((self.bibs.pinned_to_reorder_at, self.bibs.reorder_requested_by), (None, None))
+
+        self.assertEqual(self.post("undo", pid)["HX-Refresh"], "true")
+        self.reload(self.bibs)
+        self.assertIsNotNone(self.bibs.pinned_to_reorder_at)
+        self.assertEqual(self.bibs.reorder_requested_by, self.assistant)
+
+    def test_an_item_that_is_there_because_of_its_stock_cant_be_taken_off(self):
+        response, pid = self.card(("remove_from_reorder", {"item": "Suction tips"}))
+        self.assertContains(response, "stays until it&#x27;s ordered")
+        self.assertIsNone(pid)
+        response, pid = self.card(("remove_from_reorder", {"item": "Bibs"}))
+        self.assertContains(response, "Bibs isn&#x27;t on the reorder list.")
+
+    # --- order size ---
+
+    def test_an_order_size_shows_old_to_new_and_undo_puts_the_old_one_back(self):
+        Item.objects.filter(pk=self.bibs.pk).update(order_size=5)
+        response, pid = self.card(("set_order_size", {"item": "Bibs", "qty": 10}))
+        self.assertContains(response, "Order 10 packs at a time")
+        self.assertContains(response, "Order size: 5 packs → 10 packs")
+        self.reload(self.bibs)
+        self.assertEqual(self.bibs.order_size, 5)
+
+        self.assertContains(self.post("confirm", pid), "Bibs will be ordered 10 packs at a time.")
+        self.reload(self.bibs)
+        self.assertEqual(self.bibs.order_size, 10)
+        self.post("undo", pid)
+        self.reload(self.bibs)
+        self.assertEqual(self.bibs.order_size, 5)
+
+    def test_a_missing_or_unchanged_order_size_is_asked_about(self):
+        response, _ = self.card(("set_order_size", {"item": "Bibs"}))
+        self.assertContains(response, "How many packs of Bibs should it order at a time?")
+        Item.objects.filter(pk=self.bibs.pk).update(order_size=10)
+        response, _ = self.card(("set_order_size", {"item": "Bibs", "qty": 10}))
+        self.assertContains(response, "already ordered 10 packs at a time")
+
+    # --- marking ordered ---
+
+    def test_marking_one_ordered_is_the_buttons_order_and_undo_cancels_it(self):
+        response, pid = self.card(("mark_ordered", {"item": "Suction tips", "qty": 20}))
+        for text in ("Order 20 tips", "From Henry Schein", "20 × $0.20 = $4.00", "Out of stock", "On order"):
+            self.assertContains(response, text)
+        self.assertFalse(OrderLine.objects.filter(item=self.tips).exists())
+
+        self.assertContains(self.post("confirm", pid), "Ordered 20 tips of Suction tips from Henry Schein")
+        order = OrderLine.objects.get(item=self.tips)
+        self.assertEqual((order.qty, order.supplier, order.ordered_by, order.unit_price),
+                         (20, self.henry, self.admin, Decimal("0.20")))
+
+        self.assertEqual(self.post("undo", pid)["HX-Refresh"], "true")
+        order.refresh_from_db()
+        self.assertIsNotNone(order.cancelled_at)
+
+    def test_a_quantity_left_out_is_the_one_the_list_would_use_and_a_bad_one_is_asked_about(self):
+        Item.objects.filter(pk=self.bibs.pk).update(order_size=12)
+        response, _ = self.card(("mark_ordered", {"item": "Bibs"}))
+        self.assertContains(response, "Order 12 packs")
+        response, _ = self.card(("mark_ordered", {"item": "Bibs", "qty": "lots"}))
+        self.assertContains(response, "How many packs of Bibs did you order?")
+        response, _ = self.card(("mark_ordered", {"item": "Bibs", "qty": 500000}))
+        self.assertContains(response, "How many packs of Bibs did you order?")
+
+    def test_an_item_already_on_order_says_so_on_the_card(self):
+        response, _ = self.card(("mark_ordered", {"item": "Gloves", "qty": 4}))
+        self.assertContains(response, "10 boxes already on order. This adds more.")
+
+    def test_a_suppliers_lines_match_mark_all_ordered_and_one_undo_cancels_them_all(self):
+        Item.objects.filter(pk=self.bibs.pk).update(pinned_to_reorder_at=timezone.now())
+        response, pid = self.card(("mark_supplier_ordered", {"supplier": "Henry Schein"}))
+        card_lines = self.client.session["ask_changes"][pid]["lines"]
+        self.assertEqual(sorted(line["name"] for line in card_lines), ["Bibs", "Suction tips"])
+        self.assertContains(response, "Order total")
+        total = sum(Decimal(line["cost"]) for line in card_lines)
+        self.assertContains(response, f"${total:.2f}")
+
+        self.assertContains(self.post("confirm", pid), "Ordered 2 items from Henry Schein")
+        from_chat = {o.item_id: o.qty for o in OrderLine.objects.exclude(pk=self.existing_order().pk)}
+        self.assertEqual(set(from_chat), {self.bibs.pk, self.tips.pk})
+        self.reload(self.bibs)
+        self.assertIsNone(self.bibs.pinned_to_reorder_at)  # off the list, as the button does
+
+        self.post("undo", pid)
+        self.assertEqual(OrderLine.objects.filter(cancelled_at__isnull=True).count(), 1)
+
+        # The page's own button, from the same starting point, orders the same quantities.
+        OrderLine.objects.exclude(pk=self.existing_order().pk).delete()
+        Item.objects.filter(pk=self.bibs.pk).update(pinned_to_reorder_at=timezone.now())
+        self.client.post(f"/reorder/supplier/{self.henry.pk}/ordered/")
+        self.assertEqual({o.item_id: o.qty for o in OrderLine.objects.exclude(pk=self.existing_order().pk)}, from_chat)
+
+    def test_a_line_named_on_its_own_wins_over_the_same_line_in_its_suppliers_order(self):
+        _, pid = self.card(("mark_supplier_ordered", {"supplier": "Henry Schein"}),
+                           ("mark_ordered", {"item": "Suction tips", "qty": 99}))
+        self.post("confirm", pid)
+        self.assertEqual(OrderLine.objects.get(item=self.tips).qty, 99)
+
+    def test_nothing_on_the_list_from_a_supplier_says_so_and_offers_the_list(self):
+        response, pid = self.card(("mark_supplier_ordered", {"supplier": "Independent Dental"}))
+        self.assertContains(response, "Nothing on the reorder list is from Independent Dental.")
+        self.assertContains(response, 'href="/reorder/"')
+        self.assertIsNone(pid)
+
+    # --- switching supplier ---
+
+    def test_switching_to_a_backup_keeps_the_old_one_as_a_backup_and_undo_switches_back(self):
+        response, pid = self.card(("switch_supplier", {"item": "Suction tips", "supplier": "Independent Dental"}))
+        self.assertContains(response, "Supplier: Henry Schein → Independent Dental, about 3 days")
+        self.reload(self.tips)
+        self.assertEqual(self.tips.supplier, self.henry)
+
+        self.assertContains(self.post("confirm", pid), "Suction tips now comes from Independent Dental.")
+        self.reload(self.tips)
+        self.assertEqual(self.tips.supplier, self.indep)
+        self.assertEqual(set(self.tips.other_suppliers.all()), {self.henry})
+
+        self.post("undo", pid)
+        self.reload(self.tips)
+        self.assertEqual(self.tips.supplier, self.henry)
+        self.assertEqual(set(self.tips.other_suppliers.all()), {self.indep})
+
+    def test_a_supplier_that_isnt_a_backup_is_not_switched_to(self):
+        response, pid = self.card(("switch_supplier", {"item": "Bibs", "supplier": "Independent Dental"}))
+        self.assertContains(response, "isn&#x27;t set up as a backup for Bibs")
+        self.assertContains(response, f'href="/item/{self.bibs.pk}/"')
+        self.assertIsNone(pid)
+        response, pid = self.card(("switch_supplier", {"item": "Bibs", "supplier": "Henry Schein"}))
+        self.assertContains(response, "Bibs already comes from Henry Schein.")
+        self.reload(self.bibs)
+        self.assertEqual(self.bibs.supplier, self.henry)
+
+    # --- the order email ---
+
+    def test_the_email_is_the_reorder_lists_with_its_email_and_call_buttons(self):
+        response, pid = self.card(("write_order_email", {"supplier": "Dentsply"}))
+        self.assertIsNone(pid)
+        self.assertNotContains(response, "Confirm")
+        for text in ("Subject: Stock order for Dentsply", "Composite", "To: orders@dentsply.example", "Sandy",
+                     "Email Dentsply", "Call Dentsply", 'href="tel:095550101"'):
+            self.assertContains(response, text)
+        page = self.client.get("/reorder/").content.decode()
+        mailto = re.search(r'href="(mailto:orders@dentsply[^"]+)"', page).group(1)
+        self.assertContains(response, f'href="{mailto}"')  # the page's own link, not a second one
+
+    def test_a_supplier_with_no_email_gets_the_text_and_a_call_button_only(self):
+        Supplier.objects.filter(pk=self.henry.pk).update(email="", phone="0800 111 222")
+        response, _ = self.card(("write_order_email", {"supplier": "Henry Schein"}))
+        self.assertContains(response, "no email address set up")
+        self.assertContains(response, "Suction tips")
+        self.assertContains(response, 'href="tel:0800111222"')
+        self.assertNotContains(response, "mailto:")
+
+    def test_an_email_for_a_supplier_with_nothing_on_the_list_says_so(self):
+        response, _ = self.card(("write_order_email", {"supplier": "Independent Dental"}))
+        self.assertContains(response, "there&#x27;s no order to write")
+
+    # --- the undo views and the roles ---
+
+    def test_the_batch_add_undo_is_all_or_nothing_and_never_another_practices(self):
+        Item.objects.filter(pk=self.bibs.pk).update(reorder_requested_by=self.assistant)
+        Item.objects.filter(pk=self.tips.pk).update(reorder_requested_by=self.admin)
+        self.client.force_login(self.assistant)
+        ids = f"{self.bibs.pk},{self.tips.pk}"
+        self.assertEqual(self.client.post(f"/reorder/add/undo-batch/?ids={ids}").status_code, 403)
+        self.reload(self.bibs)
+        self.assertEqual(self.bibs.reorder_requested_by, self.assistant)  # the one that was theirs stays too
+
+        other = Organisation.objects.create(name="Elsewhere")
+        stranger = Item.objects.create(organisation=other, name="Bibs", unit="pack",
+                                       supplier=Supplier.objects.create(organisation=other, name="X"))
+        self.assertEqual(self.client.post(f"/reorder/add/undo-batch/?ids={stranger.pk}").status_code, 404)
+        self.assertEqual(self.client.post("/reorder/add/undo-batch/").status_code, 404)
+
+    def test_each_manager_action_is_checked_again_on_confirm(self):
+        _, pid = self.card(("set_order_size", {"item": "Bibs", "qty": 10}))
+        User.objects.filter(pk=self.admin.pk).update(role=User.Role.ASSISTANT)
+        self.assertContains(self.post("confirm", pid), "can&#x27;t be done now")
+        self.reload(self.bibs)
+        self.assertIsNone(self.bibs.order_size)
+
+    def test_no_card_or_history_carries_a_price_for_an_assistant(self):
+        self.client.force_login(self.assistant)
+        with calls(("add_to_reorder", {"item": "Bibs"}), ("mark_ordered", {"item": "Bibs", "qty": 5})):
+            response = self.ask("ask for bibs")
+        self.assertNotContains(response, "$")
+        for change in self.client.session["ask_changes"].values():
+            self.assertNotIn("$", json.dumps(change))
 
 
 class SendsReceipts(Practice):

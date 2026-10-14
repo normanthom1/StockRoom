@@ -264,6 +264,7 @@ NO_PRACTICE_DATA: dict[str, str] = {
     "assistant:cancel_change": "a card id from your own session; anyone else's is unknown and changes nothing",
     "assistant:choose_item": "a card id from your own session, and only an item that card offered; anything else changes nothing",
     "stock:delivery_undo_batch": "the ids are looked up in your own practice, so another practice's are unknown (404); only your own receipt inside UNDO_WINDOW goes (assistant.tests)",
+    "stock:reorder_add_undo_batch": "the ids are looked up in your own practice, so another practice's are unknown (404); an assistant can only take back their own requests (assistant.tests)",
     "stock:log_undo_batch": "the ids are looked up in your own practice, so another practice's are unknown (404), and only your own events within UNDO_WINDOW go (assistant.tests)",
     "assistant:ask_receipt": "a file read into a card in your own session, matched in your own practice; an assistant's has no prices (assistant.tests)",
     "assistant:check_receipt": "managers only; a card id from your own session, else it goes to the upload page (assistant.tests)",

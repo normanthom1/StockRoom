@@ -226,6 +226,12 @@ def _parse_nonneg_int(raw):
     return value if value >= 0 else None
 
 
+def set_order_size(item, qty):
+    """The standing order size (None to clear it): what the reorder list suggests."""
+    item.order_size = qty
+    item.save(update_fields=["order_size"])
+
+
 def _maybe_update_order_size(item, raw):
     raw = (raw or "").strip()
     if not raw:
@@ -235,8 +241,7 @@ def _maybe_update_order_size(item, raw):
     except ValueError:
         return
     if size >= 1:
-        item.order_size = size
-        item.save(update_fields=["order_size"])
+        set_order_size(item, size)
 
 
 def item_count_sheet(request, pk):
@@ -306,10 +311,9 @@ def item_set_order_size(request, pk):
         except ValueError:
             messages.error(request, "Enter a whole number of 1 or more.")
             return redirect("stock:item_detail", pk=pk)
-        item.order_size = qty
+        set_order_size(item, qty)
     else:
-        item.order_size = None
-    item.save(update_fields=["order_size"])
+        set_order_size(item, None)
     messages.success(request, f"Order size updated for {item.name}.")
     return redirect("stock:item_detail", pk=pk)
 
@@ -334,6 +338,17 @@ def _go(request, url):
     return redirect(url)
 
 
+def switch_supplier(item, new):
+    """Order the item from new (one of its backups) from now on. The old
+    preferred supplier becomes a backup, so switching back is the same call."""
+    old = item.supplier
+    item.supplier = new
+    item.save(update_fields=["supplier"])
+    item.other_suppliers.remove(new)
+    item.other_suppliers.add(old)
+    return old
+
+
 @require_POST
 @admin_required
 def item_switch_supplier(request, pk):
@@ -341,11 +356,7 @@ def item_switch_supplier(request, pk):
     The old preferred supplier becomes a backup, so switching back is the same tap."""
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
     new = get_object_or_404(item.other_suppliers.filter(is_active=True), pk=_id(request.GET.get("to")))
-    old = item.supplier
-    item.supplier = new
-    item.save(update_fields=["supplier"])
-    item.other_suppliers.remove(new)
-    item.other_suppliers.add(old)
+    old = switch_supplier(item, new)
     back = _back_to(request, reverse("stock:reorder_list"))
     undo = f"{reverse('stock:item_switch_supplier', args=[item.pk])}?{urlencode({'to': old.pk, 'next': back})}"
     messages.success(request, f"{item.name} now comes from {new.name}. {old.name} is kept as a backup.", extra_tags=undo)
@@ -640,7 +651,8 @@ def _wanted_items(org, now):
     return _split_items(org, now)[0]
 
 
-def _order_email(org, admin, supplier, lines, today):
+def _order_email_text(org, admin, supplier, lines, today):
+    """(subject, body) of the order email for one supplier's lines."""
     body_lines = [
         f"- {line['item'].name} (currently {format_qty(line['on_hand'], line['item'].unit)}, "
         f"order {line['suggested_qty']} {pluralize_unit(line['item'].unit, line['suggested_qty'])}, "
@@ -652,7 +664,7 @@ def _order_email(org, admin, supplier, lines, today):
         + "\n".join(body_lines)
         + f"\n\nThanks,\n{admin.name or admin.email}\n{org.name}"
     )
-    return build_mailto_link(supplier.email, f"Stock order for {supplier.name}", body)
+    return f"Stock order for {supplier.name}", body
 
 
 def _reorder_groups(org, admin, wanted, today):
@@ -677,11 +689,13 @@ def _reorder_groups(org, admin, wanted, today):
             }
             for item, f in sorted(entries, key=lambda e: e[0].name)
         ]
+        subject, body = _order_email_text(org, admin, supplier, lines, today)
         groups.append(
             {
                 "supplier": supplier,
                 "phone_digits": phone_digits(supplier.phone),
-                "mailto": _order_email(org, admin, supplier, lines, today) if supplier.email else "",
+                "mailto": build_mailto_link(supplier.email, subject, body) if supplier.email else "",
+                "email": f"Subject: {subject}\n\n{body}",
                 "lines": lines,
             }
         )
@@ -721,32 +735,61 @@ def reorder_add(request, pk):
     a manager to, from the top of the manager's reorder list."""
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
     undo_url = reverse("stock:reorder_add_undo", args=[item.pk])
+    add_to_reorder_list(request.user, item)
     if request.user.is_org_admin:
-        item.pinned_to_reorder_at = timezone.now()
-        item.save(update_fields=["pinned_to_reorder_at"])
         messages.success(request, f"Added {item.name} to the reorder list.", extra_tags=undo_url)
     else:
-        item.reorder_requested_by = request.user
-        item.save(update_fields=["reorder_requested_by"])
         messages.success(request, f"Asked the manager to add {item.name}.", extra_tags=undo_url)
     return redirect("stock:reorder_list")
+
+
+def add_to_reorder_list(user, item):
+    """A manager's add puts the item straight on the list; an assistant's asks a manager to."""
+    if user.is_org_admin:
+        item.pinned_to_reorder_at = timezone.now()
+        item.save(update_fields=["pinned_to_reorder_at"])
+    else:
+        item.reorder_requested_by = user
+        item.save(update_fields=["reorder_requested_by"])
+
+
+def _undo_reorder_add(user, item):
+    """Put back what add_to_reorder_list did. False if it isn't theirs to undo."""
+    if user.is_org_admin:
+        # A request the manager just said yes to goes back to waiting.
+        item.pinned_to_reorder_at = None
+    elif item.reorder_requested_by_id == user.pk:
+        item.reorder_requested_by = None
+    else:
+        return False
+    item.save(update_fields=["pinned_to_reorder_at", "reorder_requested_by"])
+    return True
 
 
 @require_POST
 def reorder_add_undo(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
-    if request.user.is_org_admin:
-        # A request the manager just said yes to goes back to waiting.
-        item.pinned_to_reorder_at = None
-    elif item.reorder_requested_by_id == request.user.pk:
-        item.reorder_requested_by = None
-    else:
+    if not _undo_reorder_add(request.user, item):
         raise PermissionDenied
-    item.save(update_fields=["pinned_to_reorder_at", "reorder_requested_by"])
     messages.success(request, "Undone.")
     response = HttpResponse(status=200)
     response["HX-Redirect"] = reverse("stock:reorder_list")
     return response
+
+
+@require_POST
+def reorder_add_undo_batch(request):
+    """Undo for several adds from one Ask StockRoom card (?ids=item,item), each as reorder_add_undo."""
+    ids = {int(i) for i in request.GET.get("ids", "").split(",") if i.isdigit()}
+    items = list(Item.objects.for_org(request.user.organisation).filter(pk__in=ids))
+    if not items or len(items) != len(ids):
+        raise Http404
+    # All or nothing, as the one Undo for the whole card: an assistant can only take back their own requests.
+    if not request.user.is_org_admin and any(i.reorder_requested_by_id != request.user.pk for i in items):
+        raise PermissionDenied
+    for item in items:
+        _undo_reorder_add(request.user, item)
+    return _toast_response(request, "Undone.")
 
 
 @require_POST
@@ -770,6 +813,16 @@ def _off_the_list(item):
     item.save(update_fields=["pinned_to_reorder_at", "reorder_requested_by"])
 
 
+def place_order(user, item, qty):
+    """Mark an item ordered: an order line at today's price, and off the reorder list.
+    Mark ordered, Mark all ordered and Ask StockRoom all come through here."""
+    order = OrderLine.objects.create(
+        organisation=user.organisation, item=item, qty=qty, unit_price=item.price, ordered_by=user
+    )
+    _off_the_list(item)
+    return order
+
+
 @require_POST
 @admin_required
 def reorder_mark_ordered(request, pk):
@@ -778,10 +831,7 @@ def reorder_mark_ordered(request, pk):
     f = _forecast_for(item, timezone.localtime())
     qty = _parse_nonneg_int(request.POST.get(f"qty_{item.pk}", "").strip()) or _default_qty(item, f)
 
-    order = OrderLine.objects.create(
-        organisation=org, item=item, qty=qty, unit_price=item.price, ordered_by=request.user
-    )
-    _off_the_list(item)
+    order = place_order(request.user, item, qty)
 
     messages.success(
         request,
@@ -806,11 +856,7 @@ def reorder_mark_supplier_ordered(request, pk):
     order_ids = []
     for item, f in items:
         qty = _parse_nonneg_int(request.POST.get(f"qty_{item.pk}", "").strip()) or _default_qty(item, f)
-        order = OrderLine.objects.create(
-            organisation=org, item=item, qty=qty, unit_price=item.price, ordered_by=request.user
-        )
-        order_ids.append(order.pk)
-        _off_the_list(item)
+        order_ids.append(place_order(request.user, item, qty).pk)
 
     undo_url = reverse("stock:reorder_undo_batch") + "?ids=" + ",".join(str(i) for i in order_ids)
     messages.success(
