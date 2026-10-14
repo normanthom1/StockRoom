@@ -23,6 +23,7 @@ urlpatterns = [
     path("log-usage/<int:pk>/running-low/", views.log_running_low, name="log_running_low"),
     path("log-usage/<int:pk>/used-last/", views.log_used_last, name="log_used_last"),
     path("log-usage/undo/<int:pk>/", views.log_undo, name="log_undo"),
+    path("log-usage/undo/", views.log_undo_batch, name="log_undo_batch"),
     path("reorder/", views.reorder_list, name="reorder_list"),
     path("reorder/item/<int:pk>/add/", views.reorder_add, name="reorder_add"),
     path("reorder/item/<int:pk>/add/undo/", views.reorder_add_undo, name="reorder_add_undo"),

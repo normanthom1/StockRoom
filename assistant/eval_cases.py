@@ -28,6 +28,8 @@ SHIELDS = "Face shields"
 FILM = "Barrier film rolls"
 PELLETS = "Cotton pellets"
 SENSORS = "Digital sensor barriers"
+BIBS = "Bib clips"
+SUTURES = "Surgical sutures"
 
 
 class Case(NamedTuple):
@@ -43,6 +45,18 @@ def call(action, **args):
 
 def used(item, qty):
     return call("log_used", item=item, qty=qty)
+
+
+def out(item):
+    return call("log_out", item=item)
+
+
+def low(item):
+    return call("log_low", item=item)
+
+
+def count(item, qty):
+    return call("set_count", item=item, qty=qty)
 
 
 CASES = [
@@ -76,6 +90,44 @@ CASES = [
     Case("useed 3 sucton tips", "assistant", (used(TIPS, 3),)),
     Case("log 2 gloves as used", "assistant", (used(GLOVES, 2),)),
     Case("Sofia used 2 boxes of gloves for the clinic's own use", "admin", (used(GLOVES, 2),)),
+    # --- log_out: the last one has gone ---
+    Case("chucked out the last of the 3-0 sutures", "assistant", (out(SUTURES),)),
+    Case("were out of bibs", "assistant", (out(BIBS),)),
+    Case("we've run out of 2.2 needles", "assistant", (out(NEEDLES),)),
+    Case("used the last box of masks", "assistant", (out(MASKS),)),
+    Case("no more suction tips", "assistant", (out(TIPS),)),
+    Case("used the last of the gauze", "admin", (out(GAUZE),)),
+    Case("we're all out of glovs", "assistant", (out(GLOVES),)),
+    Case("finished the last roll of barrier film", "assistant", (out(FILM),)),
+    Case("none left of the face shields", "assistant", (out(SHIELDS),)),
+    Case("ran out of A2 composite", "admin", (out(COMPOSITE),)),
+    # --- log_low: still some, but not for long ---
+    Case("bibs are getting low", "assistant", (low(BIBS),)),
+    Case("running low on lignocaine", "assistant", (low(LIGNOCAINE),)),
+    Case("we're low on gloves", "assistant", (low(GLOVES),)),
+    Case("nearly out of face shields", "assistant", (low(SHIELDS),)),
+    Case("suction tips are low", "assistant", (low(TIPS),)),
+    Case("not much gauze left", "assistant", (low(GAUZE),)),
+    Case("pouches are running low", "admin", (low(POUCHES),)),
+    Case("were getting low on paste cups", "assistant", (low(PASTE_CUPS),)),
+    Case("sutures nearly gone", "assistant", (low(SUTURES),)),
+    Case("runnin low on masks", "assistant", (low(MASKS),)),
+    # --- set_count: an exact number on the shelf ---
+    Case("there are 14 boxes of gloves on the shelf", "assistant", (count(GLOVES, 14),)),
+    Case("counted 6 boxes of masks", "assistant", (count(MASKS, 6),)),
+    Case("we have 3 composite syringes left", "assistant", (count(COMPOSITE, 3),)),
+    Case("stocktake: 120 autoclave pouches", "admin", (count(POUCHES, 120),)),
+    Case("just counted 25 suction tips", "assistant", (count(TIPS, 25),)),
+    Case("there's 8 packs of cotton pellets", "assistant", (count(PELLETS, 8),)),
+    Case("lignocaine count is 40", "admin", (count(LIGNOCAINE, 40),)),
+    Case("shelf has 2 rolls of barrier film", "assistant", (count(FILM, 2),)),
+    Case("sutures: 12 on the shelf", "assistant", (count(SUTURES, 12),)),
+    Case("I counted twenty needles", "assistant", (count(NEEDLES, 20),)),
+    # --- several changes in one message ---
+    Case("used 2 bibs and a box of gloves, and suction tips are low", "assistant",
+         (used(BIBS, 2), used(GLOVES, 1), low(TIPS))),
+    Case("used 3 pouches and out of face shields", "assistant", (used(POUCHES, 3), out(SHIELDS))),
+    Case("counted 10 masks and 5 boxes of gloves", "admin", (count(MASKS, 10), count(GLOVES, 5))),
     # --- no action: questions, chit-chat, clinical, and money for an assistant ---
     Case("How do I log what I've used?", "assistant"),
     Case("How do I receive a delivery?", "assistant"),

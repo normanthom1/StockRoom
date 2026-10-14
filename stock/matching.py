@@ -121,6 +121,7 @@ class Match:
     confidence: float
     method: str = ""  # an ItemAlias.Method, blank when nothing matched
     candidates: list = field(default_factory=list, repr=False)  # unsure items worth an embedding check
+    tied: list = field(default_factory=list, repr=False)  # every item that fit as well as item did, when more than one
 
     @property
     def band(self):
@@ -221,7 +222,7 @@ class Matcher:
         item = min(found, key=preference)[0]
         if len(found) > 1:
             confidence = min(confidence, SURE - 0.01)  # two items fit about as well: ask, don't guess
-        return Match(item, confidence, method)
+        return Match(item, confidence, method, tied=[entry[0] for entry in found] if len(found) > 1 else [])
 
     def _check_meaning(self, unsure):
         """Embedding similarity for names spelling couldn't settle. Never a

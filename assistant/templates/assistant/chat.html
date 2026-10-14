@@ -9,8 +9,9 @@ Behaviour is in static/js/app.js.
 A change the chat proposes (assistant/actions.py): what will change, before and after, and
 nothing happens until Confirm. It's the one confirm step in StockRoom, because the AI can
 misread. Every action uses this card, with one line or ten; past a screenful, the buttons
-stay pinned to the bottom of the chat while the lines scroll. Confirmed, it becomes the done
-state; Cancel, or an expired card, leaves a note in its place.
+stay pinned to the bottom of the chat while the lines scroll. A name that fits several items
+shows "Which one?" with a button for each in place of Confirm; choosing one makes no AI call.
+Confirmed, it becomes the done state; Cancel, or an expired card, leaves a note in its place.
 {% endcomment %}
 {% partialdef change %}
   {% if note %}
@@ -22,6 +23,8 @@ state; Cancel, or an expired card, leaves a note in its place.
         {% if change.undo %}
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
           Done
+        {% elif change.which and not change.lines %}
+          Which one?
         {% else %}
           This will change
         {% endif %}
@@ -38,7 +41,7 @@ state; Cancel, or an expired card, leaves a note in its place.
             {% else %}
               <p class="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-2">
                 <span class="sr-only">On hand</span>
-                <span class="font-heading text-3xl leading-none font-semibold text-gray-600 tabular-nums">{{ line.before }}</span>
+                <span class="font-heading text-3xl leading-none font-semibold text-gray-600 tabular-nums">{{ line.before|default_if_none:"–" }}</span>
                 <svg class="size-5 shrink-0 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
                 <span class="sr-only">to</span>
                 <span class="font-heading text-3xl leading-none font-semibold text-gray-900 tabular-nums">{{ line.after }}</span>
@@ -51,12 +54,28 @@ state; Cancel, or an expired card, leaves a note in its place.
                   {% include "stock/_status_chip.html" with s=line.now %}
                 </span>
               </p>
+              {% if line.flag %}<p class="mt-2 text-[0.9375rem] font-semibold text-gray-900">{{ line.flag }}</p>{% endif %}
             {% endif %}
           </li>
         {% endfor %}
       </ul>
       {% if change.note %}<p class="border-t border-gray-200 px-4 py-2.5 text-[0.9375rem] text-gray-700">{{ change.note }}</p>{% endif %}
-      {% if not change.undo %}
+      {% if change.which %}
+        <div class="border-t border-gray-200 px-4 pt-3 pb-1">
+          <p class="font-heading text-lg leading-tight font-semibold text-gray-900">{% if change.which.options|length > 1 %}Which one?{% else %}Did you mean this one?{% endif %}</p>
+          <p class="text-[0.9375rem] text-gray-700">You said &ldquo;{{ change.which.name }}&rdquo;.</p>
+        </div>
+        <fieldset hx-target="closest [data-change]" hx-swap="outerHTML" hx-disabled-elt="this"
+                  class="sticky -bottom-4 flex min-w-0 flex-col gap-2 rounded-b-[1.25rem] bg-white p-2">
+          <legend class="sr-only">Which one?</legend>
+          {% for option in change.which.options %}
+            <button type="button" hx-post="{% url 'assistant:choose_item' change.id option.item %}"
+                    class="btn btn-line min-h-14 w-full rounded-full text-lg">{{ option.name }}</button>
+          {% endfor %}
+          <button type="button" hx-post="{% url 'assistant:cancel_change' change.id %}"
+                  class="btn min-h-14 w-full rounded-full text-lg text-gray-700">Cancel</button>
+        </fieldset>
+      {% elif not change.undo %}
         {# A fieldset, so disabling it during a tap disables both buttons. -bottom-4 pins it past #chat's pb-4. #}
         <fieldset hx-target="closest [data-change]" hx-swap="outerHTML" hx-disabled-elt="this"
                   class="sticky -bottom-4 flex min-w-0 gap-2 rounded-b-[1.25rem] border-t border-gray-200 bg-white p-2">

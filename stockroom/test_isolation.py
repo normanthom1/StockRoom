@@ -260,6 +260,8 @@ NO_PRACTICE_DATA: dict[str, str] = {
     # looks its item up through their practice (assistant.tests.ChangeTests).
     "assistant:confirm_change": "a card id from your own session; anyone else's is unknown and changes nothing",
     "assistant:cancel_change": "a card id from your own session; anyone else's is unknown and changes nothing",
+    "assistant:choose_item": "a card id from your own session, and only an item that card offered; anything else changes nothing",
+    "stock:log_undo_batch": "the ids are looked up in your own practice, so another practice's are unknown (404), and only your own events within UNDO_WINDOW go (assistant.tests)",
     "assistant:undo_change": "a card id from your own session; the undo itself is the page's own (stock:log_undo above)",
 }
 

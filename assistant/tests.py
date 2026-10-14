@@ -300,7 +300,8 @@ class ChangeTests(Practice):
         self.client.force_login(self.assistant)
         with calls(USED_2) as generate:
             response = self.ask("We used 2 boxes of gloves")
-        self.assertEqual([tool["name"] for tool in generate.call_args.kwargs["tools"]], ["log_used"])
+        self.assertEqual([tool["name"] for tool in generate.call_args.kwargs["tools"]],
+                         ["log_used", "log_out", "log_low", "set_count"])
         system = generate.call_args.args[0]
         self.assertIn("nothing happens until they tap Confirm", system)
         self.assertNotIn("can't change anything", system)
@@ -381,6 +382,10 @@ class ChangeTests(Practice):
         cases = [
             (("log_used", {"item": "glvoes", "qty": 2}), "I can&#x27;t find &#x27;glvoes&#x27; in your stock."),
             (("log_used", {"item": "Gloves", "qty": 0}), "How many boxes of Gloves were used?"),
+            (("log_used", {"item": "Gloves", "qty": -3}), "How many boxes of Gloves were used?"),
+            (("set_count", {"item": "Gloves", "qty": 4000}), "far more than you usually have"),
+            (("set_count", {"item": "Gloves"}), "How many boxes of Gloves are on the shelf?"),
+            (("log_out", {}), "Which item was it?"),
             (("log_used", {"item": "Gloves", "qty": 1e9}), "How many boxes of Gloves were used?"),
             (("log_used", {"item": "Bibs", "qty": 1}), "Bibs hasn&#x27;t been counted yet"),
             (("set_price", {"item": "Gloves"}), "I can&#x27;t do that from the chat."),
@@ -393,12 +398,12 @@ class ChangeTests(Practice):
                 self.assertNotContains(response, "This will change")
                 self.assertIsNone(pid)
 
-    def test_one_change_per_card_for_now(self):
+    def test_a_call_that_cant_be_made_is_a_note_while_another_can(self):
         self.client.force_login(self.assistant)
-        with calls(USED_2, ("log_used", {"item": "Gloves", "qty": 1})):
-            response = self.ask("Used 2 gloves, then 1 more")
-        self.assertContains(response, "One change at a time for now")
+        with calls(USED_2, ("log_used", {"item": "glvoes", "qty": 1})):
+            response = self.ask("Used 2 gloves and a glvoes")
         self.assertContains(response, "Used 2 boxes")
+        self.assertContains(response, "I can&#x27;t find &#x27;glvoes&#x27; in your stock.")
 
     def test_confirm_cancel_and_undo_make_no_ai_call_and_dont_count(self):
         self.client.force_login(self.assistant)
@@ -419,7 +424,8 @@ class ChangeTests(Practice):
                                    preview=None, apply=None)
         reply = {"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}
         with mock.patch.dict(actions.ACTIONS, {"set_price": set_price}):
-            for user, expected in ((self.assistant, ["log_used"]), (self.admin, ["log_used", "set_price"])):
+            everyone = ["log_used", "log_out", "log_low", "set_count"]
+            for user, expected in ((self.assistant, everyone), (self.admin, [*everyone, "set_price"])):
                 self.client.force_login(user)
                 with mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen:
                     urlopen.return_value.__enter__.return_value = io.BytesIO(json.dumps(reply).encode())
@@ -427,6 +433,134 @@ class ChangeTests(Practice):
                 body = json.loads(urlopen.call_args.args[0].data)
                 [tools] = body["tools"]
                 self.assertEqual([tool["name"] for tool in tools["functionDeclarations"]], expected)
+
+
+@override_settings(AI_API_KEY="test-key")
+class StockChangeTests(Practice):
+    """#152: used, out, running low and exact counts, several to a card."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.bibs, cls.tips = (
+            Item.objects.create(organisation=cls.org, name=name, unit=unit, supplier=cls.henry)
+            for name, unit in (("Bibs", "pack"), ("Suction tips", "tip"))
+        )
+        for item, qty in ((cls.bibs, 10), (cls.tips, 50)):
+            StockEvent.objects.create(organisation=cls.org, item=item, user=cls.admin, kind="count", qty=qty,
+                                      created_at=timezone.now() - timedelta(days=30))  # a month's history to forecast from
+
+    def card(self, *found, question="used some things"):
+        with calls(*found):
+            response = self.ask(question)
+        return response, next(iter(self.client.session.get("ask_changes", {})), None)
+
+    def post(self, step, pid):
+        return self.client.post(f"/ask/changes/{pid}/{step}/")
+
+    def test_several_changes_are_one_card_one_confirm_and_one_undo(self):
+        self.client.force_login(self.assistant)
+        response, pid = self.card(
+            ("log_used", {"item": "Bibs", "qty": 2}),
+            ("log_used", {"item": "Gloves", "qty": 1}),
+            ("log_low", {"item": "Suction tips"}),
+        )
+        for text in ("Used 2 packs", "Used 1 box", "Running low"):
+            self.assertContains(response, text)
+        self.assertEqual(response.content.decode().count("Confirm"), 1)
+        self.assertEqual(StockEvent.objects.exclude(kind="count").count(), 0)
+
+        done = self.post("confirm", pid)
+        self.assertContains(done, "Logged 3 changes")
+        events = StockEvent.objects.exclude(kind="count")
+        self.assertEqual(sorted((e.kind, e.item.name) for e in events),
+                         [("low", "Suction tips"), ("used", "Bibs"), ("used", "Gloves")])
+        self.assertEqual(self.post("confirm", pid).status_code, 204)
+        self.assertEqual(events.all().count(), 3)
+
+        self.assertEqual(self.post("undo", pid)["HX-Refresh"], "true")
+        self.assertEqual(events.all().count(), 0)
+        self.assertEqual(self.client.session["ask_history"][0][1],
+                         "Undone, so nothing changed: used 2 packs of Bibs, used 1 box of Gloves and Suction tips running low.")
+
+    def test_the_same_item_twice_carries_on_from_the_first_line(self):
+        self.client.force_login(self.assistant)
+        response, _ = self.card(("log_used", {"item": "Bibs", "qty": 2}), ("log_used", {"item": "Bibs", "qty": 3}))
+        self.assertRegex(response.content.decode(), r">10</span>[\s\S]*?>8</span>[\s\S]*?>8</span>[\s\S]*?>5</span>")
+
+    def test_out_and_count_go_through_the_same_log_event(self):
+        self.client.force_login(self.assistant)
+        _, pid = self.card(("log_out", {"item": "Bibs"}), ("set_count", {"item": "Suction tips", "qty": 14}))
+        self.post("confirm", pid)
+        self.assertEqual(on_hand(self.bibs.events.all()), 0)
+        self.assertEqual(on_hand(self.tips.events.all()), 14)
+        self.assertEqual(StockEvent.objects.get(item=self.bibs, kind="out").user, self.assistant)
+        self.assertEqual(StockEvent.objects.get(item=self.tips, kind="count", qty=14).user, self.assistant)
+
+    def test_the_card_says_when_it_puts_an_item_on_the_reorder_list(self):
+        self.client.force_login(self.assistant)
+        response, _ = self.card(("log_out", {"item": "Bibs"}), ("log_used", {"item": "Suction tips", "qty": 1}))
+        self.assertContains(response, "This puts it on the reorder list.")
+        self.assertEqual(response.content.decode().count("on the reorder list"), 1)  # not the tips
+
+    def test_a_name_that_fits_several_items_asks_which_one_without_an_ai_call(self):
+        sizes = {size: Item.objects.create(organisation=self.org, name=f"Nitrile gloves, size {size}", unit="box",
+                                           supplier=self.henry) for size in "SML"}
+        for item in sizes.values():
+            StockEvent.objects.create(organisation=self.org, item=item, user=self.admin, kind="count", qty=5)
+        self.client.force_login(self.assistant)
+        response, pid = self.card(("log_used", {"item": "nitrile gloves", "qty": 2}),
+                                  ("log_low", {"item": "Suction tips"}))
+        self.assertContains(response, "Which one?")
+        self.assertContains(response, "You said &ldquo;nitrile gloves&rdquo;.")
+        for size in "SML":
+            self.assertContains(response, f"/ask/changes/{pid}/choose/{sizes[size].pk}/")
+        self.assertNotContains(response, f"/ask/changes/{pid}/confirm/")
+        self.assertContains(self.post("confirm", pid), "can&#x27;t be done now")  # nothing written
+        self.assertFalse(StockEvent.objects.filter(kind__in=["used", "low"]).exists())
+
+        _, pid = self.card(("log_used", {"item": "nitrile gloves", "qty": 2}))
+        with mock.patch("assistant.gemini.generate") as generate:
+            not_an_option = self.client.post(f"/ask/changes/{pid}/choose/{self.bibs.pk}/")
+            chosen = self.client.post(f"/ask/changes/{pid}/choose/{sizes['M'].pk}/")
+        generate.assert_not_called()
+        self.assertContains(not_an_option, "Which one?")
+        self.assertContains(chosen, "Nitrile gloves, size M")
+        self.assertContains(chosen, "Used 2 boxes")
+        self.assertContains(chosen, f"/ask/changes/{pid}/confirm/")
+        self.assertNotContains(chosen, "Which one?")
+
+        self.post("confirm", pid)
+        self.assertEqual(StockEvent.objects.get(kind="used").item, sizes["M"])
+
+    def test_a_pick_is_never_taken_from_the_model(self):
+        self.client.force_login(self.assistant)
+        other = Organisation.objects.create(name="Other")
+        supplier = Supplier.objects.create(organisation=other, name="X")
+        stranger = Item.objects.create(organisation=other, name="Secret", unit="box", supplier=supplier)
+        response, _ = self.card(("log_out", {"item": "Bibs", "item_id": stranger.pk}))
+        self.assertContains(response, "Bibs")
+        self.assertNotContains(response, "Secret")
+
+    def test_one_undo_is_all_or_nothing_and_for_the_same_person_in_the_window(self):
+        events = [StockEvent.objects.create(organisation=self.org, item=item, user=self.assistant, kind="used", qty=1)
+                  for item in (self.bibs, self.tips)]
+        ids = ",".join(str(e.pk) for e in events)
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.post(f"/log-usage/undo/?ids={ids}").status_code, 403)
+        self.client.force_login(self.assistant)
+        StockEvent.objects.filter(pk=events[1].pk).update(created_at=timezone.now() - timedelta(minutes=11))
+        self.assertEqual(self.client.post(f"/log-usage/undo/?ids={ids}").status_code, 403)
+        self.assertEqual(StockEvent.objects.filter(kind="used").count(), 2)
+        self.assertEqual(self.client.post(f"/log-usage/undo/?ids={events[0].pk},999999").status_code, 404)
+        self.assertEqual(self.client.post(f"/log-usage/undo/?ids={events[0].pk}").status_code, 200)
+        self.assertEqual(StockEvent.objects.filter(kind="used").count(), 1)
+
+    def test_the_prompt_tells_the_model_to_call_a_function_for_each_change(self):
+        self.client.force_login(self.assistant)
+        with calls(USED_2) as generate:
+            self.ask("used 2 gloves")
+        self.assertIn("call a function for each", generate.call_args.args[0])
 
 
 @override_settings(AI_API_KEY="test-key")

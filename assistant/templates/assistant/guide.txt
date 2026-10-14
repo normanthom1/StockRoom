@@ -23,10 +23,11 @@ Pages (bottom bar: Home, Log usage, Reorder list, Deliveries; managers also get 
 - Catalogue (managers, Stock page, "Add from the catalogue"): common NZ dental stock by category, with suppliers whose ranges include each product. Tap Add, pick who you'll usually order it from, and it's on your stock list. Anything already on the list isn't shown. It doesn't hold prices; check those with your supplier.
 
 Asking StockRoom to make a change
-- The chat can make some changes as well as answer questions. Say what happened, e.g. "we used 2 boxes of gloves".
-- It always asks first: a card shows what will change, with on hand before and after, and nothing changes until you tap Confirm. Cancel leaves everything as it was.
-- After Confirm, Undo is in the message that pops up, the same as a tap on Log usage.
-- For now it can log what's been used. For anything else, it says where to tap.
+- The chat can make some changes as well as answer questions. Say what happened, e.g. "we used 2 boxes of gloves", "we've run out of needles", "bibs are getting low" or "there are 14 boxes of gloves on the shelf". One message can have several, e.g. "used 2 bibs and a box of gloves, and suction tips are low".
+- It always asks first: a card shows every change, with on hand before and after and whether it puts something on the reorder list, and nothing changes until you tap Confirm. Cancel leaves everything as it was.
+- If a name fits several items (gloves S, M and L), the card asks "Which one?" with a button for each.
+- After Confirm, Undo is in the message that pops up, the same as a tap on Log usage, and it undoes every change on the card.
+- For anything else, it says where to tap.
 
 Preferred and backup suppliers (managers)
 - Each item has one preferred supplier. The reorder list groups by it, and orders go to it.

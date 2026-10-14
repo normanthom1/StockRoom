@@ -5,7 +5,7 @@ import uuid
 
 from django.contrib import messages
 from django.db import transaction
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import resolve, reverse
@@ -65,7 +65,7 @@ CHAT_RULES = """You are Ask StockRoom, the help inside StockRoom, a stock-orderi
 Answer questions about how to use StockRoom (from the guide below) and about this practice's stock (from the data below).
 - Plain New Zealand English. Short: a sentence or two, or a short list. Plain text only, no Markdown; start list lines with "- ".
 - Only use the guide and the data. If the answer isn't there, say you don't know rather than guessing. Never make up numbers.
-- You can make some changes with your functions, such as logging what's been used. Call the function and StockRoom shows them a card with the change; nothing happens until they tap Confirm. Never say you've changed something yourself: the conversation says what was done, cancelled or undone. For anything your functions can't do, tell them where to tap to do it themselves.
+- You can make some changes with your functions, such as logging what's been used or counted. Call the function and StockRoom shows them a card with the change; nothing happens until they tap Confirm. If one message has several changes, call a function for each. Never say you've changed something yourself: the conversation says what was done, cancelled or undone. For anything your functions can't do, tell them where to tap to do it themselves.
 - Stay on StockRoom and the practice's stock. Politely decline anything else, including clinical advice.
 - You are talking to {name}, {role_description}.{role_rule}
 """
@@ -205,6 +205,31 @@ def confirm_change(request, pid):
 
 @require_POST
 @ai_required
+def choose_item(request, pid, item):
+    """A button on a card's "Which one?": run the card again with that item
+    picked, which makes no AI call. A stale or made-up id leaves the card as it was."""
+    session = request.session
+    changes = _changes(session)
+    change = changes.get(pid)
+    if change is None:
+        return render(request, "assistant/chat.html#change",
+                      {"note": "That's expired, so nothing was changed. Ask again if you still need it."})
+    which = change.get("which")
+    if "undo" in change or not which or item not in {option["item"] for option in which["options"]}:
+        return render(request, "assistant/chat.html#change", {"change": change})
+    card = actions.build(request.user, change["calls"], {**change["picks"], str(which["index"]): item})
+    if isinstance(card, str):
+        del changes[pid]
+        session[CHANGES_KEY] = changes
+        _record(session, change, "Couldn't be done, so nothing changed")
+        return render(request, "assistant/chat.html#change", {"note": card})
+    change |= card
+    session[CHANGES_KEY] = changes
+    return render(request, "assistant/chat.html#change", {"change": change})
+
+
+@require_POST
+@ai_required
 def cancel_change(request, pid):
     """Cancel on a card: nothing changes, and the chat says so."""
     session = request.session
@@ -221,14 +246,16 @@ def cancel_change(request, pid):
 @ai_required
 def undo_change(request, pid):
     """The toast's Undo for a change made in the chat. It's the page's own undo
-    (log_undo for a stock event, with its rules), then the chat's record of the
-    change says it was undone."""
+    (log_undo_batch for stock events, with log_undo's rules), then the chat's
+    record of the change says it was undone."""
     session = request.session
     changes = _changes(session)
     change = changes.pop(pid, None)
     if change is None or "undo" not in change:
         raise Http404
-    page_undo = resolve(change["undo"])
+    path, _, query = change["undo"].partition("?")
+    page_undo = resolve(path)
+    request.GET = QueryDict(query)  # the page's undo reads the ids it's to reverse from here
     response = page_undo.func(request, *page_undo.args, **page_undo.kwargs)
     session[CHANGES_KEY] = changes
     _record(session, change, "Undone, so nothing changed")

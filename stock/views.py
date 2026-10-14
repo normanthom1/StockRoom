@@ -484,13 +484,31 @@ def log_used_last(request, pk):
     return _log_event(request, item, "out", None, f"Logged: used the last {item.name} · the manager will see it")
 
 
+def _undo_events(request, ids):
+    """Delete these events if every one is the user's own and inside UNDO_WINDOW,
+    otherwise none of them: one Undo reverses a whole change or doesn't."""
+    events = list(StockEvent.objects.for_org(request.user.organisation).filter(pk__in=ids))
+    if len(events) != len(set(ids)):
+        raise Http404
+    if any(e.user_id != request.user.id or timezone.now() - e.created_at > UNDO_WINDOW for e in events):
+        raise PermissionDenied
+    for event in events:
+        event.delete()
+    return _toast_response(request, "Undone.")
+
+
 @require_POST
 def log_undo(request, pk):
-    event = get_object_or_404(StockEvent.objects.for_org(request.user.organisation), pk=pk)
-    if event.user_id != request.user.id or timezone.now() - event.created_at > UNDO_WINDOW:
-        raise PermissionDenied
-    event.delete()
-    return _toast_response(request, "Undone.")
+    return _undo_events(request, [pk])
+
+
+@require_POST
+def log_undo_batch(request):
+    """Undo for a change that logged several events at once (Ask StockRoom's cards)."""
+    ids = [int(i) for i in request.GET.get("ids", "").split(",") if i.isdigit()]
+    if not ids:
+        raise Http404
+    return _undo_events(request, ids)
 
 
 SESSION_KEY = "stocktake"
