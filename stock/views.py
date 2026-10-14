@@ -511,6 +511,53 @@ def log_undo_batch(request):
     return _undo_events(request, ids)
 
 
+def _undo_receipts(request, pairs):
+    """Put back what a receipt did, for (order line, event) pairs: the stock
+    event gone, the line open again, any back-order it split off removed, and a
+    price it set put back. All or nothing, and only your own receipt inside
+    UNDO_WINDOW, with its back-order not yet received or cancelled."""
+    org = request.user.organisation
+    line_ids, event_ids = {line for line, _ in pairs}, {event for _, event in pairs}
+    lines = {o.pk: o for o in OrderLine.objects.for_org(org).select_related("item").filter(pk__in=line_ids)}
+    events = {e.pk: e for e in StockEvent.objects.for_org(org).filter(pk__in=event_ids)}
+    if len(lines) != len(line_ids) or len(events) != len(event_ids):
+        raise Http404
+    remainders = {o.split_from_id: o for o in OrderLine.objects.for_org(org).filter(split_from__in=line_ids)}
+    now = timezone.now()
+    for line_id, event_id in pairs:
+        line, event, remainder = lines[line_id], events[event_id], remainders.get(line_id)
+        if (
+            line.received_by_id != request.user.id or line.received_at is None or now - line.received_at > UNDO_WINDOW
+            or event.user_id != request.user.id or event.kind != "received" or event.item_id != line.item_id
+            or (remainder is not None and not remainder.is_open)
+        ):
+            raise PermissionDenied
+    for line_id, event_id in pairs:
+        line = lines[line_id]
+        if remainder := remainders.get(line_id):
+            remainder.delete()
+        events[event_id].delete()
+        if line.price_before is not None and line.item.price == line.unit_price:
+            line.item.price = line.unit_price = line.price_before
+            line.item.save(update_fields=["price"])
+        line.received_qty = line.received_at = line.received_by = line.price_before = None
+        line.save()
+    return _toast_response(request, "Undone.")
+
+
+@require_POST
+def delivery_undo_batch(request):
+    """Undo for a receipt made from Ask StockRoom: ?ids=line:event,line:event."""
+    pairs = []
+    for part in request.GET.get("ids", "").split(","):
+        line, _, event = part.partition(":")
+        if line.isdigit() and event.isdigit():
+            pairs.append((int(line), int(event)))
+    if not pairs:
+        raise Http404
+    return _undo_receipts(request, pairs)
+
+
 SESSION_KEY = "stocktake"
 
 
@@ -845,6 +892,16 @@ def deliveries(request):
     return render(request, "stock/deliveries.html", context)
 
 
+def receive_delivery_line(user, line, qty, unit_price=None):
+    """Receive qty of an open order line: the one place Deliveries and Ask
+    StockRoom both do it. None, and nothing received, unless qty is 1 up to
+    what was ordered. Only a manager's price counts. Returns line.receive's
+    (event, remainder)."""
+    if not qty or qty > line.qty:
+        return None
+    return line.receive(qty, user, unit_price if user.is_org_admin else None)
+
+
 @require_POST
 def delivery_submit(request, pk):
     """One form per supplier: either one line's "Receive" button or the
@@ -865,9 +922,6 @@ def delivery_submit(request, pk):
         if str(line.pk) not in target_ids:
             continue
         qty = _parse_nonneg_int(request.POST.get(f"qty_{line.pk}", "").strip())
-        if not qty or qty > line.qty:
-            continue
-
         unit_price = None
         if request.user.is_org_admin:
             raw_price = request.POST.get(f"price_{line.pk}", "").strip()
@@ -877,8 +931,8 @@ def delivery_submit(request, pk):
                 except InvalidOperation:
                     pass
 
-        line.receive(qty, request.user, unit_price)
-        received += 1
+        if receive_delivery_line(request.user, line, qty, unit_price):
+            received += 1
 
     if received:
         messages.success(request, f"Received {received} item{'s' if received != 1 else ''} from {supplier.name}.")

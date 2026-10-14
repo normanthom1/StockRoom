@@ -34,6 +34,7 @@ urlpatterns = [
     path("reorder/undo-batch/", views.reorder_undo_batch, name="reorder_undo_batch"),
     path("deliveries/", views.deliveries, name="deliveries"),
     path("deliveries/supplier/<int:pk>/", views.delivery_submit, name="delivery_submit"),
+    path("deliveries/undo/", views.delivery_undo_batch, name="delivery_undo_batch"),
     path("items/", views.items, name="items"),
     path("items/add/", views.item_add, name="item_add"),
     path("items/<int:pk>/", views.item_view_row, name="item_view_row"),

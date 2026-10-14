@@ -15,6 +15,8 @@ pages, returning the toast's text and one undo URL for all of them.
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
@@ -22,16 +24,19 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import User
+from stock.forecast import forecast
 from stock.humanize import format_qty, pluralize_unit
 from stock.matching import Matcher, synonym_key
-from stock.models import Item, StockEvent
+from stock.models import Item, StockEvent, Supplier
 from stock.spending import PERIOD_WEEKS
 from stock.views import (
     SOLID_STATUSES,
     STATUS_COLOR,
     WANTED_STATUSES,
     _forecast_for,
+    _open_lines_for_org,
     log_event,
+    receive_delivery_line,
 )
 
 ANYONE = frozenset(User.Role.values)
@@ -57,10 +62,11 @@ class Action:
 
 @dataclass(frozen=True)
 class Which:
-    """A name that fits several items: asked, never guessed."""
+    """A name that fits several things (items, suppliers, orders): asked, never guessed."""
 
     name: str
-    options: list  # [{"item": pk, "name": ...}]
+    options: list  # [{"id": pk, "name": ...}]
+    kind: str = "item"  # what the ids are, so a pick can't be taken for another kind's
 
 
 class Answer(str):
@@ -83,24 +89,31 @@ def declarations(user):
 def propose(user, calls, text=""):
     """The card for the changes Gemini asked for, or a plain answer (with any
     buttons) when none can be made. text is whatever it wrote beside the calls."""
-    return build(user, [[name, args if isinstance(args, dict) else {}] for name, args in calls], text=text)
+    # An assistant's message never carries a price on, even into the session.
+    calls = [[name, {k: v for k, v in (args if isinstance(args, dict) else {}).items()
+                     if user.is_org_admin or k != "price"}] for name, args in calls]
+    return build(user, calls, text=text)
 
 
 def build(user, calls, picks=None, text=""):
     """The card (a dict kept in the session) for calls, a list of [name, args].
-    picks is {str(call index): item pk} for each "Which one?" already answered.
+    picks is {"<call index>.<kind>": id} for each "Which one?" already answered.
     A call that can't be made is a note on the card while another can; when
     none can, the first reason is the answer, as plain text."""
     picks = picks or {}
     lines, which, family = [], None, None
     pending = {}  # item pk -> the unsaved events earlier lines would make, so later ones start from them
     problems, buttons = [], []
-    for i, (name, args) in enumerate(calls):
+    # A whole order last, so a line named on its own wins over the same line in it.
+    for i in sorted(range(len(calls)), key=lambda n: calls[n][0] == "receive_order"):
+        name, args = calls[i]
         action = ACTIONS.get(name)
         if action is None or user.role not in action.roles:
             problems.append("Sorry, I can't do that from the chat.")
             continue
-        args = {key: value for key, value in args.items() if key != "item_id"}  # only a pick sets it
+        # Only a pick on the card sets "picks", never the model.
+        args = {key: value for key, value in args.items() if key != "picks"}
+        args["picks"] = {key.split(".", 1)[1]: value for key, value in picks.items() if key.startswith(f"{i}.")}
         if action.link:
             result = action.preview(user, args, pending)
             if isinstance(result, str):
@@ -112,21 +125,23 @@ def build(user, calls, picks=None, text=""):
         if family not in (None, action.undo):
             problems.append("That's a different kind of change, so ask again for it.")
             continue
-        if str(i) in picks:
-            args["item_id"] = picks[str(i)]
         result = action.preview(user, args, pending)
         if isinstance(result, str):
             problems.append(result)
+            buttons += getattr(result, "buttons", [])
             continue
         family = action.undo
         if isinstance(result, Which):
-            which = which or {"index": i, "name": result.name, "options": result.options}
+            which = which or {"key": f"{i}.{result.kind}", "name": result.name, "options": result.options}
         else:
-            lines.append({"action": name, **result})
+            lines += [{"action": name, **line} for line in (result if isinstance(result, list) else [result])]
+    if not lines and not which and not buttons and not problems:
+        return "Sorry, I can't do that from the chat."
     if not lines and not which:
         buttons = list({b["url"]: b for b in buttons}.values())
         if buttons:
-            return Answer(text or " ".join(problems) or "Here you go.", buttons)
+            # Why something couldn't be done beats the model's own words, which may say it was.
+            return Answer(" ".join(problems) or text or "Here you go.", buttons)
         return problems[0]
     summaries = [line["summary"] for line in lines] or [f"asked which '{which['name']}' you meant"]
     return {
@@ -150,7 +165,7 @@ def apply(user, proposal):
     except ObjectDoesNotExist:
         return None
     undo = reverse(todo[0][0].undo) + "?ids=" + ",".join(str(i) for i in ids)
-    text = lines[0]["toast"] if len(lines) == 1 else f"Logged {len(lines)} changes · the manager will see it"
+    text = lines[0]["toast"] if len(lines) == 1 else lines[0]["many"].format(n=len(lines))
     return text, undo
 
 
@@ -158,8 +173,8 @@ def _item_for(user, args):
     """The item named: an Item, a Which when several fit, or a plain answer saying why not.
     Only a sure match is used as it is; anything less is put to the person."""
     org = user.organisation
-    if "item_id" in args:
-        item = Item.objects.for_org(org).filter(pk=args["item_id"], is_active=True).first()
+    if "item" in args["picks"]:
+        item = Item.objects.for_org(org).filter(pk=args["picks"]["item"], is_active=True).first()
         return item or "That item isn't in your stock any more."
     name = str(args.get("item") or "").strip()
     if not name:
@@ -176,7 +191,7 @@ def _item_for(user, args):
         return f"I can't find '{name}' in your stock."
     if len(fits) > MAX_OPTIONS:
         return f"There are {len(fits)} items that fit '{name}'. Say a bit more of its name."
-    return Which(name, [{"item": item.pk, "name": item.name} for item in sorted(fits, key=lambda i: i.name)])
+    return Which(name, [{"id": item.pk, "name": item.name} for item in sorted(fits, key=lambda i: i.name)])
 
 
 def _chip(f):
@@ -248,7 +263,8 @@ def _event_line(user, args, pending, kind):
     }[kind]
     return {
         "item": item.pk, "kind": kind, "qty": qty, "name": item.name, "change": change, "summary": summary,
-        "toast": toast, "before": before.on_hand, "after": after.on_hand,
+        "toast": toast, "many": "Logged {n} changes · the manager will see it",
+        "before": before.on_hand, "after": after.on_hand,
         "unit": pluralize_unit(item.unit, after.on_hand), "was": _chip(before), "now": _chip(after),
         "flag": _flag(item, before, after),
     }
@@ -276,6 +292,167 @@ def _event_action(name, kind, description, *, qty=None):
         preview=lambda user, args, pending: _event_line(user, args, pending, kind),
         apply=_apply_event,
     )
+
+
+# --- Receive a delivery: Deliveries' Receive and Receive all, through the same receive_delivery_line ---
+
+DELIVERIES = "stock:deliveries"
+
+
+def _nothing_on_order(what):
+    """No open order: say so and offer Deliveries. An order is never made up."""
+    return Answer(f"There's no open order for {what}, so there's nothing to receive against.",
+                  [_button("Open Deliveries", reverse(DELIVERIES))])
+
+
+def _supplier_for(user, args):
+    """The practice's supplier named: a Supplier, a Which when several fit, or a plain answer."""
+    name = str(args.get("supplier") or "").strip()
+    if not name:
+        return "Which supplier was it?"
+    suppliers = list(Supplier.objects.for_org(user.organisation).filter(is_active=True).order_by("name"))
+    if "supplier" in args["picks"]:
+        return next((s for s in suppliers if s.pk == args["picks"]["supplier"]), "That supplier isn't set up any more.")
+    words = set(synonym_key(name).split())
+    fits = [s for s in suppliers if s.name.lower() == name.lower()] or [
+        s for s in suppliers if words and words <= set(synonym_key(s.name).split())
+    ]
+    if not fits:
+        return f"I can't find a supplier called '{name}'."
+    if len(fits) > 1:
+        return Which(name, [{"id": s.pk, "name": s.name} for s in fits[:MAX_OPTIONS]], kind="supplier")
+    return fits[0]
+
+
+def _price(value):
+    """A price from the model, in dollars to the cent, or None when it isn't one."""
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return None
+    try:
+        price = Decimal(str(value).strip().lstrip("$")).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        return None
+    return price if 0 < price < 10000 else None
+
+
+def _forecast_receiving(item, now, events, state):
+    """The item's forecast with the receipts earlier lines make: their events,
+    their order lines closed, and the back-order a part delivery leaves."""
+    open_orders = [o for o in item.order_lines.all() if o.is_open and o.pk not in state["closed"]] + state["added"]
+    return forecast([*item.events.all(), *events], open_orders, lead_days=item.supplier.lead_days,
+                    order_size=item.order_size, now=now)
+
+
+def _receipt_line(user, order, qty, price, pending):
+    """One order line's card line: ordered, receiving, on hand before and after,
+    and what stays on order. A manager's price is shown against the current one;
+    an assistant's lines carry no price at all."""
+    item, now = order.item, timezone.localtime()
+    events = pending.setdefault(item.pk, [])
+    state = pending.setdefault(("orders", item.pk), {"closed": set(), "added": []})
+    before = _forecast_receiving(item, now, events, state)
+    events.append(StockEvent(kind=Kind.RECEIVED, qty=qty, created_at=now))
+    state["closed"].add(order.pk)
+    left = order.qty - qty
+    if left:
+        state["added"].append(SimpleNamespace(qty=left))
+    after = _forecast_receiving(item, now, events, state)
+    pending.setdefault("received", set()).add(order.pk)
+
+    amount = format_qty(qty, item.unit)
+    flag = [f"{format_qty(left, item.unit)} stay on order, as a back-order."] if left else []
+    if _flag(item, before, after):
+        flag.append(_flag(item, before, after))
+    line = {
+        "item": item.pk, "order_line": order.pk, "qty": qty, "name": item.name,
+        "change": f"Ordered {order.qty}, receiving {qty}", "summary": f"received {amount} of {item.name}",
+        "toast": f"Received {amount} of {item.name} from {order.supplier.name}", "many": "Received {n} items",
+        "before": before.on_hand, "after": after.on_hand, "unit": pluralize_unit(item.unit, after.on_hand),
+        "was": _chip(before), "now": _chip(after), "flag": " ".join(flag),
+    }
+    if price is not None and user.is_org_admin:
+        line["price"] = str(price)
+        line["price_note"] = (f"Price ${price}, was ${item.price}" if item.price is not None and item.price != price
+                              else f"Price ${price}")
+    return line
+
+
+def _receive_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    orders = list(_open_lines_for_org(user.organisation).filter(item=item).exclude(pk__in=pending.get("received", ())))
+    if not orders:
+        return _nothing_on_order(item.name)
+    if len(orders) > 1 and "line" not in args["picks"]:
+        return Which(item.name, [
+            {"id": o.pk, "name": f"{o.qty} from {o.supplier.name}, ordered {timezone.localtime(o.ordered_at):%a %d %b}"}
+            for o in orders[:MAX_OPTIONS]
+        ], kind="line")
+    order = next((o for o in orders if o.pk == args["picks"].get("line", orders[0].pk)), None)
+    if order is None:
+        return "That order isn't open any more."
+    qty = order.qty if args.get("qty") is None else _whole(args["qty"], 1)
+    if qty is None or qty > order.qty:
+        return (f"{format_qty(order.qty, item.unit)} of {item.name} were ordered. "
+                f"How many arrived, from 1 to {order.qty}?")
+    price = None
+    if user.is_org_admin and args.get("price") is not None:
+        price = _price(args["price"])
+        if price is None:
+            return f"What did they charge for one {item.unit} of {item.name}?"
+    return _receipt_line(user, order, qty, price, pending)
+
+
+def _receive_order(user, args, pending):
+    supplier = _supplier_for(user, args)
+    if not isinstance(supplier, Supplier):
+        return supplier
+    open_lines = [o for o in _open_lines_for_org(user.organisation).filter(supplier=supplier)
+                  if o.pk not in pending.get("received", ())]
+    if not open_lines:
+        return _nothing_on_order(supplier.name)
+    # One order is what was ordered together: its reference, or else its day.
+    orders = {}
+    for order in open_lines:
+        orders.setdefault(order.order_ref or str(timezone.localtime(order.ordered_at).date()), []).append(order)
+    if len(orders) > 1:
+        wanted = args["picks"].get("order")
+        chosen = next((group for group in orders.values() if any(o.pk == wanted for o in group)), None)
+        if chosen is None:
+            return Which(supplier.name, [
+                {"id": group[0].pk, "name": (f"Ordered {timezone.localtime(group[0].ordered_at):%a %d %b}, "
+                                             f"{len(group)} item{'s' if len(group) != 1 else ''}")}
+                for group in list(orders.values())[:MAX_OPTIONS]
+            ], kind="order")
+        open_lines = chosen
+    return [_receipt_line(user, order, order.qty, None, pending) for order in open_lines]
+
+
+def _apply_receipt(user, line, client_id):
+    order = _open_lines_for_org(user.organisation).get(pk=line["order_line"])
+    price = Decimal(line["price"]) if user.is_org_admin and line.get("price") else None
+    received = receive_delivery_line(user, order, line["qty"], price)
+    if received is None:  # more than is on order now
+        raise ObjectDoesNotExist
+    return f"{order.pk}:{received[0].pk}"
+
+
+def _receive_line_declaration(user):
+    properties = {
+        "item": {"type": "STRING", "description": (
+            "The item's name as written in the practice data. If more than one item fits what they said, "
+            "pass what they said as it is: StockRoom asks which.")},
+        "qty": {"type": "INTEGER", "description": "How many arrived, only if they said it was fewer than ordered."},
+    }
+    if user.is_org_admin:
+        properties["price"] = {"type": "NUMBER", "description": (
+            "What they were charged for one, in dollars, only if they said.")}
+    return {
+        "description": ("Receive one item of an order that has arrived, e.g. 'the composite's here' or "
+                        "'only 3 of the 5 boxes of gloves arrived'. What's short stays on order as a back-order."),
+        "parameters": {"type": "OBJECT", "properties": properties, "required": ["item"]},
+    }
 
 
 # --- Buttons under an answer: open a page or download a file. Nothing changes, so there's no card. ---
@@ -342,7 +519,7 @@ def _open_page(user, args, pending):
     if key == "item":
         item = _item_for(user, args)
         if isinstance(item, Which):  # several fit: a button for each, since opening a page changes nothing
-            return [_button(f"Open {o['name']}", reverse(url_name, args=[o["item"]])) for o in item.options]
+            return [_button(f"Open {o['name']}", reverse(url_name, args=[o["id"]])) for o in item.options]
         if isinstance(item, str):
             return item
         return [_button(f"Open {item.name}", reverse(url_name, args=[item.pk]))]
@@ -404,6 +581,17 @@ ACTIONS = {action.name: action for action in [
         "Not for what's been used. Call it once for each item.",
         qty="How many are on the shelf now, counted in the item's unit. 0 if there are none.",
     ),
+    Action(
+        "receive_order", ANYONE,
+        {"description": ("Receive everything on order from a supplier that has arrived, e.g. 'the Henry Schein "
+                         "order came'."),
+         "parameters": {"type": "OBJECT", "properties": {"supplier": {
+             "type": "STRING", "description": "The supplier's name as written in the practice data."}},
+             "required": ["supplier"]}},
+        _receive_order, _apply_receipt, undo="stock:delivery_undo_batch",
+    ),
+    Action("receive_line", ANYONE, _receive_line_declaration, _receive_line, _apply_receipt,
+           undo="stock:delivery_undo_batch"),
     Action("open_page", ANYONE, _page_declaration, _open_page, None, link=True),
     Action("download", ADMIN, _download_declaration, _download, None, link=True),
 ]}

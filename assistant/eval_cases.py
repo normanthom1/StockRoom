@@ -59,6 +59,14 @@ def count(item, qty):
     return call("set_count", item=item, qty=qty)
 
 
+def receive_order(supplier):
+    return call("receive_order", supplier=supplier)
+
+
+def receive_line(item, **args):
+    return call("receive_line", item=item, **args)
+
+
 def page(name, **args):
     return call("open_page", page=name, **args)
 
@@ -136,6 +144,24 @@ CASES = [
          (used(BIBS, 2), used(GLOVES, 1), low(TIPS))),
     Case("used 3 pouches and out of face shields", "assistant", (used(POUCHES, 3), out(SHIELDS))),
     Case("counted 10 masks and 5 boxes of gloves", "admin", (count(MASKS, 10), count(GLOVES, 5))),
+    # --- receive_order and receive_line: a delivery has arrived ---
+    Case("The Henry Schein order came", "assistant", (receive_order("Henry Schein"),)),
+    Case("Dentsply's delivery is here", "assistant", (receive_order("Dentsply"),)),
+    Case("henry schein just dropped off our order", "assistant", (receive_order("Henry Schein"),)),
+    Case("got the Dentsply order, all of it", "admin", (receive_order("Dentsply"),)),
+    Case("the order from Henry Schein has arrived", "admin", (receive_order("Henry Schein"),)),
+    Case("the composite's here", "assistant", (receive_line(COMPOSITE),)),
+    Case("lignocaine arrived", "assistant", (receive_line(LIGNOCAINE),)),
+    Case("the gloves came in", "assistant", (receive_line(GLOVES),)),
+    Case("only 3 of the 5 boxes of gloves arrived, the rest are on back-order", "assistant",
+         (receive_line(GLOVES, qty=3),)),
+    Case("got 20 of the 40 suction tips, rest coming later", "assistant", (receive_line(TIPS, qty=20),)),
+    Case("only 2 boxes of masks turned up", "assistant", (receive_line(MASKS, qty=2),)),
+    Case("gloves are here and they charged $8.40 a box", "admin", (receive_line(GLOVES, price=8.40),)),
+    Case("composite came, $31.50 each this time", "admin", (receive_line(COMPOSITE, price=31.5),)),
+    Case("the gloves came but they were 9 dollars a box, only 8 of them", "admin",
+         (receive_line(GLOVES, qty=8, price=9),)),
+    Case("the sutures arrived", "assistant", (receive_line(SUTURES),)),
     # --- open_page and download: take them there, nothing changes ---
     Case("where do I change a supplier's phone number?", "admin", (page("suppliers"),)),
     Case("show me spending by supplier", "admin", (page("spending"),)),

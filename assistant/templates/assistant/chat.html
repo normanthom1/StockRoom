@@ -54,6 +54,7 @@ Confirmed, it becomes the done state; Cancel, or an expired card, leaves a note 
                   {% include "stock/_status_chip.html" with s=line.now %}
                 </span>
               </p>
+              {% if line.price_note %}<p class="mt-2 text-[0.9375rem] text-gray-900">{{ line.price_note }}</p>{% endif %}
               {% if line.flag %}<p class="mt-2 text-[0.9375rem] font-semibold text-gray-900">{{ line.flag }}</p>{% endif %}
             {% endif %}
           </li>
@@ -69,7 +70,7 @@ Confirmed, it becomes the done state; Cancel, or an expired card, leaves a note 
                   class="sticky -bottom-4 flex min-w-0 flex-col gap-2 rounded-b-[1.25rem] bg-white p-2">
           <legend class="sr-only">Which one?</legend>
           {% for option in change.which.options %}
-            <button type="button" hx-post="{% url 'assistant:choose_item' change.id option.item %}"
+            <button type="button" hx-post="{% url 'assistant:choose_item' change.id option.id %}"
                     class="btn btn-line min-h-14 w-full rounded-full text-lg">{{ option.name }}</button>
           {% endfor %}
           <button type="button" hx-post="{% url 'assistant:cancel_change' change.id %}"

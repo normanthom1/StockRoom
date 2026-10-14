@@ -302,7 +302,7 @@ class ChangeTests(Practice):
         with calls(USED_2) as generate:
             response = self.ask("We used 2 boxes of gloves")
         self.assertEqual([tool["name"] for tool in generate.call_args.kwargs["tools"]],
-                         ["log_used", "log_out", "log_low", "set_count", "open_page"])
+                         ["log_used", "log_out", "log_low", "set_count", "receive_order", "receive_line", "open_page"])
         system = generate.call_args.args[0]
         self.assertIn("nothing happens until they tap Confirm", system)
         self.assertNotIn("can't change anything", system)
@@ -425,7 +425,7 @@ class ChangeTests(Practice):
                                    preview=None, apply=None)
         reply = {"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}
         with mock.patch.dict(actions.ACTIONS, {"set_price": set_price}):
-            everyone = ["log_used", "log_out", "log_low", "set_count", "open_page"]
+            everyone = ["log_used", "log_out", "log_low", "set_count", "receive_order", "receive_line", "open_page"]
             for user, expected in ((self.assistant, everyone), (self.admin, [*everyone, "download", "set_price"])):
                 self.client.force_login(user)
                 with mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen:
@@ -655,6 +655,170 @@ class ButtonTests(Practice):
         response, _ = self.go(USED_2, ("open_page", {"page": "home"}))
         self.assertContains(response, "This will change")
         self.assertNotContains(response, 'href="/"')
+
+
+@override_settings(AI_API_KEY="test-key")
+class ReceiveTests(Practice):
+    """#154: a delivery by message, through the same receive logic as Deliveries."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.dentsply = Supplier.objects.create(organisation=cls.org, name="Dentsply", lead_days=7)
+        cls.composite = Item.objects.create(organisation=cls.org, name="Composite", unit="syringe",
+                                            supplier=cls.dentsply, price="32.00")
+        cls.order = OrderLine.objects.get(item=cls.gloves)
+
+    def card(self, *found, user=None):
+        self.client.force_login(user or self.assistant)
+        with calls(*found):
+            response = self.ask("the order came")
+        return response, next(iter(self.client.session.get("ask_changes", {})), None)
+
+    def post(self, step, pid):
+        return self.client.post(f"/ask/changes/{pid}/{step}/")
+
+    def test_the_whole_order_is_a_card_then_received_with_one_undo(self):
+        response, pid = self.card(("receive_order", {"supplier": "Henry Schein"}))
+        for text in ("Gloves", "Ordered 10, receiving 10", "This will change", "Confirm"):
+            self.assertContains(response, text)
+        self.assertRegex(response.content.decode(), r">3</span>[\s\S]*?>13</span>")  # on hand 3 -> 13
+        self.order.refresh_from_db()
+        self.assertIsNone(self.order.received_at)
+
+        done = self.post("confirm", pid)
+        self.assertContains(done, "Received 10 boxes of Gloves from Henry Schein")
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.received_qty, self.order.received_by), (10, self.assistant))
+        self.assertEqual(on_hand(self.gloves.events.all()), 13)
+        self.assertEqual(self.post("confirm", pid).status_code, 204)
+        self.assertEqual(StockEvent.objects.filter(kind="received").count(), 1)
+
+        self.assertEqual(self.post("undo", pid)["HX-Refresh"], "true")
+        self.order.refresh_from_db()
+        self.assertIsNone(self.order.received_at)
+        self.assertEqual(on_hand(self.gloves.events.all()), 3)
+        self.assertEqual(self.client.session["ask_history"][0][1],
+                         "Undone, so nothing changed: received 10 boxes of Gloves.")
+
+    def test_a_part_delivery_shows_what_stays_on_order_and_undo_removes_the_back_order(self):
+        response, pid = self.card(("receive_line", {"item": "Gloves", "qty": 3}))
+        self.assertContains(response, "Ordered 10, receiving 3")
+        self.assertContains(response, "7 boxes stay on order, as a back-order.")
+        self.post("confirm", pid)
+        back_order = OrderLine.objects.get(split_from=self.order)
+        self.assertEqual((back_order.qty, back_order.is_open), (7, True))
+        self.assertEqual(on_hand(self.gloves.events.all()), 6)
+
+        self.post("undo", pid)
+        self.assertFalse(OrderLine.objects.filter(split_from=self.order).exists())
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.received_at, self.order.received_qty), (None, None))
+        self.assertEqual(on_hand(self.gloves.events.all()), 3)
+
+    def test_no_open_order_says_so_offers_deliveries_and_makes_nothing_up(self):
+        response, pid = self.card(("receive_order", {"supplier": "Dentsply"}))
+        self.assertContains(response, "no open order for Dentsply")
+        self.assertContains(response, 'href="/deliveries/"')
+        self.assertIsNone(pid)
+        response, pid = self.card(("receive_line", {"item": "Composite"}))
+        self.assertContains(response, "no open order for Composite")
+        self.assertIsNone(pid)
+        self.assertContains(self.card(("receive_order", {"supplier": "Nobody"}))[0], "can&#x27;t find a supplier")
+        self.assertEqual(OrderLine.objects.count(), 1)
+        self.assertFalse(StockEvent.objects.filter(kind="received").exists())
+
+    def test_several_open_orders_are_listed_and_asked_about(self):
+        later = OrderLine.objects.create(organisation=self.org, item=self.gloves, qty=4, ordered_by=self.admin,
+                                         ordered_at=timezone.now() - timedelta(days=3))
+        response, pid = self.card(("receive_order", {"supplier": "Henry Schein"}))
+        self.assertContains(response, "Which one?")
+        self.assertContains(response, "1 item")
+        self.assertNotContains(response, f"/ask/changes/{pid}/confirm/")
+        with mock.patch("assistant.gemini.generate") as generate:
+            chosen = self.client.post(f"/ask/changes/{pid}/choose/{later.pk}/")
+        generate.assert_not_called()
+        self.assertContains(chosen, "Ordered 4, receiving 4")
+        self.assertNotContains(chosen, "Ordered 10")
+        self.post("confirm", pid)
+        later.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual((later.received_qty, self.order.received_at), (4, None))
+
+    def test_an_item_with_several_open_orders_asks_which_line(self):
+        OrderLine.objects.create(organisation=self.org, item=self.gloves, qty=4, ordered_by=self.admin,
+                                 ordered_at=timezone.now() - timedelta(days=3))
+        response, _ = self.card(("receive_line", {"item": "Gloves"}))
+        self.assertContains(response, "Which one?")
+        self.assertContains(response, "4 from Henry Schein")
+
+    def test_more_than_was_ordered_is_asked_about(self):
+        response, pid = self.card(("receive_line", {"item": "Gloves", "qty": 11}))
+        self.assertContains(response, "How many arrived, from 1 to 10?")
+        self.assertIsNone(pid)
+
+    def test_a_manager_can_give_a_price_and_sees_it_change_and_undo_puts_it_back(self):
+        response, pid = self.card(("receive_line", {"item": "Gloves", "price": 8.40}), user=self.admin)
+        self.assertContains(response, "Price $8.40, was $8.50")
+        self.post("confirm", pid)
+        self.gloves.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual((self.gloves.price, self.order.unit_price), (Decimal("8.40"), Decimal("8.40")))
+        self.post("undo", pid)
+        self.gloves.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual((self.gloves.price, self.order.unit_price), (Decimal("8.50"), Decimal("8.50")))
+        self.assertIsNone(self.order.received_at)
+
+    def test_an_assistants_card_never_shows_a_price_and_a_price_changes_nothing(self):
+        self.client.force_login(self.assistant)
+        with calls(("receive_line", {"item": "Gloves", "price": 1.00})) as generate:
+            response = self.ask("gloves came, one dollar a box")
+        [tool] = [t for t in generate.call_args.kwargs["tools"] if t["name"] == "receive_line"]
+        self.assertNotIn("price", tool["parameters"]["properties"])
+        self.assertNotContains(response, "$")
+        self.assertNotContains(response, "Price")
+        self.assertNotIn('"price"', json.dumps(self.client.session["ask_changes"]))
+        pid = next(iter(self.client.session["ask_changes"]))
+        self.post("confirm", pid)
+        self.gloves.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual((self.gloves.price, self.order.unit_price), (Decimal("8.50"), Decimal("8.50")))
+        self.assertEqual(self.order.received_qty, 10)
+
+    def test_the_line_named_on_its_own_wins_over_the_same_line_in_the_order(self):
+        response, _ = self.card(("receive_order", {"supplier": "Henry Schein"}),
+                                ("receive_line", {"item": "Gloves", "qty": 3}))
+        self.assertContains(response, "Ordered 10, receiving 3")
+        self.assertNotContains(response, "receiving 10")
+        self.assertEqual(response.content.decode().count("Ordered 10"), 1)
+
+    def test_the_receipt_undo_is_yours_inside_the_window_and_all_or_nothing(self):
+        self.client.force_login(self.assistant)
+        _, pid = self.card(("receive_order", {"supplier": "Henry Schein"}))
+        self.post("confirm", pid)
+        self.order.refresh_from_db()
+        event = StockEvent.objects.get(kind="received")
+        url = f"/deliveries/undo/?ids={self.order.pk}:{event.pk}"
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.client.force_login(self.assistant)
+        OrderLine.objects.filter(pk=self.order.pk).update(received_at=timezone.now() - timedelta(minutes=11))
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.assertEqual(self.client.post("/deliveries/undo/?ids=999999:999999").status_code, 404)
+        self.assertTrue(StockEvent.objects.filter(pk=event.pk).exists())
+        self.assertEqual(self.client.post("/deliveries/undo/").status_code, 404)
+
+    def test_deliveries_page_and_the_chat_share_one_receive_function(self):
+        from stock.views import receive_delivery_line
+
+        self.assertIsNone(receive_delivery_line(self.assistant, self.order, 11))
+        self.assertIsNone(receive_delivery_line(self.assistant, self.order, 0))
+        self.order.refresh_from_db()
+        self.assertIsNone(self.order.received_at)
+        receive_delivery_line(self.assistant, self.order, 10, Decimal("1.00"))  # an assistant's price is ignored
+        self.gloves.refresh_from_db()
+        self.assertEqual(self.gloves.price, Decimal("8.50"))
 
 
 @override_settings(AI_API_KEY="test-key")

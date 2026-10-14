@@ -217,8 +217,8 @@ def confirm_change(request, pid):
 
 @require_POST
 @ai_required
-def choose_item(request, pid, item):
-    """A button on a card's "Which one?": run the card again with that item
+def choose_item(request, pid, option):
+    """A button on a card's "Which one?": run the card again with that one
     picked, which makes no AI call. A stale or made-up id leaves the card as it was."""
     session = request.session
     changes = _changes(session)
@@ -227,9 +227,9 @@ def choose_item(request, pid, item):
         return render(request, "assistant/chat.html#change",
                       {"note": "That's expired, so nothing was changed. Ask again if you still need it."})
     which = change.get("which")
-    if "undo" in change or not which or item not in {option["item"] for option in which["options"]}:
+    if "undo" in change or not which or option not in {o["id"] for o in which["options"]}:
         return render(request, "assistant/chat.html#change", {"change": change})
-    card = actions.build(request.user, change["calls"], {**change["picks"], str(which["index"]): item})
+    card = actions.build(request.user, change["calls"], {**change["picks"], which["key"]: option})
     if isinstance(card, str):
         del changes[pid]
         session[CHANGES_KEY] = changes

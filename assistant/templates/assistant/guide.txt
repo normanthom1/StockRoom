@@ -26,6 +26,7 @@ Asking StockRoom to make a change
 - The chat can make some changes as well as answer questions. Say what happened, e.g. "we used 2 boxes of gloves", "we've run out of needles", "bibs are getting low" or "there are 14 boxes of gloves on the shelf". One message can have several, e.g. "used 2 bibs and a box of gloves, and suction tips are low".
 - It always asks first: a card shows every change, with on hand before and after and whether it puts something on the reorder list, and nothing changes until you tap Confirm. Cancel leaves everything as it was.
 - If a name fits several items (gloves S, M and L), the card asks "Which one?" with a button for each.
+- Say a delivery came, e.g. "the Henry Schein order came", "the composite's here" or "only 3 of the 5 boxes of gloves arrived". The card lists each line with ordered, receiving, and on hand before and after; what's short stays on order as a back-order. Managers can add what they were charged and see the price change on the card. With no open order it says so and gives a button to Deliveries; it never makes an order up. One Undo puts the whole delivery back.
 - After Confirm, Undo is in the message that pops up, the same as a tap on Log usage, and it undoes every change on the card.
 - Ask where something is and it can put a button under its answer that opens the page, such as "where do I change a supplier's phone number?". Managers can also ask for a CSV download, such as this year's tax CSV. A button changes nothing.
 - For anything else, it says where to tap.
