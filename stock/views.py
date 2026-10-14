@@ -1233,7 +1233,24 @@ def invoice_preview(request, invoice, lines):
             price_rise_text(line.order.item.name, line.order.item.price, line.unit_price)
             if line.order and invoices.price_needs_confirming(line.order.item.price, line.unit_price) else ""
         )
-    request.session["pending_invoice"] = {
+    request.session["pending_invoice"] = pending_invoice(invoice, lines)
+    repeat = invoice.status == Invoice.Status.IGNORED
+    return render(request, "stock/invoice_preview.html", {
+        "invoice": invoice,
+        # Lines that will be received and add up are folded away; the rest want a look.
+        "matched": [line for line in lines if line.order and line.adds_up],
+        "to_check": [line for line in lines if not (line.order and line.adds_up)],
+        "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier_id),
+        "suppliers": Supplier.objects.for_org(invoice.organisation).filter(is_active=True).order_by("name"),
+        "force_reasons": FORCE_REASONS if repeat else None,
+        "original": invoices.find_original(invoice) if repeat else None,
+    })
+
+
+def pending_invoice(invoice, lines):
+    """A read and matched invoice as the session holds it until Confirm: the
+    preview's copy here, and an Ask StockRoom receipt card's (assistant/actions.py)."""
+    return {
         "invoice_id": invoice.pk,
         "supplier_id": invoice.supplier_id,
         "issued_on": invoice.issued_on.isoformat() if invoice.issued_on else None,
@@ -1251,17 +1268,39 @@ def invoice_preview(request, invoice, lines):
             for line in lines
         ],
     }
-    repeat = invoice.status == Invoice.Status.IGNORED
-    return render(request, "stock/invoice_preview.html", {
-        "invoice": invoice,
-        # Lines that will be received and add up are folded away; the rest want a look.
-        "matched": [line for line in lines if line.order and line.adds_up],
-        "to_check": [line for line in lines if not (line.order and line.adds_up)],
-        "open_orders": _open_lines_for_org(invoice.organisation).filter(supplier=invoice.supplier_id),
-        "suppliers": Supplier.objects.for_org(invoice.organisation).filter(is_active=True).order_by("name"),
-        "force_reasons": FORCE_REASONS if repeat else None,
-        "original": invoices.find_original(invoice) if repeat else None,
-    })
+
+
+def fill_invoice(org, invoice, pending, form):
+    """Fill invoice in from a pending one and return its lines, with whatever
+    form changed or picked: a line's qty and price, the order it was delivered
+    against, a likely match, a price rise ticked. Both Confirms come here, the
+    preview's and Ask StockRoom's (with nothing changed), then ingest."""
+    for name in INVOICE_FIELDS:
+        setattr(invoice, name, pending.get(name, ""))
+    invoice.issued_on = date.fromisoformat(pending["issued_on"]) if pending["issued_on"] else None
+    # A supplier picked in the preview, for an invoice from one StockRoom didn't recognise.
+    supplier_id = _id(form.get("supplier")) or pending["supplier_id"]
+    invoice.supplier = Supplier.objects.for_org(org).filter(pk=supplier_id).first() if supplier_id else None
+    # What each line was delivered against: picked by hand, or matched in the preview.
+    picked = [_id(form.get(f"order_{index}")) or row.get("order") for index, row in enumerate(pending["lines"])]
+    orders = _open_lines_for_org(org).filter(supplier=invoice.supplier_id).in_bulk([pk for pk in picked if pk])
+
+    lines = []
+    for index, row in enumerate(pending["lines"]):
+        qty = _edited_qty(form.get(f"qty_{index}"), row["qty"])
+        unit_price = invoices.cents(_edited_price(form.get(f"price_{index}"), _decimal_or_none(row["unit_price"])))
+        line_total = invoices.cents(_edited_price(form.get(f"total_{index}"), _decimal_or_none(row.get("line_total"))))
+        line = InvoiceLine(organisation=org, sku=row["sku"], description=row["description"],
+                           qty=qty, unit_price=unit_price, line_total=line_total)
+        line.order = orders.get(picked[index])
+        line.price_confirmed = bool(form.get(f"price_confirm_{index}"))
+        if row["match"]:
+            pk, confidence, method = row["match"]
+            match = Match(Item.objects.for_org(org).filter(pk=pk, is_active=True).first(), confidence, method)
+            if match.item and (match.band == "sure" or form.get(f"same_{index}")):
+                line.item, line.match = match.item, match
+        lines.append(line)
+    return lines
 
 
 def _text_or_none(value):
@@ -1308,33 +1347,7 @@ def invoice_confirm(request):
             if force_reason not in FORCE_REASONS:
                 messages.error(request, "Choose why you're importing it again.")
                 return redirect("stock:invoice_check", invoice.pk)
-    for name in INVOICE_FIELDS:
-        setattr(invoice, name, pending.get(name, ""))
-    invoice.issued_on = date.fromisoformat(pending["issued_on"]) if pending["issued_on"] else None
-    # A supplier picked in the preview, for an invoice from one StockRoom didn't recognise.
-    supplier_id = _id(request.POST.get("supplier")) or pending["supplier_id"]
-    invoice.supplier = Supplier.objects.for_org(org).filter(pk=supplier_id).first() if supplier_id else None
-    # What each line was delivered against: picked by hand, or matched in the preview.
-    picked = [_id(request.POST.get(f"order_{index}")) or row.get("order") for index, row in enumerate(pending["lines"])]
-    orders = _open_lines_for_org(org).filter(supplier=invoice.supplier_id).in_bulk([pk for pk in picked if pk])
-
-    lines = []
-    for index, row in enumerate(pending["lines"]):
-        qty = _edited_qty(request.POST.get(f"qty_{index}"), row["qty"])
-        unit_price = invoices.cents(_edited_price(request.POST.get(f"price_{index}"), _decimal_or_none(row["unit_price"])))
-        line_total = invoices.cents(_edited_price(request.POST.get(f"total_{index}"),
-                                                  _decimal_or_none(row.get("line_total"))))
-        line = InvoiceLine(organisation=org, sku=row["sku"], description=row["description"],
-                           qty=qty, unit_price=unit_price, line_total=line_total)
-        line.order = orders.get(picked[index])
-        line.price_confirmed = bool(request.POST.get(f"price_confirm_{index}"))
-        if row["match"]:
-            pk, confidence, method = row["match"]
-            match = Match(Item.objects.for_org(org).filter(pk=pk, is_active=True).first(), confidence, method)
-            if match.item and (match.band == "sure" or request.POST.get(f"same_{index}")):
-                line.item, line.match = match.item, match
-        lines.append(line)
-
+    lines = fill_invoice(org, invoice, pending, request.POST)
     invoice = invoices.ingest(invoice, lines, request.user, force_reason)
     received = sum(1 for line in lines if line.order_line_id)
     undo_url = reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
