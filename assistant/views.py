@@ -196,12 +196,11 @@ def _turn(request, question, answer, change=None, links=None):
 
 @require_POST
 @ai_required
-@admin_required
 def ask_receipt(request):
     """An invoice or receipt dropped into the chat, with the upload page's rules
     and the same pipeline: kept, read by parse_invoice, checked for a repeat,
-    then a card that receives it on Confirm (assistant/actions.py). One AI call,
-    or none for a CSV. What's printed on it can't ask for anything: it's read
+    then a card that receives it on Confirm (assistant/actions.py). Anyone can:
+    an assistant's card has no prices. One AI call, or none for a CSV. What's printed on it can't ask for anything: it's read
     by parse_invoice, which has nothing it can call, and never reaches the chat's AI."""
     request.session.pop(UNDO_KEY, None)
     upload = request.FILES.get("invoice_file")

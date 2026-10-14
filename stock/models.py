@@ -221,6 +221,12 @@ class Invoice(OrgOwned):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
     )
     force_reason = models.CharField(max_length=200, blank=True)
+    # An assistant who brought it in from Ask StockRoom: the stock is received,
+    # but item prices wait for a manager, who sees it under invoices to check
+    # until they've been through them (stock/views.py _needs_checking).
+    brought_in_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
     # What receive() changed, for Undo on the confirm toast (stock/invoices.py undo_ingest).
     # Cleared once undo_until passes or it's used.
     undo_snapshot = models.JSONField(null=True, blank=True)

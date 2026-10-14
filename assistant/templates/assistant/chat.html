@@ -83,7 +83,9 @@ top and smaller numbers, so a long one scans: what it receives first, then what 
             </li>
           {% endfor %}
         </ul>
-        {% if user.is_org_admin %}
+        {% if not user.is_org_admin %}
+          <p class="border-t border-gray-200 px-4 py-2.5 text-[0.9375rem] text-gray-700">The manager will sort {% if change.unmatched|length == 1 %}it{% else %}these{% endif %} out.</p>
+        {% else %}
           <div class="border-t border-gray-200 p-2">
             {% if change.invoice_id %}
               <a href="{% url 'stock:invoice_detail' change.invoice_id %}" class="btn btn-line min-h-14 w-full rounded-full text-lg">Open the invoice</a>
@@ -201,14 +203,10 @@ top and smaller numbers, so a long one scans: what it receives first, then what 
   <form hx-post="{% url 'assistant:ask' %}" hx-target="#chat" hx-swap="beforeend" hx-indicator="#thinking"
         hx-disabled-elt="find button" data-ask
         class="flex items-end gap-1 rounded-[1.75rem] border border-gray-300 bg-white p-1 shadow-sm has-[textarea:focus-visible]:border-primary has-[textarea:focus-visible]:outline-3 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-primary-dark">
-    {% if user.is_org_admin %}
-      <button type="button" @click="toggle" :aria-expanded="open" aria-controls="attach" aria-label="Send an invoice or receipt"
-              class="grid size-12 shrink-0 place-items-center rounded-full text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50">
-        <svg class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>
-      </button>
-    {% else %}
-      <span class="mb-2 ml-2 shrink-0">{% include "assistant/_avatar.html" with size="size-8" %}</span>
-    {% endif %}
+    <button type="button" @click="toggle" :aria-expanded="open" aria-controls="attach" aria-label="Send an invoice or receipt"
+            class="grid size-12 shrink-0 place-items-center rounded-full text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50">
+      <svg class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>
+    </button>
     <label for="q" class="sr-only">Ask StockRoom a question</label>
     <textarea id="q" name="q" rows="1" maxlength="500" required enterkeyhint="send"
               placeholder="Ask StockRoom anything"
@@ -219,24 +217,22 @@ top and smaller numbers, so a long one scans: what it receives first, then what 
     </button>
   </form>
   {# Picking a file sends it (hx-trigger="change"): the upload page's rules, read the same way, as a card. #}
-  {% if user.is_org_admin %}
-    <form id="attach" x-show="open" x-cloak @change="close" data-receipt
-          hx-post="{% url 'assistant:ask_receipt' %}" hx-encoding="multipart/form-data" hx-trigger="change"
-          hx-target="#chat" hx-swap="beforeend" hx-indicator="#thinking" hx-disabled-elt="[data-ask] button"
-          class="mt-2 flex flex-col gap-2 rounded-[1.25rem] border border-gray-300 bg-white p-2 shadow-sm">
-      <label class="btn btn-line min-h-14 w-full cursor-pointer gap-2.5 rounded-full text-lg has-[input:focus-visible]:outline-3 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-primary-dark">
-        <svg class="size-6 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-        Take a photo
-        <input type="file" name="invoice_file" accept="image/*" capture="environment" class="sr-only">
-      </label>
-      <label class="btn btn-line min-h-14 w-full cursor-pointer gap-2.5 rounded-full text-lg has-[input:focus-visible]:outline-3 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-primary-dark">
-        <svg class="size-6 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6v18h12V7zM14 3v4h4M9 13h6M9 17h6"/></svg>
-        Choose a file
-        <input type="file" name="invoice_file" accept="image/*,application/pdf,.csv,text/csv" class="sr-only">
-      </label>
-      <p class="px-3 pb-1 text-center text-sm text-gray-600">An invoice or receipt: a photo, PDF or CSV up to 5 MB. You'll see what arrived before anything changes.</p>
-    </form>
-  {% endif %}
+  <form id="attach" x-show="open" x-cloak @change="close" data-receipt
+        hx-post="{% url 'assistant:ask_receipt' %}" hx-encoding="multipart/form-data" hx-trigger="change"
+        hx-target="#chat" hx-swap="beforeend" hx-indicator="#thinking" hx-disabled-elt="[data-ask] button"
+        class="mt-2 flex flex-col gap-2 rounded-[1.25rem] border border-gray-300 bg-white p-2 shadow-sm">
+    <label class="btn btn-line min-h-14 w-full cursor-pointer gap-2.5 rounded-full text-lg has-[input:focus-visible]:outline-3 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-primary-dark">
+      <svg class="size-6 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      Take a photo
+      <input type="file" name="invoice_file" accept="image/*" capture="environment" class="sr-only">
+    </label>
+    <label class="btn btn-line min-h-14 w-full cursor-pointer gap-2.5 rounded-full text-lg has-[input:focus-visible]:outline-3 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-primary-dark">
+      <svg class="size-6 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6v18h12V7zM14 3v4h4M9 13h6M9 17h6"/></svg>
+      Choose a file
+      <input type="file" name="invoice_file" accept="image/*,application/pdf,.csv,text/csv" class="sr-only">
+    </label>
+    <p class="px-3 pb-1 text-center text-sm text-gray-600">An invoice or receipt: a photo, PDF or CSV up to 5 MB. You'll see what arrived before anything changes.</p>
+  </form>
   </div>
 
   {# Tap one to ask it. Shown while the box is focused and nothing's been asked yet. #}

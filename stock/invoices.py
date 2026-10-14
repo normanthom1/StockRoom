@@ -319,7 +319,9 @@ def receive(invoice, lines, user):
     month. Then the invoice is received, partly received or nothing received yet.
 
     A line's unit price flows onto the item, unless it's a rise of more than
-    10% that the preview wasn't ticked to confirm (line.price_confirmed).
+    10% that the preview wasn't ticked to confirm (line.price_confirmed), or
+    an assistant brought it in: then item prices wait for a manager. Either
+    way the order line records what the invoice charged, for spending.
 
     Records what changed on the invoice (undo_snapshot), so undo_ingest can put
     it all back for a short window after - stock events, order status, price."""
@@ -335,8 +337,8 @@ def receive(invoice, lines, user):
             if order is None:
                 continue
             unit_price_before, item_price_before, item_before_id = order.unit_price, order.item.price, line.item_id
-            update_item_price = (getattr(line, "price_confirmed", False)
-                                 or not price_needs_confirming(order.item.price, line.unit_price))
+            update_item_price = user.is_org_admin and (
+                getattr(line, "price_confirmed", False) or not price_needs_confirming(order.item.price, line.unit_price))
             event, remainder = order.receive(line.qty, user, line.unit_price, update_item_price=update_item_price)
             line.order_line, line.item = order, order.item
             snapshot.append({

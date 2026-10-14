@@ -7,6 +7,11 @@
 {# Redrawn after a change made in Ask StockRoom, which doesn't reload the page. #}
 <div hx-get="{% url 'stock:home' %}" hx-trigger="stock-changed from:body">
 {% partialdef rows inline %}
+{# Managers only: conflicts, and receipts assistants brought in from Ask StockRoom with prices to check. #}
+{% if needs_checking %}
+  <h2 class="mb-2">{{ needs_checking|length }} invoice{{ needs_checking|length|pluralize }} to check</h2>
+  {% include "stock/_needs_checking.html" %}
+{% endif %}
 <div class="mb-4 flex items-end gap-3">
   <h1 class="flex-1">What to order today</h1>
   {% if user.is_org_admin %}

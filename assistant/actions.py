@@ -468,9 +468,12 @@ def _receive_line_declaration(user):
 # It's never an action Gemini can call. The file is read by stock.invoices.parse_invoice
 # alone, which has nothing to call, and nothing read off it goes into the card's summary
 # (the chat's record, sent back to the AI with later questions): only the practice's own
-# item and supplier names, and counts.
+# item and supplier names, and counts. Assistants can send one too (whoever unpacks the box):
+# their card has items and quantities only, and item prices wait for a manager. The reading
+# itself, prices and all, stays on the server in the session until Confirm saves it, as the
+# upload page's preview does; it's never rendered or sent to the AI.
 
-RECEIPT_ROLES = ADMIN
+RECEIPT_ROLES = ANYONE
 
 
 def propose_receipt(user, invoice, lines):
@@ -515,7 +518,8 @@ def propose_receipt(user, invoice, lines):
         problems.append("some lines don't add up")
     note = ""
     if problems:
-        note = " and ".join(problems) + ", so nothing can be received from here. Confirm saves it to check."
+        note = " and ".join(problems) + ", so nothing can be received from here. Confirm saves it to check" + (
+            "." if user.is_org_admin else " for the manager.")
         note = note[0].upper() + note[1:]
     return {
         "calls": [], "picks": {}, "which": None, "lines": shown, "unmatched": unmatched, "note": note,
@@ -528,11 +532,13 @@ def propose_receipt(user, invoice, lines):
 
 def _apply_receipt_card(user, card):
     """Confirm on a receipt card: the invoice page's Confirm, with nothing changed
-    on it. The card showed each price change, so Confirm is the tick for them."""
+    on it. A manager's card showed each price change, so Confirm is the tick for
+    them. An assistant's receives the stock and leaves item prices for a manager
+    (stock.invoices.receive), who sees it under invoices to check."""
     if user.role not in RECEIPT_ROLES:
         return None
     org = user.organisation
-    invoice = Invoice(organisation=org)
+    invoice = Invoice(organisation=org, brought_in_by=None if user.is_org_admin else user)
     lines = fill_invoice(org, invoice, card["receipt"], QueryDict())
     for line in lines:
         line.price_confirmed = True
@@ -545,6 +551,8 @@ def _apply_receipt_card(user, card):
         Invoice.Status.COMPLETE: "Received everything on the invoice.",
         Invoice.Status.PARTIAL: f"Received {received} of {len(lines)} lines.",
     }.get(invoice.status, "Invoice saved. Nothing on it was received, so open it to add the lines.")
+    if not user.is_org_admin and invoice.status != Invoice.Status.IGNORED:
+        text = text.replace(", so open it to add the lines.", ".") + " The manager will check it."
     return text, reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
 
 

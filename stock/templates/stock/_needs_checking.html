@@ -1,0 +1,18 @@
+{# Invoices a manager has to look at (stock/views.py _needs_checking), on Home and the upload page. #}
+<div class="-mx-4 mb-6 border-t border-gray-300">
+  {% for invoice in needs_checking %}
+    <a href="{% url 'stock:invoice_detail' invoice.pk %}"
+       class="flex items-stretch border-b border-gray-300 transition-colors hover:bg-gray-900/[0.03]">
+      <span class="w-[5px] shrink-0 bg-status-week"></span>
+      <div class="flex min-w-0 flex-1 flex-col gap-1.5 py-3.5 pr-4 pl-3">
+        <span class="flex items-baseline gap-3">
+          <span class="min-w-0 flex-1 font-heading text-[1.0625rem] leading-tight font-semibold text-gray-900">{{ invoice.supplier_name|default:"No supplier shown" }}</span>
+          <span class="chip shrink-0 border-status-week text-status-week">{% if invoice.status == "conflict" %}Needs checking{% else %}Prices to check{% endif %}</span>
+        </span>
+        <span class="text-[0.8125rem] leading-snug text-gray-600">
+          {% if invoice.invoice_number %}Invoice {{ invoice.invoice_number }} &middot; {% endif %}{% if invoice.issued_on %}{{ invoice.issued_on|date:"j M Y" }} &middot; {% endif %}{% if invoice.brought_in_by %}brought in by {{ invoice.brought_in_by.name|default:"an assistant" }} {{ invoice.created_at|date:"j M" }}{% if invoice.status == "conflict" %}, {% endif %}{% endif %}{% if invoice.status == "conflict" %}{% if not invoice.supplier %}{% if invoice.supplier_name %}no supplier called "{{ invoice.supplier_name }}"{% else %}no supplier on the invoice{% endif %}{% if not invoice.totals_ok %}, {% endif %}{% endif %}{% if not invoice.totals_ok %}some lines don't add up{% endif %}{% endif %}
+        </span>
+      </div>
+    </a>
+  {% endfor %}
+</div>
