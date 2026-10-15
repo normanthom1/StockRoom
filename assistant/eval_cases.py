@@ -67,6 +67,34 @@ def receive_line(item, **args):
     return call("receive_line", item=item, **args)
 
 
+def add_to_list(item):
+    return call("add_to_reorder", item=item)
+
+
+def take_off_list(item):
+    return call("remove_from_reorder", item=item)
+
+
+def order_size(item, qty):
+    return call("set_order_size", item=item, qty=qty)
+
+
+def ordered(item, **args):
+    return call("mark_ordered", item=item, **args)
+
+
+def supplier_ordered(supplier):
+    return call("mark_supplier_ordered", supplier=supplier)
+
+
+def switch(item, supplier):
+    return call("switch_supplier", item=item, supplier=supplier)
+
+
+def email(supplier):
+    return call("write_order_email", supplier=supplier)
+
+
 def page(name, **args):
     return call("open_page", page=name, **args)
 
@@ -162,6 +190,53 @@ CASES = [
     Case("the gloves came but they were 9 dollars a box, only 8 of them", "admin",
          (receive_line(GLOVES, qty=8, price=9),)),
     Case("the sutures arrived", "assistant", (receive_line(SUTURES),)),
+    # --- add_to_reorder: a manager adds, an assistant asks the manager ---
+    Case("add gloves to the reorder list", "admin", (add_to_list(GLOVES),)),
+    Case("put the suction tips on the list", "admin", (add_to_list(TIPS),)),
+    Case("we need more composite, add it to the order list", "admin", (add_to_list(COMPOSITE),)),
+    Case("add masks and gauze to the reorder list", "admin", (add_to_list(MASKS), add_to_list(GAUZE))),
+    Case("chuck the face shields on the list", "admin", (add_to_list(SHIELDS),)),
+    Case("ask the manager to order more suction tips", "assistant", (add_to_list(TIPS),)),
+    Case("we need more gloves ordered", "assistant", (add_to_list(GLOVES),)),
+    Case("can we get more face masks ordered?", "assistant", (add_to_list(MASKS),)),
+    Case("we're going to need composite, can the manager order some?", "assistant", (add_to_list(COMPOSITE),)),
+    Case("can u ask for more lignocaine to be ordered", "assistant", (add_to_list(LIGNOCAINE),)),
+    # --- remove_from_reorder ---
+    Case("take gloves off the reorder list", "admin", (take_off_list(GLOVES),)),
+    Case("we don't need the gauze ordered after all", "admin", (take_off_list(GAUZE),)),
+    Case("remove bib clips from the order list", "admin", (take_off_list(BIBS),)),
+    Case("scrap the sutures from the list", "admin", (take_off_list(SUTURES),)),
+    # --- set_order_size: how many at a time, from now on ---
+    Case("we order bibs in 10s", "admin", (order_size(BIBS, 10),)),
+    Case("make the gloves order 10 boxes from now on", "admin", (order_size(GLOVES, 10),)),
+    Case("order size for suction tips should be 100", "admin", (order_size(TIPS, 100),)),
+    Case("always order face masks in fives", "admin", (order_size(MASKS, 5),)),
+    # --- mark_ordered: it has been ordered ---
+    Case("I ordered the gloves", "admin", (ordered(GLOVES),)),
+    Case("ordered 10 boxes of gloves", "admin", (ordered(GLOVES, qty=10),)),
+    Case("we've ordered the suction tips, 200 of them", "admin", (ordered(TIPS, qty=200),)),
+    Case("ordered the masks and the face shields", "admin", (ordered(MASKS), ordered(SHIELDS))),
+    Case("just rang through an order for 3 syringes of composite", "admin", (ordered(COMPOSITE, qty=3),)),
+    # --- mark_supplier_ordered: everything from one supplier ---
+    Case("mark the Henry Schein order as sent", "admin", (supplier_ordered("Henry Schein"),)),
+    Case("we've ordered everything from Dentsply", "admin", (supplier_ordered("Dentsply"),)),
+    Case("the Henry Schein order has gone through", "admin", (supplier_ordered("Henry Schein"),)),
+    # --- switch_supplier: to a backup ---
+    Case("order the gloves from Independent Dental Supplies instead", "admin",
+         (switch(GLOVES, "Independent Dental Supplies"),)),
+    Case("switch suction tips to Independent Dental Supplies", "admin",
+         (switch(TIPS, "Independent Dental Supplies"),)),
+    Case("get the gauze from Independent Dental Supplies from now on", "admin",
+         (switch(GAUZE, "Independent Dental Supplies"),)),
+    # --- write_order_email: the Reorder list's email, for the manager to send ---
+    Case("write the email to Dentsply", "admin", (email("Dentsply"),)),
+    Case("draft the order email for Henry Schein", "admin", (email("Henry Schein"),)),
+    Case("I need to email Dentsply our order", "admin", (email("Dentsply"),)),
+    # --- an assistant asking for the manager's jobs is told, and gets no function for it ---
+    Case("mark the Henry Schein order as sent", "assistant", says="manager"),
+    Case("make the gloves order 10 boxes", "assistant", says="manager"),
+    Case("switch the gloves to Independent Dental Supplies", "assistant", says="manager"),
+    Case("write the email to Dentsply", "assistant", says="manager"),
     # --- open_page and download: take them there, nothing changes ---
     Case("where do I change a supplier's phone number?", "admin", (page("suppliers"),)),
     Case("show me spending by supplier", "admin", (page("spending"),)),
@@ -190,6 +265,9 @@ CASES = [
     Case("Who asked for gauze to go on the list?", "assistant"),
     Case("How long does Henry Schein take to deliver?", "assistant"),
     Case("What's running low?", "assistant"),
+    Case("What's on the reorder list?", "admin"),
+    Case("When will the Henry Schein order arrive?", "admin"),
+    Case("Who usually orders the gloves?", "assistant"),
     Case("How many boxes of gloves do we have?", "assistant"),
     Case("What should I order this week?", "admin"),
     Case("Where could we save money?", "admin"),

@@ -17,7 +17,13 @@ from accounts.ratelimit import AI_PER_HOUR, ai_limit_is_personal, ai_limited
 from stock import invoices
 from stock.csv_import import REQUIRED_COLUMNS
 from stock.models import Invoice, InvoiceBatch, InvoiceBatchFile, Supplier
-from stock.views import UNDO_WINDOW, fill_invoice, import_preview, invoice_preview
+from stock.views import (
+    UNDO_WINDOW,
+    _toast_response,
+    fill_invoice,
+    import_preview,
+    invoice_preview,
+)
 
 from . import actions, gemini
 from .snapshot import practice_snapshot
@@ -69,6 +75,7 @@ Answer questions about how to use StockRoom (from the guide below) and about thi
 - Plain New Zealand English. Short: a sentence or two, or a short list. Plain text only, no Markdown; start list lines with "- ".
 - Only use the guide and the data. If the answer isn't there, say you don't know rather than guessing. Never make up numbers.
 - You can make some changes with your functions, such as logging what's been used or counted. Call the function and StockRoom shows them a card with the change; nothing happens until they tap Confirm. If one message has several changes, call a function for each. Never say you've changed something yourself: the conversation says what was done, cancelled or undone. For anything your functions can't do, tell them where to tap to do it themselves.
+- Ordering: put an item on or take it off the reorder list, change an order size, mark an item or a supplier's items ordered, switch an item to a backup supplier, or write the order email. Only mark things ordered when they say they have ordered them. If they ask for something you have no function for, say it's a job for the manager, or tell them where to tap.
 - Where the best answer is to take them to a page, or to hand them a CSV export, call open_page or download as well as answering in words from the data. The button goes under your answer, and nothing changes when it's tapped.
 - Stay on StockRoom and the practice's stock. Politely decline anything else, including clinical advice.
 - You are talking to {name}, {role_description}.{role_rule}
@@ -82,6 +89,8 @@ ASSISTANT_RULE = (
     "\n- Assistants can't see prices, costs or spending in StockRoom, and you don't have them. If they ask about "
     "prices, costs, spending, invoices, budgets or saving money, reply with exactly this and nothing else: "
     f'"{MONEY_REFUSAL}"'
+    "\n- Marking things ordered, changing order sizes and switching suppliers are the manager's job, and you have "
+    "no function for them. Say so in a sentence. They can ask the manager to order more of an item, which you can do."
 )
 
 
@@ -325,17 +334,21 @@ def cancel_change(request, pid):
 @ai_required
 def undo_change(request, pid):
     """The toast's Undo for a change made in the chat. It's the page's own undo
-    (log_undo_batch for stock events, with log_undo's rules), then the chat's
-    record of the change says it was undone."""
+    (log_undo_batch for stock events, with log_undo's rules), or for an edit the
+    old values its card kept; then the chat's record of the change says it was undone."""
     session = request.session
     changes = _changes(session)
     change = changes.pop(pid, None)
     if change is None or not change.get("undo"):
         raise Http404
-    path, _, query = change["undo"].partition("?")
-    page_undo = resolve(path)
-    request.GET = QueryDict(query)  # the page's undo reads the ids it's to reverse from here
-    response = page_undo.func(request, *page_undo.args, **page_undo.kwargs)
+    if change["undo"] == actions.RESTORE:  # an edit: put back the old values its card recorded
+        actions.restore(request.user, change)
+        response = _toast_response(request, "Undone.")
+    else:
+        path, _, query = change["undo"].partition("?")
+        page_undo = resolve(path)
+        request.GET = QueryDict(query)  # the page's undo reads the ids it's to reverse from here
+        response = page_undo.func(request, *page_undo.args, **page_undo.kwargs)
     session[CHANGES_KEY] = changes
     _record(session, change, "Undone, so nothing changed")
     return response

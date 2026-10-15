@@ -35,17 +35,30 @@ from stock.views import (
     SOLID_STATUSES,
     STATUS_COLOR,
     WANTED_STATUSES,
+    _backups,
+    _default_qty,
     _forecast_for,
+    _off_the_list,
     _open_lines_for_org,
+    _reorder_groups,
+    _wanted_items,
+    add_to_reorder_list,
     fill_invoice,
     log_event,
     pending_invoice,
+    place_order,
     receive_delivery_line,
+    set_order_size,
+    switch_supplier,
 )
 
 ANYONE = frozenset(User.Role.values)
 ADMIN = frozenset({User.Role.ADMIN})
 MONEY_REFUSAL = "Sorry, your account needs manager access to answer questions about prices or spending."
+CANT = "Sorry, I can't do that from the chat."
+MANAGER_JOB = "That's a job for the manager. The manager can do it from the Reorder list, or ask me."
+# An undo that isn't a page's own: puts back the old values each line of the card recorded.
+RESTORE = "restore"
 MAX_QTY = 9999  # anything bigger is a misheard number, not a day's use
 MIN_UNUSUAL = 200  # a count has to pass this, and 10x anything seen before, to be asked about
 MAX_OPTIONS = 6  # buttons on a "Which one?"
@@ -59,9 +72,11 @@ class Action:
     declaration: dict | Callable  # what Gemini is told about it: description and parameters (or user -> that)
     preview: Callable  # (user, args, pending) -> a card line, a Which, or a plain answer when it can't be done
     apply: Callable | None  # (user, line, client_id) -> the id of what it made
-    undo: str = "stock:log_undo_batch"  # URL name, given ?ids= of what apply made; also the family of a card
+    undo: str = "stock:log_undo_batch"  # URL name, given ?ids= of what apply made, or RESTORE; also the family of a card
     # A link action changes nothing, so it has no card or Confirm: preview returns buttons, or a plain answer.
     link: bool = False
+    refusal: str = CANT  # what someone whose role lacks it is told if they get as far as asking
+    restore: Callable | None = None  # (user, line) -> None; with undo=RESTORE, puts back what apply changed
 
 
 @dataclass(frozen=True)
@@ -109,11 +124,11 @@ def build(user, calls, picks=None, text=""):
     pending = {}  # item pk -> the unsaved events earlier lines would make, so later ones start from them
     problems, buttons = [], []
     # A whole order last, so a line named on its own wins over the same line in it.
-    for i in sorted(range(len(calls)), key=lambda n: calls[n][0] == "receive_order"):
+    for i in sorted(range(len(calls)), key=lambda n: calls[n][0] in ("receive_order", "mark_supplier_ordered")):
         name, args = calls[i]
         action = ACTIONS.get(name)
         if action is None or user.role not in action.roles:
-            problems.append("Sorry, I can't do that from the chat.")
+            problems.append(action.refusal if action else CANT)
             continue
         # Only a pick on the card sets "picks", never the model.
         args = {key: value for key, value in args.items() if key != "picks"}
@@ -140,7 +155,7 @@ def build(user, calls, picks=None, text=""):
         else:
             lines += [{"action": name, **line} for line in (result if isinstance(result, list) else [result])]
     if not lines and not which and not buttons and not problems:
-        return "Sorry, I can't do that from the chat."
+        return CANT
     if not lines and not which:
         buttons = list({b["url"]: b for b in buttons}.values())
         if buttons:
@@ -148,9 +163,13 @@ def build(user, calls, picks=None, text=""):
             return Answer(" ".join(problems) or text or "Here you go.", buttons)
         return problems[0]
     summaries = [line["summary"] for line in lines] or [f"asked which '{which['name']}' you meant"]
+    # A manager's order: what each line costs ("" when its item has no price), and the total over a few lines.
+    costs = [Decimal(line["cost"]) for line in lines if line.get("cost")]
     return {
         "calls": calls, "picks": picks, "lines": lines, "which": which, "note": " ".join(problems),
         "summary": ", ".join(summaries[:-1]) + (" and " if len(summaries) > 1 else "") + summaries[-1],
+        "total": f"{sum(costs):.2f}" if costs and len(lines) > 1 else "",
+        "unpriced": sum(1 for line in lines if line.get("cost") == "") if costs and len(lines) > 1 else 0,
     }
 
 
@@ -171,9 +190,20 @@ def apply(user, proposal):
             ids = [action.apply(user, line, uuid.uuid5(card, str(n))) for n, (action, line) in enumerate(todo)]
     except ObjectDoesNotExist:
         return None
-    undo = reverse(todo[0][0].undo) + "?ids=" + ",".join(str(i) for i in ids)
+    undo = (RESTORE if todo[0][0].undo == RESTORE
+            else reverse(todo[0][0].undo) + "?ids=" + ",".join(str(i) for i in ids))
     text = lines[0]["toast"] if len(lines) == 1 else lines[0]["many"].format(n=len(lines))
     return text, undo
+
+
+def restore(user, change):
+    """The Undo for a card whose actions have undo=RESTORE: each line puts back the
+    old values it recorded. Only the roles that could make the change put it back."""
+    with transaction.atomic():
+        for line in change["lines"]:
+            action = ACTIONS.get(line["action"])
+            if action and action.restore and user.role in action.roles:
+                action.restore(user, line)
 
 
 def _item_for(user, args):
@@ -556,6 +586,271 @@ def _apply_receipt_card(user, card):
     return text, reverse("stock:invoice_undo", args=[invoice.pk]) if invoice.undo_snapshot else ""
 
 
+# --- Ordering: the Reorder list's buttons, through the same functions in stock.views ---
+# Managers add to and take off the list, set an order size, mark lines or a supplier's
+# lines ordered and switch to a backup supplier, and get the order email. An assistant
+# can only ask for an item to be added (the page's own request flow), so the
+# manager-only actions are never in the declarations an assistant's request carries.
+
+def _static(item, f, change, summary, toast, many, detail="", **extra):
+    """A card line for a change that leaves on hand alone: shown with its status
+    chip rather than before and after."""
+    return {
+        "item": item.pk, "name": item.name, "static": True, "change": change, "summary": summary, "toast": toast,
+        "many": many, "detail": detail, "before": f.on_hand, "after": f.on_hand,
+        "unit": pluralize_unit(item.unit, f.on_hand), "was": _chip(f), "now": _chip(f), "flag": "", **extra,
+    }
+
+
+def _reorder_button():
+    return _button("Open the Reorder list", reverse("stock:reorder_list"))
+
+
+def _add_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    f = _forecast_for(item, timezone.localtime())
+    listed = pending.setdefault("listed", set())
+    if f.status in WANTED_STATUSES or item.pinned_to_reorder_at or item.pk in listed:
+        return f"{item.name} is already on the reorder list."
+    if not user.is_org_admin and item.reorder_requested_by_id:
+        return f"{item.name} has already been asked for. The manager will see it."
+    listed.add(item.pk)
+    if user.is_org_admin:
+        return _static(
+            item, f, "Add to the reorder list", f"added {item.name} to the reorder list",
+            f"Added {item.name} to the reorder list.", "Added {n} items to the reorder list",
+            flag="This puts it on the reorder list.", old={})
+    return _static(
+        item, f, "Ask the manager to order it", f"asked the manager to order {item.name}",
+        f"Asked the manager to add {item.name}.", "Asked the manager to add {n} items",
+        "Nothing is ordered. The manager will see it at the top of their reorder list.", old={})
+
+
+def _apply_add(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    add_to_reorder_list(user, item)
+    return item.pk
+
+
+def _add_declaration(user):
+    if user.is_org_admin:
+        what = "Put an item on the reorder list, e.g. 'add gloves to the reorder list'."
+    else:
+        what = ("Ask the manager to order more of an item, e.g. 'ask the manager to order more suction tips' or "
+                "'we need more gloves ordered'. Nothing is ordered: the manager sees the request on their reorder list.")
+    return {
+        "description": f"{what} Call it once for each item.",
+        "parameters": {"type": "OBJECT", "properties": {"item": {"type": "STRING", "description": (
+            "The item's name as written in the practice data. If more than one item fits what they said, "
+            "pass what they said as it is: StockRoom asks which.")}}, "required": ["item"]},
+    }
+
+
+def _remove_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    f = _forecast_for(item, timezone.localtime())
+    asked = item.reorder_requested_by
+    pinned = bool(item.pinned_to_reorder_at)
+    if not pinned and not asked:
+        if f.status in WANTED_STATUSES:
+            return (f"{item.name} is on the reorder list because of its stock ({f.status.label}), so it stays "
+                    "until it's ordered. Tell me when you've ordered it and I'll mark it ordered.")
+        return f"{item.name} isn't on the reorder list."
+    if item.pk in pending.setdefault("removed", set()):
+        return f"{item.name} is already in this change."
+    pending["removed"].add(item.pk)
+    why = " and ".join(([f"{asked.name or 'Someone'} asked for it"] if asked else []) + (["you added it"] if pinned else []))
+    return _static(
+        item, f, "Take off the reorder list", f"took {item.name} off the reorder list",
+        f"Took {item.name} off the reorder list.", "Took {n} items off the reorder list", why[0].upper() + why[1:] + ".",
+        flag="It stays on the list until it's ordered, because it's running low." if f.status in WANTED_STATUSES else "",
+        old={"pinned": pinned, "asked_by": item.reorder_requested_by_id})
+
+
+def _apply_remove(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    _off_the_list(item)
+    return item.pk
+
+
+def _restore_remove(user, line):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"])
+    item.pinned_to_reorder_at = timezone.now() if line["old"]["pinned"] else None
+    item.reorder_requested_by_id = line["old"]["asked_by"]
+    item.save(update_fields=["pinned_to_reorder_at", "reorder_requested_by"])
+
+
+def _size_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    qty = _whole(args.get("qty"), 1)
+    if qty is None:
+        return f"How many {pluralize_unit(item.unit, 2)} of {item.name} should it order at a time?"
+    new = format_qty(qty, item.unit)
+    if item.order_size == qty:
+        return f"{item.name} is already ordered {new} at a time."
+    if item.pk in pending.setdefault("sized", set()):
+        return f"{item.name} is already in this change."
+    pending["sized"].add(item.pk)
+    old = format_qty(item.order_size, item.unit) if item.order_size else "not set"
+    return _static(
+        item, _forecast_for(item, timezone.localtime()), f"Order {new} at a time",
+        f"set {item.name} to be ordered {new} at a time", f"{item.name} will be ordered {new} at a time.",
+        "Changed {n} order sizes", f"Order size: {old} → {new}", qty=qty, old={"order_size": item.order_size})
+
+
+def _apply_size(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    set_order_size(item, line["qty"])
+    return item.pk
+
+
+def _restore_size(user, line):
+    set_order_size(Item.objects.for_org(user.organisation).get(pk=line["item"]), line["old"]["order_size"])
+
+
+def _order_line(item, f, qty, now):
+    """A card line for ordering qty of item from its preferred supplier, with the
+    status it'll have, what's already on its way and (managers only) the cost."""
+    after = _forecast_receiving(item, now, [], {"closed": set(), "added": [SimpleNamespace(qty=qty)]})
+    supplier, amount = item.supplier, format_qty(qty, item.unit)
+    on_order = sum(o.qty for o in item.order_lines.all() if o.is_open)
+    cost = qty * Decimal(str(item.price)) if item.price is not None else None
+    line = _static(
+        item, f, f"Order {amount}", f"ordered {amount} of {item.name} from {supplier.name}",
+        f"Ordered {amount} of {item.name} from {supplier.name}", "Ordered {n} items",
+        f"From {supplier.name}, about {supplier.lead_days} days", qty=qty, after=after.on_hand, now=_chip(after),
+        flag=f"{format_qty(on_order, item.unit)} already on order. This adds more." if on_order else "",
+        cost="" if cost is None else str(cost))
+    if cost is not None:
+        line["price_note"] = f"{qty} × ${Decimal(str(item.price)):.2f} = ${cost:.2f}"
+    return line
+
+
+def _ordered_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    ordered = pending.setdefault("ordered", set())
+    if item.pk in ordered:
+        return f"{item.name} is already in this order."
+    now = timezone.localtime()
+    f = _forecast_for(item, now)
+    qty = _default_qty(item, f) if args.get("qty") is None else _whole(args["qty"], 1)
+    if qty is None:
+        return f"How many {pluralize_unit(item.unit, 2)} of {item.name} did you order?"
+    ordered.add(item.pk)
+    return _order_line(item, f, qty, now)
+
+
+def _supplier_order(user, args, pending):
+    """Everything on the reorder list from one supplier, at the quantities its
+    Mark all ordered button would use."""
+    supplier = _supplier_for(user, args)
+    if not isinstance(supplier, Supplier):
+        return supplier
+    now = timezone.localtime()
+    ordered = pending.setdefault("ordered", set())
+    wanted = [(item, f) for item, f in _wanted_items(user.organisation, now)
+              if item.supplier_id == supplier.pk and item.pk not in ordered]
+    if not wanted:
+        return Answer(f"Nothing on the reorder list is from {supplier.name}.", [_reorder_button()])
+    lines = []
+    for item, f in sorted(wanted, key=lambda entry: entry[0].name):
+        ordered.add(item.pk)
+        lines.append(_order_line(item, f, _default_qty(item, f), now) | {
+            "many": f"Ordered {{n}} items from {supplier.name}"})
+    return lines
+
+
+def _apply_order(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    return place_order(user, item, line["qty"]).pk
+
+
+def _switch_line(user, args, pending):
+    item = _item_for(user, args)
+    if not isinstance(item, Item):
+        return item
+    supplier = _supplier_for(user, args)
+    if not isinstance(supplier, Supplier):
+        return supplier
+    if supplier.pk == item.supplier_id:
+        return f"{item.name} already comes from {supplier.name}."
+    if supplier.pk not in {s.pk for s in _backups(item)}:
+        return Answer(f"{supplier.name} isn't set up as a backup for {item.name}. Add it on the item's page "
+                      "first, then ask again.",
+                      [_button(f"Open {item.name}", reverse("stock:item_detail", args=[item.pk]))])
+    old = item.supplier
+    return _static(
+        item, _forecast_for(item, timezone.localtime()), f"Order from {supplier.name}",
+        f"switched {item.name} to {supplier.name}",
+        f"{item.name} now comes from {supplier.name}. {old.name} is kept as a backup.", "Switched {n} suppliers",
+        f"Supplier: {old.name} → {supplier.name}, about {supplier.lead_days} days. {old.name} is kept as a backup.",
+        supplier=supplier.pk, old={"supplier": old.pk})
+
+
+def _apply_switch(user, line, client_id):
+    item = Item.objects.for_org(user.organisation).get(pk=line["item"], is_active=True)
+    switch_supplier(item, item.other_suppliers.filter(is_active=True).get(pk=line["supplier"]))
+    return item.pk
+
+
+def _restore_switch(user, line):
+    org = user.organisation
+    switch_supplier(Item.objects.for_org(org).get(pk=line["item"]),
+                    Supplier.objects.for_org(org).get(pk=line["old"]["supplier"]))
+
+
+def _order_email(user, args, pending):
+    """The email the Reorder list writes for a supplier, with its Email and Call
+    buttons. Sending stays a tap in the manager's own mail app."""
+    supplier = _supplier_for(user, args)
+    if isinstance(supplier, Which):
+        return "Which supplier did you mean: " + " or ".join(o["name"] for o in supplier.options) + "?"
+    if not isinstance(supplier, Supplier):
+        return supplier
+    now = timezone.localtime()
+    group = next((g for g in _reorder_groups(user.organisation, user, _wanted_items(user.organisation, now), now.date())
+                  if g["supplier"].pk == supplier.pk), None)
+    if group is None:
+        return Answer(f"Nothing on the reorder list is from {supplier.name}, so there's no order to write.",
+                      [_reorder_button()])
+    buttons = []
+    if group["mailto"]:
+        intro = f"To: {supplier.email}\n" + group["email"]
+        buttons.append(_button(f"Email {supplier.name}", group["mailto"]))
+    else:
+        intro = (f"{supplier.name} has no email address set up, so here's the order to read out or paste in.\n\n"
+                 + group["email"])
+    if group["phone_digits"]:
+        buttons.append(_button(f"Call {supplier.name}", "tel:" + group["phone_digits"]))
+    return Answer(intro, buttons)
+
+
+def _supplier_property(what):
+    return {"type": "STRING", "description": f"{what} The supplier's name as written in the practice data."}
+
+
+def _ordering(name, description, preview, apply, properties, *, required, restore=None, roles=ADMIN, **kwargs):
+    undo = {"undo": RESTORE} if restore else {}
+    return Action(
+        name, roles,
+        {"description": description, "parameters": {"type": "OBJECT", "properties": properties,
+                                                      "required": required}},
+        preview, apply, refusal=MANAGER_JOB, restore=restore, **undo, **kwargs)
+
+
+ITEM_PROPERTY = {"type": "STRING", "description": (
+    "The item's name as written in the practice data. If more than one item fits what they said, "
+    "pass what they said as it is: StockRoom asks which.")}
+
+
 # --- Buttons under an answer: open a page or download a file. Nothing changes, so there's no card. ---
 
 def _button(label, url, download=False):
@@ -693,6 +988,45 @@ ACTIONS = {action.name: action for action in [
     ),
     Action("receive_line", ANYONE, _receive_line_declaration, _receive_line, _apply_receipt,
            undo="stock:delivery_undo_batch"),
+    Action("add_to_reorder", ANYONE, _add_declaration, _add_line, _apply_add, undo="stock:reorder_add_undo_batch"),
+    _ordering(
+        "remove_from_reorder",
+        "Take an item off the reorder list, e.g. 'take gloves off the reorder list' or 'we don't need the gauze "
+        "ordered'. Not for something that has been ordered: that's mark_ordered. Call it once for each item.",
+        _remove_line, _apply_remove, {"item": ITEM_PROPERTY}, required=["item"], restore=_restore_remove),
+    _ordering(
+        "mark_ordered",
+        "Mark an item as ordered because it has been ordered from the supplier, e.g. 'I ordered the gloves' or "
+        "'ordered 10 boxes of bibs'. Only give qty if they said how many, for this order only. Call it once for "
+        "each item. Not for adding to the list.",
+        _ordered_line, _apply_order,
+        {"item": ITEM_PROPERTY, "qty": {"type": "INTEGER", "description": "How many were ordered this time."}},
+        required=["item"], undo="stock:reorder_undo_batch"),
+    _ordering(
+        "mark_supplier_ordered",
+        "Mark everything on the reorder list from one supplier as ordered, e.g. 'mark the Henry Schein order as "
+        "sent' or 'we've ordered everything from Dentsply'.",
+        _supplier_order, _apply_order, {"supplier": _supplier_property("Who it was ordered from.")},
+        required=["supplier"], undo="stock:reorder_undo_batch"),
+    _ordering(
+        "set_order_size",
+        "Change how many of an item are ordered at a time from now on, e.g. 'we order bibs in 10s' or 'make the "
+        "gloves 10 boxes'. Not for an order already placed: that's mark_ordered with qty.",
+        _size_line, _apply_size,
+        {"item": ITEM_PROPERTY, "qty": {"type": "INTEGER", "description": "How many to order at a time."}},
+        required=["item", "qty"], restore=_restore_size),
+    _ordering(
+        "switch_supplier",
+        "Order an item from one of its backup suppliers from now on, e.g. 'get the bibs from Southern Cross'. The "
+        "old supplier stays as a backup.",
+        _switch_line, _apply_switch,
+        {"item": ITEM_PROPERTY, "supplier": _supplier_property("Who it should come from.")},
+        required=["item", "supplier"], restore=_restore_switch),
+    _ordering(
+        "write_order_email",
+        "Show the order email for a supplier, with a button to open it in the mail app and one to call them, e.g. "
+        "'write the email to Dentsply'. Nothing is sent.",
+        _order_email, None, {"supplier": _supplier_property("Who to write to.")}, required=["supplier"], link=True),
     Action("open_page", ANYONE, _page_declaration, _open_page, None, link=True),
     Action("download", ADMIN, _download_declaration, _download, None, link=True),
 ]}

@@ -27,6 +27,7 @@ urlpatterns = [
     path("reorder/", views.reorder_list, name="reorder_list"),
     path("reorder/item/<int:pk>/add/", views.reorder_add, name="reorder_add"),
     path("reorder/item/<int:pk>/add/undo/", views.reorder_add_undo, name="reorder_add_undo"),
+    path("reorder/add/undo-batch/", views.reorder_add_undo_batch, name="reorder_add_undo_batch"),
     path("reorder/item/<int:pk>/decline/", views.reorder_decline, name="reorder_decline"),
     path("reorder/item/<int:pk>/ordered/", views.reorder_mark_ordered, name="reorder_mark_ordered"),
     path("reorder/supplier/<int:pk>/ordered/", views.reorder_mark_supplier_ordered, name="reorder_mark_supplier_ordered"),
