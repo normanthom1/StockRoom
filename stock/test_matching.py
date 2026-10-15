@@ -121,7 +121,7 @@ class MatcherTests(TestCase):
 
     def test_embeddings_only_check_unsure_names_and_only_with_ai(self):
         embed = mock.patch("assistant.gemini.embed", side_effect=lambda texts: [[1.0, 0.0] for _ in texts])
-        with embed as called:
+        with override_settings(AI_API_KEY=""), embed as called:  # whatever key the machine running this has
             unsure, sure = Matcher(self.org).match_all([{"name": "Cotton rolls"}, {"name": "Gloves"}])
         called.assert_not_called()
         self.assertEqual((unsure.item, unsure.band), (self.pellets, "check"))
