@@ -21,6 +21,7 @@ from assistant.views import MAX_BATCH
 from stock.forecast import on_hand
 from stock.invoices import run_batch
 from stock.models import (
+    CatalogueProduct,
     DemoResetState,
     Invoice,
     InvoiceBatch,
@@ -391,7 +392,8 @@ class ChangeTests(Practice):
             (("log_out", {}), "Which item was it?"),
             (("log_used", {"item": "Gloves", "qty": 1e9}), "How many boxes of Gloves were used?"),
             (("log_used", {"item": "Bibs", "qty": 1}), "Bibs hasn&#x27;t been counted yet"),
-            (("set_price", {"item": "Gloves"}), "I can&#x27;t do that from the chat."),
+            (("delete_everything", {"item": "Gloves"}), "I can&#x27;t do that from the chat."),
+            (("set_price", {"item": "Gloves", "price": 7}), "That&#x27;s a job for the manager."),
         ]
         self.client.force_login(self.assistant)
         for call, text in cases:
@@ -423,15 +425,18 @@ class ChangeTests(Practice):
         limited.assert_not_called()
 
     def test_an_assistants_request_has_no_manager_only_declarations(self):
-        set_price = actions.Action(name="set_price", roles=frozenset({User.Role.ADMIN}), declaration={"description": "x"},
-                                   preview=None, apply=None)
+        wipe = actions.Action(name="wipe_stock", roles=frozenset({User.Role.ADMIN}), declaration={"description": "x"},
+                              preview=None, apply=None)
         reply = {"candidates": [{"content": {"parts": [{"text": "Kia ora"}]}}]}
-        with mock.patch.dict(actions.ACTIONS, {"set_price": set_price}):
+        with mock.patch.dict(actions.ACTIONS, {"wipe_stock": wipe}):
             everyone = ["log_used", "log_out", "log_low", "set_count", "receive_order", "receive_line",
                         "add_to_reorder", "open_page"]
             ordering = ["remove_from_reorder", "mark_ordered", "mark_supplier_ordered", "set_order_size",
                         "switch_supplier", "write_order_email"]
-            managers = [*everyone[:-1], *ordering, "open_page", "download", "set_price"]
+            setup = ["add_item", "edit_item", "set_price", "archive_item", "unarchive_item", "add_backup_supplier",
+                     "remove_backup_supplier", "add_supplier", "edit_supplier", "archive_supplier",
+                     "unarchive_supplier"]
+            managers = [*everyone[:-1], *ordering, *setup, "open_page", "download", "wipe_stock"]
             for user, expected in ((self.assistant, everyone), (self.admin, managers)):
                 self.client.force_login(user)
                 with mock.patch("assistant.gemini.urllib.request.urlopen") as urlopen:
@@ -855,9 +860,11 @@ class OrderingTests(Practice):
 
     def card(self, *found, user=None, question="sort the order"):
         self.client.force_login(user or self.admin)
+        before = set(self.client.session.get("ask_changes", {}))
         with calls(*found):
             response = self.ask(question)
-        return response, next(iter(self.client.session.get("ask_changes", {})), None)
+        new = [pid for pid in self.client.session.get("ask_changes", {}) if pid not in before]
+        return response, new[0] if new else None  # this call's card, not an earlier one's
 
     def post(self, step, pid):
         return self.client.post(f"/ask/changes/{pid}/{step}/")
@@ -1130,6 +1137,329 @@ class OrderingTests(Practice):
         self.assertNotContains(response, "$")
         for change in self.client.session["ask_changes"].values():
             self.assertNotIn("$", json.dumps(change))
+
+
+@override_settings(AI_API_KEY="test-key")
+class SetupTests(Practice):
+    """#158: items, prices and suppliers by message, through the Stock and Suppliers pages' own forms."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.dentsply = Supplier.objects.create(organisation=cls.org, name="Dentsply", lead_days=7)
+        cls.indep = Supplier.objects.create(organisation=cls.org, name="Independent Dental", lead_days=3)
+        cls.bibs = Item.objects.create(organisation=cls.org, name="Bibs", unit="pack", supplier=cls.henry)
+        cls.trays = Item.objects.create(organisation=cls.org, name="Impression trays", unit="tray",
+                                        supplier=cls.dentsply, is_active=False)
+
+    def card(self, *found, user=None):
+        self.client.force_login(user or self.admin)
+        before = set(self.client.session.get("ask_changes", {}))
+        with calls(*found):
+            response = self.ask("sort out the setup")
+        new = [pid for pid in self.client.session.get("ask_changes", {}) if pid not in before]
+        return response, new[0] if new else None  # this call's card, not an earlier one's
+
+    def post(self, step, pid, **kwargs):
+        return self.client.post(f"/ask/changes/{pid}/{step}/", **kwargs)
+
+    def reload(self, *rows):
+        for row in rows:
+            row.refresh_from_db()
+
+    # --- a new item ---
+
+    def test_a_new_item_is_the_stock_pages_form_and_undo_removes_it(self):
+        response, pid = self.card(("add_item", {"name": "Prophy angles", "unit": "box", "supplier": "Dentsply",
+                                                "price": 12.5, "order_size": 4}))
+        for text in ("Add Prophy angles", "Counted in boxes", "Supplier: Dentsply", "Price: $12.50 a box",
+                     "Order size: 4", "Confirm"):
+            self.assertContains(response, text)
+        self.assertFalse(Item.objects.filter(name="Prophy angles").exists())
+
+        self.assertContains(self.post("confirm", pid), "Added Prophy angles.")
+        item = Item.objects.get(name="Prophy angles")
+        self.assertEqual((item.unit, item.supplier, item.price, item.order_size, item.organisation),
+                         ("box", self.dentsply, Decimal("12.50"), 4, self.org))
+        self.assertContains(self.client.get("/items/"), "Prophy angles")
+
+        self.assertEqual(self.post("undo", pid)["HX-Refresh"], "true")
+        self.assertFalse(Item.objects.filter(name="Prophy angles").exists())
+
+    def test_undoing_an_item_that_has_been_used_since_archives_it_instead(self):
+        _, pid = self.card(("add_item", {"name": "Prophy angles", "unit": "box", "supplier": "Dentsply"}))
+        self.post("confirm", pid)
+        item = Item.objects.get(name="Prophy angles")
+        StockEvent.objects.create(organisation=self.org, item=item, user=self.admin, kind="count", qty=3)
+        self.post("undo", pid)
+        self.reload(item)
+        self.assertFalse(item.is_active)
+
+    def test_a_missing_unit_supplier_or_price_is_asked_about_not_guessed(self):
+        for call, text in (
+            (("add_item", {"name": "Prophy angles", "supplier": "Dentsply"}), "What&#x27;s Prophy angles counted in?"),
+            (("add_item", {"name": "Prophy angles", "unit": "box"}), "Who do you order Prophy angles from?"),
+            (("add_item", {"name": "Prophy angles", "unit": "box", "supplier": "Nobody"}),
+             "can&#x27;t find a supplier called &#x27;Nobody&#x27;"),
+            (("add_item", {"name": "Prophy angles", "unit": "box", "supplier": "Dentsply", "price": "lots"}),
+             "What&#x27;s the price of one box of Prophy angles?"),
+            (("add_item", {"unit": "box"}), "What&#x27;s the item called?"),
+        ):
+            with self.subTest(call=call):
+                response, pid = self.card(call)
+                self.assertContains(response, text)
+                self.assertIsNone(pid)
+
+    def test_something_already_in_stock_is_asked_about_before_a_duplicate_is_made(self):
+        response, pid = self.card(("add_item", {"name": "gloves", "unit": "box", "supplier": "Henry Schein"}))
+        self.assertContains(response, "You already have Gloves. Did you mean that one?")
+        self.assertContains(response, "No, it&#x27;s a different one")
+        self.assertNotContains(response, "Confirm")
+        with mock.patch("assistant.gemini.generate") as generate:
+            yes = self.client.post(f"/ask/changes/{pid}/choose/{self.gloves.pk}/")
+        generate.assert_not_called()
+        self.assertContains(yes, "nothing added")
+        self.assertEqual(Item.objects.filter(organisation=self.org).count(), 3)
+
+        _, pid = self.card(("add_item", {"name": "gloves", "unit": "box", "supplier": "Henry Schein"}))
+        card = self.client.post(f"/ask/changes/{pid}/choose/0/")
+        self.assertContains(card, "Add gloves")
+        self.assertContains(card, "Confirm")
+
+    def test_a_catalogue_product_is_offered_first_and_added_the_way_the_catalogue_adds_it(self):
+        product = CatalogueProduct.objects.get(name="Disposable prophy angles")  # seeded by a migration
+        response, pid = self.card(("add_item", {"name": "disposable prophy angles", "unit": "box"}))
+        self.assertContains(response, "Disposable prophy angles is in the catalogue. Add that one?")
+        self.assertContains(response, "Add Disposable prophy angles from the catalogue")
+
+        with mock.patch("assistant.gemini.generate") as generate:
+            card = self.client.post(f"/ask/changes/{pid}/choose/{product.pk}/")
+        generate.assert_not_called()
+        self.assertContains(card, "From the catalogue: angle")
+        self.assertContains(card, "Supplier: Henry Schein")  # the first one the practice already uses
+        self.assertFalse(Item.objects.filter(name=product.name).exists())
+        self.post("confirm", pid)
+        item = Item.objects.get(name=product.name)
+        self.assertEqual((item.supplier, item.unit), (self.henry, "angle"))
+        self.assertEqual(set(item.other_suppliers.all()), {self.dentsply})  # others they use become backups
+        self.post("undo", pid)
+        self.assertFalse(Item.objects.filter(name=product.name).exists())
+
+        # A supplier the catalogue doesn't list for it skips the offer, and a loose name never matches one.
+        response, pid = self.card(("add_item", {"name": "disposable prophy angles", "unit": "box",
+                                                "supplier": "Independent Dental"}))
+        self.assertNotContains(response, "is in the catalogue")
+        self.assertContains(response, "Supplier: Independent Dental")
+        response, pid = self.card(("add_item", {"name": "angles", "unit": "box", "supplier": "Dentsply"}))
+        self.assertNotContains(response, "is in the catalogue")
+
+    # --- changing an item ---
+
+    def test_a_rename_unit_and_supplier_show_old_to_new_and_undo_puts_each_back(self):
+        self.bibs.other_suppliers.add(self.dentsply)
+        response, pid = self.card(("edit_item", {"item": "Bibs", "new_name": "Patient bibs", "new_unit": "box",
+                                                 "new_supplier": "Dentsply"}))
+        for text in ("Name: Bibs → Patient bibs", "Unit: pack → box", "Supplier: Henry Schein → Dentsply"):
+            self.assertContains(response, text)
+        self.reload(self.bibs)
+        self.assertEqual(self.bibs.name, "Bibs")
+
+        self.post("confirm", pid)
+        self.reload(self.bibs)
+        self.assertEqual((self.bibs.name, self.bibs.unit, self.bibs.supplier), ("Patient bibs", "box", self.dentsply))
+        self.assertEqual(set(self.bibs.other_suppliers.all()), set())  # the preferred one is no longer a backup
+
+        self.post("undo", pid)
+        self.reload(self.bibs)
+        self.assertEqual((self.bibs.name, self.bibs.unit, self.bibs.supplier), ("Bibs", "pack", self.henry))
+        self.assertEqual(set(self.bibs.other_suppliers.all()), {self.dentsply})  # and it was a backup before
+
+    def test_a_rename_that_would_make_a_duplicate_or_change_nothing_says_so(self):
+        response, pid = self.card(("edit_item", {"item": "Bibs", "new_name": "gloves"}))
+        self.assertContains(response, "You already have Gloves, so I haven&#x27;t renamed Bibs.")
+        self.assertIsNone(pid)
+        response, pid = self.card(("edit_item", {"item": "Bibs", "new_name": "Bibs", "new_unit": "pack"}))
+        self.assertContains(response, "nothing to change on Bibs")
+        self.assertIsNone(pid)
+
+    def test_a_price_is_old_to_new_with_a_big_rise_called_out_and_undo_restores_it(self):
+        response, pid = self.card(("set_price", {"item": "Gloves", "price": 7.2}))
+        self.assertContains(response, "Price: $8.50 → $7.20 a box")
+        self.assertNotContains(response, "Check it&#x27;s right")
+        self.post("confirm", pid)
+        self.reload(self.gloves)
+        self.assertEqual(self.gloves.price, Decimal("7.20"))
+        self.post("undo", pid)
+        self.reload(self.gloves)
+        self.assertEqual(self.gloves.price, Decimal("8.50"))
+
+        response, _ = self.card(("set_price", {"item": "Gloves", "price": "$12"}))
+        self.assertContains(response, "up 41% on the price now. Check it&#x27;s right.")
+        response, _ = self.card(("set_price", {"item": "Bibs", "price": 0.5}))
+        self.assertContains(response, "Price: not set → $0.50 a pack")
+        response, _ = self.card(("set_price", {"item": "Gloves", "price": 8.5}))
+        self.assertContains(response, "already $8.50 a box")
+        response, _ = self.card(("set_price", {"item": "Gloves"}))
+        self.assertContains(response, "What&#x27;s the price of one box of Gloves?")
+
+    def test_archiving_says_what_it_means_and_undo_and_a_message_bring_it_back(self):
+        response, pid = self.card(("archive_item", {"item": "Bibs"}))
+        self.assertContains(response, "It won&#x27;t show on Log usage or the reorder list.")
+        self.post("confirm", pid)
+        self.reload(self.bibs)
+        self.assertFalse(self.bibs.is_active)
+        self.assertNotContains(self.client.get("/log-usage/"), "Bibs")
+        self.post("undo", pid)
+        self.reload(self.bibs)
+        self.assertTrue(self.bibs.is_active)
+
+        response, pid = self.card(("unarchive_item", {"item": "impression trays"}))
+        self.assertContains(response, "Impression trays")
+        self.assertContains(response, "Bring it back")
+        self.post("confirm", pid)
+        self.reload(self.trays)
+        self.assertTrue(self.trays.is_active)
+        self.post("undo", pid)
+        self.reload(self.trays)
+        self.assertFalse(self.trays.is_active)
+
+    def test_only_this_practices_archived_items_can_be_brought_back(self):
+        other = Organisation.objects.create(name="Elsewhere")
+        Item.objects.create(organisation=other, name="Secret tray", unit="tray", is_active=False,
+                            supplier=Supplier.objects.create(organisation=other, name="Them"))
+        response, pid = self.card(("unarchive_item", {"item": "Secret tray"}))
+        self.assertContains(response, "can&#x27;t find an archived item called &#x27;Secret tray&#x27;")
+        self.assertIsNone(pid)
+
+    def test_backup_suppliers_are_added_and_removed_with_undo(self):
+        response, pid = self.card(("add_backup_supplier", {"item": "Bibs", "supplier": "Independent Dental"}))
+        self.assertContains(response, "Backup suppliers: add Independent Dental. Henry Schein stays")
+        self.post("confirm", pid)
+        self.assertEqual(set(self.bibs.other_suppliers.all()), {self.indep})
+        self.post("undo", pid)
+        self.assertEqual(set(self.bibs.other_suppliers.all()), set())
+
+        self.bibs.other_suppliers.add(self.dentsply)
+        _, pid = self.card(("remove_backup_supplier", {"item": "Bibs", "supplier": "Dentsply"}))
+        self.post("confirm", pid)
+        self.assertEqual(set(self.bibs.other_suppliers.all()), set())
+        self.post("undo", pid)
+        self.assertEqual(set(self.bibs.other_suppliers.all()), {self.dentsply})
+
+        for call, text in (
+            (("add_backup_supplier", {"item": "Bibs", "supplier": "Henry Schein"}), "already who Bibs comes from"),
+            (("add_backup_supplier", {"item": "Bibs", "supplier": "Dentsply"}), "already a backup for Bibs"),
+            (("remove_backup_supplier", {"item": "Bibs", "supplier": "Independent Dental"}), "isn&#x27;t a backup"),
+        ):
+            with self.subTest(call=call):
+                response, pid = self.card(call)
+                self.assertContains(response, text)
+                self.assertIsNone(pid)
+
+    # --- suppliers ---
+
+    def test_a_new_supplier_is_the_suppliers_form_and_undo_removes_it(self):
+        response, pid = self.card(("add_supplier", {"name": "Dental Direct", "phone": "09 555 0101"}))
+        for text in ("Add Dental Direct", "Phone: 09 555 0101", "Delivers in about 5 days"):
+            self.assertContains(response, text)
+        self.assertFalse(Supplier.objects.filter(name="Dental Direct").exists())
+        self.post("confirm", pid)
+        supplier = Supplier.objects.get(name="Dental Direct")
+        self.assertEqual((supplier.phone, supplier.lead_days, supplier.is_active), ("09 555 0101", 5, True))
+        self.post("undo", pid)
+        self.assertFalse(Supplier.objects.filter(name="Dental Direct").exists())
+
+    def test_a_supplier_that_already_exists_or_is_badly_filled_in_is_asked_about_or_refused(self):
+        response, pid = self.card(("add_supplier", {"name": "Henry Schein NZ"}))
+        self.assertContains(response, "You already have Henry Schein. Did you mean that one?")
+        card = self.client.post(f"/ask/changes/{pid}/choose/0/")
+        self.assertContains(card, "Add Henry Schein NZ")
+        response, pid = self.card(("add_supplier", {"name": "Dental Direct", "email": "not an email"}))
+        self.assertContains(response, "Enter a valid email address.")
+        self.assertIsNone(pid)
+        response, pid = self.card(("add_supplier", {"name": "Dental Direct", "lead_days": 400}))
+        self.assertContains(response, "from 1 to 60")
+        self.assertIsNone(pid)
+
+    def test_delivery_days_and_details_show_old_to_new_and_undo_puts_them_back(self):
+        response, pid = self.card(("edit_supplier", {"supplier": "Henry Schein", "lead_days": 3,
+                                                     "phone": "0800 111 222"}))
+        self.assertContains(response, "Delivery time: 5 days → 3 days")
+        self.assertContains(response, "Phone: not set → 0800 111 222")
+        self.assertContains(response, "This changes when its items need ordering.")
+        self.post("confirm", pid)
+        self.reload(self.henry)
+        self.assertEqual((self.henry.lead_days, self.henry.phone), (3, "0800 111 222"))
+        self.post("undo", pid)
+        self.reload(self.henry)
+        self.assertEqual((self.henry.lead_days, self.henry.phone), (5, ""))
+
+    def test_a_supplier_name_that_clashes_is_refused_by_the_form(self):
+        response, pid = self.card(("edit_supplier", {"supplier": "Henry Schein", "new_name": "dentsply"}))
+        self.assertContains(response, "You already have a supplier with that name.")
+        self.assertIsNone(pid)
+
+    def test_archiving_a_supplier_needs_its_items_moved_first(self):
+        response, pid = self.card(("archive_supplier", {"supplier": "Henry Schein"}))
+        self.assertContains(response, "still has 2 active items")
+        self.assertIsNone(pid)
+        response, pid = self.card(("archive_supplier", {"supplier": "Independent Dental"}))
+        self.assertContains(response, "You can bring it back")
+        self.post("confirm", pid)
+        self.reload(self.indep)
+        self.assertFalse(self.indep.is_active)
+        self.post("undo", pid)
+        self.reload(self.indep)
+        self.assertTrue(self.indep.is_active)
+
+        Supplier.objects.filter(pk=self.indep.pk).update(is_active=False)
+        _, pid = self.card(("unarchive_supplier", {"supplier": "independent"}))
+        self.post("confirm", pid)
+        self.reload(self.indep)
+        self.assertTrue(self.indep.is_active)
+
+    # --- stocktake, roles and prices ---
+
+    def test_start_a_stocktake_is_a_button_to_the_page(self):
+        response, pid = self.card(("open_page", {"page": "stocktake"}))
+        self.assertContains(response, 'href="/stocktake/"')
+        self.assertNotContains(response, "Confirm")
+        self.assertIsNone(pid)
+
+    def test_an_assistant_has_none_of_these_and_a_call_changes_nothing(self):
+        self.client.force_login(self.assistant)
+        with calls(("add_item", {"name": "Prophy angles", "unit": "box", "supplier": "Dentsply"}),
+                   ("set_price", {"item": "Gloves", "price": 1})) as generate:
+            response = self.ask("add prophy angles")
+        names = {tool["name"] for tool in generate.call_args.kwargs["tools"]}
+        for name in ("add_item", "edit_item", "set_price", "archive_item", "unarchive_item", "add_backup_supplier",
+                     "remove_backup_supplier", "add_supplier", "edit_supplier", "archive_supplier",
+                     "unarchive_supplier"):
+            self.assertNotIn(name, names)
+        self.assertContains(response, "That&#x27;s a job for the manager")
+        self.assertFalse(Item.objects.filter(name="Prophy angles").exists())
+        self.reload(self.gloves)
+        self.assertEqual(self.gloves.price, Decimal("8.50"))
+        self.assertIn("prices and adding or archiving items are the manager's job", generate.call_args.args[0])
+
+    def test_each_change_is_checked_again_on_confirm(self):
+        _, pid = self.card(("set_price", {"item": "Gloves", "price": 7}))
+        User.objects.filter(pk=self.admin.pk).update(role=User.Role.ASSISTANT)
+        self.assertContains(self.post("confirm", pid), "can&#x27;t be done now")
+        self.reload(self.gloves)
+        self.assertEqual(self.gloves.price, Decimal("8.50"))
+
+    def test_an_item_archived_or_gone_since_the_card_was_shown_changes_nothing(self):
+        _, pid = self.card(("set_price", {"item": "Gloves", "price": 7}))
+        Item.objects.filter(pk=self.gloves.pk).update(is_active=False)
+        self.assertContains(self.post("confirm", pid), "can&#x27;t be done now")
+        self.reload(self.gloves)
+        self.assertEqual(self.gloves.price, Decimal("8.50"))
+
+    def test_the_card_names_what_it_will_change_in_the_chat_record(self):
+        self.card(("set_price", {"item": "Gloves", "price": 7}))
+        self.assertEqual(self.client.session["ask_history"][0][1],
+                         "Not confirmed, so nothing changed: set the price of Gloves to $7.00.")
 
 
 class SendsReceipts(Practice):
@@ -2028,6 +2358,16 @@ class AskEvalTests(Practice):
         self.assertIn("none", out)
         self.assertNotIn("MISS", out)
         self.assertEqual([c.kwargs["tools"][0]["name"] for c in generate.call_args_list], ["log_used"] * 2)
+
+    def test_a_timeout_is_tried_again_and_isnt_scored_as_a_wrong_choice(self):
+        reply = [gemini.GeminiError(), [("log_used", {"item": "gloves", "qty": 2})], "Tap Log usage."]
+        code, out, generate = self.run_eval(reply=reply)
+        self.assertEqual((code, generate.call_count), (0, 3))
+        self.assertNotIn("MISS", out)
+        # Out of tries, it's a miss, which is what an unreachable model should be.
+        code, out, _ = self.run_eval(reply=[gemini.GeminiError()] * 6)
+        self.assertEqual(code, 1)
+        self.assertIn("(no answer from the model)", out)
 
     def test_misses_are_printed_and_a_low_score_exits_non_zero(self):
         # The wrong quantity, and a change made from a question.

@@ -280,20 +280,25 @@ def item_count_save(request, pk):
     )
 
 
+def set_item_price(item, price):
+    """The item's price per unit (None to clear it). The item page and Ask StockRoom."""
+    item.price = price
+    item.save(update_fields=["price"])
+
+
 @require_POST
 @admin_required
 def item_set_price(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
     raw = request.POST.get("price", "").strip()
+    price = None
     if raw:
         try:
-            item.price = Decimal(raw)
+            price = Decimal(raw)
         except InvalidOperation:
             messages.error(request, "Enter a valid price.")
             return redirect("stock:item_detail", pk=pk)
-    else:
-        item.price = None
-    item.save(update_fields=["price"])
+    set_item_price(item, price)
     messages.success(request, f"Price updated for {item.name}.")
     return redirect("stock:item_detail", pk=pk)
 
@@ -363,6 +368,14 @@ def item_switch_supplier(request, pk):
     return _go(request, back)
 
 
+def add_backup_supplier(item, supplier):
+    """Another supplier the item could come from. False if it's the preferred one already."""
+    if supplier == item.supplier:
+        return False
+    item.other_suppliers.add(supplier)
+    return True
+
+
 @require_POST
 @admin_required
 def item_other_suppliers(request, pk):
@@ -371,8 +384,7 @@ def item_other_suppliers(request, pk):
     item = get_object_or_404(Item.objects.for_org(org), pk=pk)
     if request.POST.get("add"):
         supplier = get_object_or_404(Supplier.objects.for_org(org).filter(is_active=True), pk=_id(request.POST["add"]))
-        if supplier != item.supplier:
-            item.other_suppliers.add(supplier)
+        if add_backup_supplier(item, supplier):
             messages.success(request, f"{supplier.name} added as another supplier for {item.name}.")
     elif request.POST.get("remove"):
         supplier = get_object_or_404(item.other_suppliers.all(), pk=_id(request.POST["remove"]))
@@ -1069,12 +1081,17 @@ def item_update_row(request, pk):
     return render(request, "stock/_item_row.html", {"item": item, "edit_form": form})
 
 
+def set_item_active(item, active):
+    """Archive (False) or bring back (True) an item: off or on Log usage and the reorder list."""
+    item.is_active = active
+    item.save(update_fields=["is_active"])
+
+
 @require_POST
 @admin_required
 def item_archive(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
-    item.is_active = False
-    item.save(update_fields=["is_active"])
+    set_item_active(item, False)
     messages.success(request, f"Archived {item.name}.", extra_tags=reverse("stock:item_unarchive", args=[item.pk]))
     response = HttpResponse(status=200)
     response["HX-Redirect"] = reverse("stock:items")
@@ -1085,8 +1102,7 @@ def item_archive(request, pk):
 @admin_required
 def item_unarchive(request, pk):
     item = get_object_or_404(Item.objects.for_org(request.user.organisation), pk=pk)
-    item.is_active = True
-    item.save(update_fields=["is_active"])
+    set_item_active(item, True)
     return _toast_response(request, "Restored.")
 
 
@@ -1617,6 +1633,16 @@ def catalogue_add(request, pk):
         messages.info(request, f"{product.name} is already on your stock list.")
         return redirect("stock:catalogue")
 
+    item, note = add_from_catalogue(org, product, chosen)
+    messages.success(request, f"Added {item.name}.{note}", extra_tags=reverse("stock:catalogue_undo", args=[item.pk]))
+    return redirect("stock:catalogue")
+
+
+def add_from_catalogue(org, product, chosen):
+    """Copy a catalogue product into the practice's stock, ordered from the
+    catalogue supplier named chosen. (item, a note about a supplier it had to
+    set up). The Catalogue's Add and Ask StockRoom both come through here."""
+    choices = dict(_supplier_choices(org, product))
     preferred, note = choices[chosen], ""
     if preferred is None:
         # An archived supplier of that name comes back rather than clashing on the name.
@@ -1629,8 +1655,7 @@ def catalogue_add(request, pk):
         note = f" {preferred.name} is now one of your suppliers: set how long their deliveries take on the Suppliers page."
     item = Item.objects.create(organisation=org, name=product.name, unit=product.unit, supplier=preferred)
     item.other_suppliers.set([s for s in choices.values() if s and s != preferred])
-    messages.success(request, f"Added {item.name}.{note}", extra_tags=reverse("stock:catalogue_undo", args=[item.pk]))
-    return redirect("stock:catalogue")
+    return item, note
 
 
 @require_POST
@@ -1772,18 +1797,27 @@ def supplier_apply_lead_days(request, pk):
     return render(request, "stock/_supplier_row.html", {"supplier": _annotate_item_count(supplier)})
 
 
+def set_supplier_active(supplier, active):
+    supplier.is_active = active
+    supplier.save(update_fields=["is_active"])
+
+
+def archive_blocked_by(supplier):
+    """How many active items still use this supplier: it can't be archived until that's 0."""
+    return supplier.items.filter(is_active=True).count()
+
+
 @require_POST
 @admin_required
 def supplier_archive(request, pk):
     supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
-    active_items = supplier.items.filter(is_active=True).count()
+    active_items = archive_blocked_by(supplier)
     if active_items:
         messages.error(
             request, f"{supplier.name} still has {active_items} active item(s) - move or archive them first."
         )
     else:
-        supplier.is_active = False
-        supplier.save(update_fields=["is_active"])
+        set_supplier_active(supplier, False)
         messages.success(
             request, f"Archived {supplier.name}.", extra_tags=reverse("stock:supplier_unarchive", args=[supplier.pk])
         )
@@ -1796,8 +1830,7 @@ def supplier_archive(request, pk):
 @admin_required
 def supplier_unarchive(request, pk):
     supplier = get_object_or_404(Supplier.objects.for_org(request.user.organisation), pk=pk)
-    supplier.is_active = True
-    supplier.save(update_fields=["is_active"])
+    set_supplier_active(supplier, True)
     return _toast_response(request, "Restored.")
 
 
