@@ -1374,7 +1374,7 @@ PAGES = {
     "home": ("Home", "stock:home", ANYONE, "what to order today"),
     "log_usage": ("Log usage", "stock:log_usage", ANYONE, "log what's been used, running low or counted"),
     "reorder_list": ("Reorder list", "stock:reorder_list", ANYONE, "everything that needs ordering, by supplier"),
-    "deliveries": ("Deliveries", "stock:deliveries", ANYONE, "receive what's on order"),
+    "deliveries": ("Deliveries", "stock:deliveries", ANYONE, "the list of orders on their way and when they are due"),
     "item": ("an item's page", "stock:item_detail", ANYONE, "one item: on hand, usage and history"),
     "stock": ("Stock", "stock:items", ADMIN, "the stock list: add, edit and archive items, prices and order sizes"),
     "suppliers": ("Suppliers", "stock:suppliers", ADMIN, "suppliers' phone, email and delivery times"),

@@ -16,6 +16,8 @@ from assistant.views import _system_prompt
 from stock.matching import Matcher
 from stockroom.demo import DEMO_ORG
 
+ATTEMPTS = 3  # tries per case when Gemini times out or errors
+
 
 def _same_call(expected, name, args, matcher):
     if name != expected["action"]:
@@ -66,13 +68,14 @@ def command(minimum):
     totals = {}  # action, or "none" for a plain answer -> [passed, cases]
     for case in CASES:
         system, tools = prompts[case.role]
-        try:
-            reply = gemini.generate(system, [("user", case.message)], tools=tools)
-        except gemini.GeminiError:
-            reply = "(no answer from the model)"
-            passed = False
-        else:
-            passed = _passes(case, reply, matcher)
+        for attempt in range(ATTEMPTS):
+            try:
+                reply = gemini.generate(system, [("user", case.message)], tools=tools)
+            except gemini.GeminiError:  # a timeout says nothing about which action it would pick
+                reply, passed = "(no answer from the model)", False
+            else:
+                passed = _passes(case, reply, matcher)
+                break
         for action in {c["action"] for c in case.calls} or {"none"}:
             score = totals.setdefault(action, [0, 0])
             score[0] += passed

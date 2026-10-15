@@ -2359,6 +2359,16 @@ class AskEvalTests(Practice):
         self.assertNotIn("MISS", out)
         self.assertEqual([c.kwargs["tools"][0]["name"] for c in generate.call_args_list], ["log_used"] * 2)
 
+    def test_a_timeout_is_tried_again_and_isnt_scored_as_a_wrong_choice(self):
+        reply = [gemini.GeminiError(), [("log_used", {"item": "gloves", "qty": 2})], "Tap Log usage."]
+        code, out, generate = self.run_eval(reply=reply)
+        self.assertEqual((code, generate.call_count), (0, 3))
+        self.assertNotIn("MISS", out)
+        # Out of tries, it's a miss, which is what an unreachable model should be.
+        code, out, _ = self.run_eval(reply=[gemini.GeminiError()] * 6)
+        self.assertEqual(code, 1)
+        self.assertIn("(no answer from the model)", out)
+
     def test_misses_are_printed_and_a_low_score_exits_non_zero(self):
         # The wrong quantity, and a change made from a question.
         reply = [[("log_used", {"item": "Gloves", "qty": 20})], [("log_used", {"item": "Gloves", "qty": 1})]]

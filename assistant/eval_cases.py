@@ -30,6 +30,9 @@ PELLETS = "Cotton pellets"
 SENSORS = "Digital sensor barriers"
 BIBS = "Bib clips"
 SUTURES = "Surgical sutures"
+DAPPEN = "Dappen dishes"
+PAPER = "Articulating paper"
+FLOSS = "Dental floss spools"
 TRAYS = "Disposable impression trays"
 SHARPS = "Sharps containers"
 INDEPENDENT = "Independent Dental Supplies"
@@ -217,29 +220,32 @@ CASES = [
     Case("henry schein just dropped off our order", "assistant", (receive_order("Henry Schein"),)),
     Case("got the Dentsply order, all of it", "admin", (receive_order("Dentsply"),)),
     Case("the order from Henry Schein has arrived", "admin", (receive_order("Henry Schein"),)),
-    Case("the composite's here", "assistant", (receive_line(COMPOSITE),)),
-    Case("lignocaine arrived", "assistant", (receive_line(LIGNOCAINE),)),
-    Case("the gloves came in", "assistant", (receive_line(GLOVES),)),
-    Case("only 3 of the 5 boxes of gloves arrived, the rest are on back-order", "assistant",
-         (receive_line(GLOVES, qty=3),)),
-    Case("got 20 of the 40 suction tips, rest coming later", "assistant", (receive_line(TIPS, qty=20),)),
-    Case("only 2 boxes of masks turned up", "assistant", (receive_line(MASKS, qty=2),)),
-    Case("gloves are here and they charged $8.40 a box", "admin", (receive_line(GLOVES, price=8.40),)),
-    Case("composite came, $31.50 each this time", "admin", (receive_line(COMPOSITE, price=31.5),)),
-    Case("the gloves came but they were 9 dollars a box, only 8 of them", "admin",
-         (receive_line(GLOVES, qty=8, price=9),)),
-    Case("the sutures arrived", "assistant", (receive_line(SUTURES),)),
+    # Only items with an open order in the demo practice (seed_demo): sheets, pouches and film.
+    Case("the rubber dam sheets are here", "assistant", (receive_line(SHEETS),)),
+    Case("barrier film arrived", "assistant", (receive_line(FILM),)),
+    Case("the autoclave pouches came in", "assistant", (receive_line(POUCHES),)),
+    Case("only 60 of the 110 autoclave pouches arrived, the rest are on back-order", "assistant",
+         (receive_line(POUCHES, qty=60),)),
+    Case("got 5 of the 10 rubber dam sheets, rest coming later", "assistant", (receive_line(SHEETS, qty=5),)),
+    Case("only 1 roll of barrier film turned up", "assistant", (receive_line(FILM, qty=1),)),
+    Case("rubber dam sheets are here and they charged $1.30 each", "admin", (receive_line(SHEETS, price=1.3),)),
+    Case("barrier film came, $19 a roll this time", "admin", (receive_line(FILM, price=19),)),
+    Case("the pouches came but they were 15 cents each, only 100 of them", "admin",
+         (receive_line(POUCHES, qty=100, price=0.15),)),
+    Case("the sheets arrived", "assistant", (receive_line(SHEETS),)),
     # --- add_to_reorder: a manager adds, an assistant asks the manager ---
-    Case("add gloves to the reorder list", "admin", (add_to_list(GLOVES),)),
-    Case("put the suction tips on the list", "admin", (add_to_list(TIPS),)),
-    Case("we need more composite, add it to the order list", "admin", (add_to_list(COMPOSITE),)),
-    Case("add masks and gauze to the reorder list", "admin", (add_to_list(MASKS), add_to_list(GAUZE))),
-    Case("chuck the face shields on the list", "admin", (add_to_list(SHIELDS),)),
-    Case("ask the manager to order more suction tips", "assistant", (add_to_list(TIPS),)),
-    Case("we need more gloves ordered", "assistant", (add_to_list(GLOVES),)),
-    Case("can we get more face masks ordered?", "assistant", (add_to_list(MASKS),)),
-    Case("we're going to need composite, can the manager order some?", "assistant", (add_to_list(COMPOSITE),)),
-    Case("can u ask for more lignocaine to be ordered", "assistant", (add_to_list(LIGNOCAINE),)),
+    # Items that are fine in the demo practice, so they're not already on the list (the model says so if they are).
+    Case("add cotton pellets to the reorder list", "admin", (add_to_list(PELLETS),)),
+    Case("put the dappen dishes on the list", "admin", (add_to_list(DAPPEN),)),
+    Case("we need more articulating paper, add it to the order list", "admin", (add_to_list(PAPER),)),
+    Case("add floss and cotton pellets to the reorder list", "admin", (add_to_list(FLOSS), add_to_list(PELLETS))),
+    Case("chuck the sharps containers on the list", "admin", (add_to_list(SHARPS),)),
+    Case("ask the manager to order more cotton pellets", "assistant", (add_to_list(PELLETS),)),
+    Case("we need more dental floss ordered", "assistant", (add_to_list(FLOSS),)),
+    Case("can we get more articulating paper ordered?", "assistant", (add_to_list(PAPER),)),
+    Case("we're going to need more dappen dishes, can the manager order some?", "assistant",
+         (add_to_list(DAPPEN),)),
+    Case("can u ask for more sharps containers to be ordered", "assistant", (add_to_list(SHARPS),)),
     # --- remove_from_reorder ---
     Case("take gloves off the reorder list", "admin", (take_off_list(GLOVES),)),
     Case("we don't need the gauze ordered after all", "admin", (take_off_list(GAUZE),)),
@@ -287,8 +293,7 @@ CASES = [
          (add_item(unit="pack", supplier="Henry Schein"),)),
     # --- edit_item: name, unit or preferred supplier ---
     Case("rename the bib clips to Patient bib clips", "admin", (edit_item(BIBS, new_name="Patient bib clips"),)),
-    Case("the gloves come from Independent Dental Supplies now", "admin",
-         (edit_item(GLOVES, new_supplier=INDEPENDENT),)),
+    Case("the gloves come from Dentsply now", "admin", (edit_item(GLOVES, new_supplier="Dentsply"),)),
     Case("we count suction tips in packs now, not tips", "admin", (edit_item(TIPS, new_unit="pack"),)),
     # --- set_price ---
     Case("gloves are $7.20 a box now", "admin", (set_price(GLOVES, 7.2),)),
@@ -299,7 +304,7 @@ CASES = [
     Case("archive the old impression trays", "admin", (archive(TRAYS),)),
     Case("we don't use the sharps containers any more, archive them", "admin", (archive(SHARPS),)),
     Case("bring back the impression trays", "admin", (unarchive(TRAYS),)),
-    Case("un-archive the sharps containers", "admin", (unarchive(SHARPS),)),
+    Case("restore the impression trays, we need them again", "admin", (unarchive(TRAYS),)),
     # --- add_backup_supplier and remove_backup_supplier ---
     Case("add Dentsply as a backup for gauze", "admin", (add_backup(GAUZE, "Dentsply"),)),
     Case("Independent Dental Supplies can supply the face shields too", "admin",
